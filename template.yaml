@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Globals:
+  Function:
+    Timeout: 900
+    MemorySize: 1792
+    Tags:
+      project: "renown-api"
+      environment: "production"
+  Api:
+    BinaryMediaTypes:
+      - "image~1*"
+      - "multipart~1form-data"
+
+Resources:
+  RenownHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      Tags:
+        project: renown-api
+        environment: production
+
+  FastApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.12
+      Architectures:
+        - x86_64
+      Handler: app.main.handler
+      CodeUri: .
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+              Resource: !Sub "arn:aws:s3:::renown-api/*"
+      Events:
+        ApiRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref RenownHttpApi
+            Path: /
+            Method: ANY
+            TimeoutInMillis: 29000
+            PayloadFormatVersion: "2.0"
+        ApiProxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref RenownHttpApi
+            Path: /{proxy+}
+            Method: ANY
+            TimeoutInMillis: 29000
+            PayloadFormatVersion: "2.0"
+
+  FastApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${FastApiFunction}"
+      RetentionInDays: 7
+
+Outputs:
+  ApiId:
+    Description: "HTTP API Gateway ID"
+    Value: !Ref RenownHttpApi
+  FastApiApi:
+    Description: "Renown API Gateway URL (dual-stack IPv4/IPv6)"
+    Value: !Sub "https://${RenownHttpApi}.execute-api.${AWS::Region}.amazonaws.com/"
+  HealthCheckUrl:
+    Description: "Health check endpoint"
+    Value: !Sub "https://${RenownHttpApi}.execute-api.${AWS::Region}.amazonaws.com/health"
