@@ -8,9 +8,11 @@ from app.routers import (
     admin_catalog,
     admin_catalog_variants,
     admin_customers,
+    admin_dashboard,
     admin_employees,
     admin_opticals,
     admin_orders,
+    admin_reports,
     admin_stock_allocation,
     admin_store_orders,
     admin_stores,
@@ -32,11 +34,13 @@ from app.routers import (
     staff_store_orders,
     staff_store_pos,
     staff_store_prescriptions,
+    staff_store_reports,
     staff_store_staff,
     staff_warehouse_dispatch,
     staff_warehouse_packing,
     staff_warehouse_picking,
     staff_warehouse_receiving,
+    staff_warehouse_reports,
     staff_warehouse_suppliers,
     staff_warehouse_transfers,
 )
@@ -68,6 +72,10 @@ app.include_router(staff_store_orders.router)
 app.include_router(staff_store_appointments.router)
 app.include_router(staff_store_prescriptions.router)
 app.include_router(staff_store_staff.router)
+app.include_router(staff_store_reports.reports_router)
+app.include_router(staff_store_reports.dashboard_router)
+app.include_router(staff_warehouse_reports.reports_router)
+app.include_router(staff_warehouse_reports.dashboard_router)
 app.include_router(customer_auth.router)
 app.include_router(customer_appointments.router)
 app.include_router(admin_catalog.router)
@@ -77,6 +85,8 @@ app.include_router(admin_opticals.router)
 app.include_router(admin_orders.router)
 app.include_router(admin_customers.router)
 app.include_router(admin_employees.router)
+app.include_router(admin_reports.router)
+app.include_router(admin_dashboard.router)
 app.include_router(admin_warehouses.router)
 app.include_router(admin_stores.router)
 app.include_router(admin_warehouse_transfers.router)
