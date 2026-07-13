@@ -10,8 +10,11 @@ from app.routers import (
     admin_opticals,
     admin_taxonomy,
     customer_auth,
+    customer_cart,
     customer_catalog,
+    customer_compare,
     customer_products,
+    customer_wishlist,
     staff_auth,
 )
 
@@ -38,6 +41,9 @@ app.include_router(admin_taxonomy.router)
 app.include_router(admin_opticals.router)
 app.include_router(customer_products.router)
 app.include_router(customer_catalog.router)
+app.include_router(customer_cart.router)
+app.include_router(customer_wishlist.router)
+app.include_router(customer_compare.router)
 
 
 @app.get("/health")
