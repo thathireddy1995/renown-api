@@ -483,3 +483,104 @@ class OrderItem(Base):
 
     order: Mapped["Order"] = relationship(back_populates="items")
     product: Mapped["Product"] = relationship()
+
+
+class Warehouse(Base):
+    __tablename__ = "warehouses"
+    __table_args__ = (Index("ix_warehouses_status", "status"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    city: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    manager: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    staff: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="Active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Store(Base):
+    __tablename__ = "stores"
+    __table_args__ = (Index("ix_stores_status", "status"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    address: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    hours: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    manager: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    staff: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="Open")
+    today_revenue: Mapped[Decimal] = mapped_column(
+        Numeric(12, 2), nullable=False, default=0
+    )
+    today_orders: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class WarehouseInventory(Base):
+    __tablename__ = "warehouse_inventory"
+    __table_args__ = (
+        Index("ix_warehouse_inventory_variant_id", "variant_id"),
+        Index("ix_warehouse_inventory_warehouse_id", "warehouse_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    warehouse_id: Mapped[int] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="CASCADE"), nullable=False
+    )
+    variant_id: Mapped[int] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="CASCADE"), nullable=False
+    )
+    bin_location: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    on_hand: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reserved: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reorder_point: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    warehouse: Mapped["Warehouse"] = relationship()
+    variant: Mapped["ProductVariant"] = relationship()
+
+
+class StoreInventory(Base):
+    __tablename__ = "store_inventory"
+    __table_args__ = (
+        Index("ix_store_inventory_variant_id", "variant_id"),
+        Index("ix_store_inventory_store_id", "store_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(
+        ForeignKey("stores.id", ondelete="CASCADE"), nullable=False
+    )
+    variant_id: Mapped[int] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="CASCADE"), nullable=False
+    )
+    on_hand: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    on_floor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    backroom: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reserved: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    reorder_point: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    store: Mapped["Store"] = relationship()
+    variant: Mapped["ProductVariant"] = relationship()
