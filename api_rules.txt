@@ -1,0 +1,220 @@
+RENOWN-API — ENGINEERING RULES
+================================
+Audience: any AI agent / developer writing code inside renown-api/
+Stack: FastAPI + Mangum on AWS Lambda, Postgres (Neon), SAM (template.yaml)
+Purpose: keep the API fast, cold-start friendly, N+1-free, and organized as it
+grows across three consumers — admin-renown, customer-renown, staff-renown.
+
+Read this file before adding or changing any endpoint, model, or dependency.
+
+
+1. PROJECT STRUCTURE (target — create folders as needed, don't collapse them)
+-------------------------------------------------------------------------------
+renown-api/
+├── app/
+│   ├── main.py            # FastAPI() instance + include_router() calls ONLY. No business logic here.
+│   ├── database.py        # Hot/warm DB connection + pool management for Lambda (see §5).
+│   ├── schemas.py         # ALL DB table models (SQLAlchemy). Single source of truth for table structure.
+│   ├── dto/                # Pydantic request/response models, grouped by domain (not DB models).
+│   │   ├── admin_dto.py
+│   │   ├── customer_dto.py
+│   │   └── staff_dto.py
+│   ├── routers/
+│   │   ├── admin_dashboard.py
+│   │   ├── admin_reports.py
+│   │   ├── admin_customers.py
+│   │   ├── admin_orders.py
+│   │   ├── admin_catalog.py
+│   │   ├── customer_products.py
+│   │   ├── customer_orders.py
+│   │   ├── customer_auth.py
+│   │   ├── staff_store.py
+│   │   ├── staff_warehouse.py
+│   │   └── ...              # one router per domain area, split further as it grows (see §6)
+│   ├── core/
+│   │   ├── config.py        # env vars / settings (never hardcode secrets)
+│   │   └── security.py       # auth/jwt helpers
+│   └── deps.py               # shared FastAPI Depends() (pagination, auth, db session)
+├── migrations/               # ALL schema changes live here (see §2). Nothing else creates/alters tables.
+├── requirements.txt           # every new package MUST be added here (see §7)
+└── api_rules.txt               # this file
+
+
+2. DATABASE MIGRATIONS — /migrations FOLDER IS MANDATORY
+-------------------------------------------------------------------------------
+- Every CREATE TABLE, ALTER TABLE, CREATE INDEX, DROP, or constraint change goes
+  into a new numbered SQL file inside /migrations. No exceptions.
+- Naming: NNNN_short_description.sql, zero-padded, always incrementing.
+  Example: 0001_create_products_table.sql, 0002_add_index_orders_customer_id.sql
+- NEVER edit an old migration file that has already been applied. Add a new one.
+- Every migration must be idempotent where possible:
+    CREATE TABLE IF NOT EXISTS ...
+    CREATE INDEX IF NOT EXISTS ...
+- Every foreign key / column used in a WHERE, JOIN, or ORDER BY clause MUST have
+  a matching index created in a migration. If you write a query that filters or
+  joins on a column with no index, add the index migration in the same change.
+- Never run ad-hoc DDL from app code, a notebook, or directly against the DB.
+  The migrations folder is the only source of truth for schema state.
+- Application code (schemas.py) must always match the latest applied migration.
+
+
+3. NO N+1 QUERIES — EVER
+-------------------------------------------------------------------------------
+- Never loop over a result set and issue a query per row (e.g. fetching an
+  order, then fetching its items in a for-loop). Load related data with a
+  single JOIN, a single WHERE ... IN (...) batch query, or SQLAlchemy
+  selectinload()/joinedload() eager loading.
+- Before writing an endpoint that returns a list with nested/related data,
+  ask: "does this run one query total (or one per relation), regardless of
+  list size?" If not, rewrite it.
+- Prefer returning exactly the columns needed (avoid SELECT *) especially on
+  list/table endpoints used by admin grids.
+- Always paginate list endpoints (limit/offset or cursor) — never return an
+  unbounded table scan to the frontend.
+- Use EXPLAIN when a query feels slow before shipping it; don't guess.
+
+
+4. AWS LAMBDA COMPATIBILITY
+-------------------------------------------------------------------------------
+- The app is served via Mangum (`handler = Mangum(app, lifespan="off")` in
+  main.py). Keep this pattern — don't switch to a long-running server model.
+- No local filesystem writes except to /tmp (Lambda's only writable path), and
+  avoid even that unless strictly necessary.
+- No background threads, schedulers, or in-memory queues that assume the
+  process stays alive — a Lambda container can be frozen or recycled anytime.
+- No reliance on startup events for critical setup; Lambda may reuse a frozen
+  container across requests, so init code should be safe to run zero or many
+  times per container lifetime.
+- Keep the deployed package small — avoid heavy binary deps (pandas, numpy,
+  etc.) unless truly required; they increase package size, cold start, and
+  SAM build time.
+- Environment-specific config (DB URL, secrets) comes from env vars via
+  core/config.py — never hardcode credentials in code.
+
+
+5. COLD START — ALWAYS MINIMIZE IT
+-------------------------------------------------------------------------------
+- Keep module-level import work minimal. Only import what's needed at import
+  time; move rarely-used, heavy imports inside the function that uses them.
+- main.py must stay light: create the app, set default_response_class, and
+  include_router() calls. No heavy computation at import time.
+- database.py must create its connection/pool ONCE at module scope (outside
+  any request handler) so a warm Lambda container reuses it across
+  invocations instead of reconnecting every request (see §6 for the pattern).
+- Avoid ORM reflection or schema introspection at startup — table models are
+  declared explicitly in schemas.py, not reflected from the DB at runtime.
+- Prefer sync, lightweight DB drivers (psycopg) over feature-heavy async
+  stacks unless there's a measured benefit — Lambda handles one request per
+  container at a time, so async connection pooling rarely helps and adds
+  startup cost.
+- Routers should only import the DB/session dependencies they actually use.
+
+
+6. database.py — KEEP THE DB CONNECTION HOT FOR LAMBDA
+-------------------------------------------------------------------------------
+- database.py owns a single module-level engine/pool, created once when the
+  module is first imported (i.e., once per warm container):
+
+    engine = create_engine(DATABASE_URL, pool_size=1, max_overflow=0,
+                            pool_pre_ping=True, pool_recycle=280)
+
+- pool_pre_ping=True is required — it detects dead connections (Neon can drop
+  idle connections, and Lambda can freeze/thaw containers) and transparently
+  reconnects instead of raising on the next query.
+- Expose a single get_db() dependency (FastAPI Depends) that yields a session
+  from this same engine/pool. Routers must use this dependency — never create
+  their own engine or open a raw connection inline.
+- Do NOT create a new engine per request. Do NOT close/dispose the engine at
+  the end of a request — only close the per-request session.
+- Keep pool_size small (1, occasionally 2) since each Lambda container serves
+  one request at a time; a large pool wastes DB connections across many
+  concurrent containers.
+
+
+7. requirements.txt — MANDATORY FOR ANY NEW PACKAGE
+-------------------------------------------------------------------------------
+- The moment you add an import that isn't already available, add it to
+  requirements.txt with a minimum version pin (e.g. package>=1.2.0).
+- Never rely on a package being present transitively — declare it directly if
+  your code imports it.
+- Before adding a package, check if it meaningfully increases cold start or
+  package size; prefer the lighter alternative when one exists.
+- Keep requirements.txt sorted/grouped logically (web framework, db, utils).
+
+
+8. ROUTERS — STRUCTURE, NAMING, REGISTRATION
+-------------------------------------------------------------------------------
+- Every endpoint lives inside an APIRouter defined in its own file under
+  app/routers/, never directly in main.py.
+- Naming convention: {portal}_{domain}.py, matching the three frontend
+  portals (admin-renown, customer-renown, staff-renown):
+    admin_dashboard.py, admin_reports.py, admin_customers.py, admin_orders.py,
+    admin_catalog.py, admin_warehouse.py, admin_stores.py,
+    customer_products.py, customer_cart.py, customer_orders.py, customer_auth.py,
+    staff_store.py, staff_warehouse.py
+- Each router file declares its own prefix and tags, e.g.:
+    router = APIRouter(prefix="/admin/reports", tags=["admin-reports"])
+- main.py only does:
+    from app.routers import admin_dashboard, admin_reports, ...
+    app.include_router(admin_dashboard.router)
+    app.include_router(admin_reports.router)
+    ...
+- Never put two unrelated domains in one router file. If admin_reports.py is
+  growing to cover reports AND analytics, split into admin_reports.py and
+  admin_analytics.py.
+
+
+9. 700-LINE LIMIT PER FILE
+-------------------------------------------------------------------------------
+- No router (or any single .py file) may exceed 700 lines.
+- When a router approaches the limit, split it by sub-domain, e.g.:
+    admin_customers.py (list/detail/search)
+    admin_customers_orders.py (a customer's order history)
+  and register both in main.py.
+- Shared helper logic used by multiple routers goes in app/core/ or a
+  dedicated {domain}_utils.py — don't duplicate it, and don't let it bloat a
+  router file just to keep logic "close by."
+
+
+10. schemas.py — TABLE MODELS
+-------------------------------------------------------------------------------
+- app/schemas.py is the single file containing all SQLAlchemy table models
+  (the ORM representation of every table created via /migrations).
+- If schemas.py itself approaches 700 lines, split into a schemas/ package
+  (schemas/admin.py, schemas/catalog.py, schemas/warehouse.py, etc.) but keep
+  all DB table models there — never define a table model inside a router.
+- Pydantic request/response (I/O) models are NOT table models — they live in
+  app/dto/, one file per domain, and reference schemas.py models only for
+  type consistency (e.g. via from_attributes / model_validate).
+- A DB table must exist in a migration BEFORE it exists as a model in
+  schemas.py. Model fields must match the migration exactly (types,
+  nullability, defaults).
+
+
+11. orjson — RESPONSE SERIALIZATION
+-------------------------------------------------------------------------------
+- The FastAPI app in main.py must set:
+    from fastapi.responses import ORJSONResponse
+    app = FastAPI(default_response_class=ORJSONResponse, ...)
+  so every endpoint serializes with orjson by default.
+- If you manually serialize anything (e.g. custom Response, caching layer,
+  logging payloads), use orjson.dumps(...), not the stdlib json module.
+- orjson must be present in requirements.txt (see §7) whenever used.
+
+
+12. GENERAL CODING RULES
+-------------------------------------------------------------------------------
+- Every list endpoint: paginated, indexed, no N+1 (see §3).
+- Every endpoint: typed request/response models (Pydantic DTOs), no raw dicts
+  returned from routers.
+- Every DB write: wrapped in a transaction; roll back on error.
+- Never trust client-supplied IDs across tenants/portals without an
+  authorization check (e.g. a staff user must not read another store's data).
+- Log errors with enough context (endpoint, params, request id) but never log
+  secrets, passwords, tokens, or full card/PII payloads.
+- Prefer explicit column selection and typed query parameters over building
+  raw SQL strings from user input (avoid injection; use parameter binding or
+  the ORM query builder).
+- Keep business logic in small, testable functions (service-layer style)
+  called from the router, rather than writing complex logic inline in the
+  route handler — this also helps stay under the 700-line limit.
