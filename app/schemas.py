@@ -391,3 +391,88 @@ class CompareItem(Base):
     )
 
     product: Mapped["Product"] = relationship()
+
+
+class Address(Base):
+    __tablename__ = "addresses"
+    __table_args__ = (Index("ix_addresses_customer_id", "customer_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id", ondelete="CASCADE"), nullable=False
+    )
+    label: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    line1: Mapped[str] = mapped_column(String(200), nullable=False)
+    line2: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Order(Base):
+    __tablename__ = "orders"
+    __table_args__ = (
+        Index("ix_orders_customer_id", "customer_id"),
+        Index("ix_orders_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_number: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id", ondelete="CASCADE"), nullable=False
+    )
+    address_id: Mapped[int | None] = mapped_column(
+        ForeignKey("addresses.id", ondelete="SET NULL"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="placed")
+    subtotal: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    discount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    shipping_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    tax: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    coupon_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    items: Mapped[list["OrderItem"]] = relationship(
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="OrderItem.id",
+    )
+    address: Mapped["Address | None"] = relationship()
+
+
+class OrderItem(Base):
+    __tablename__ = "order_items"
+    __table_args__ = (
+        Index("ix_order_items_order_id", "order_id"),
+        Index("ix_order_items_product_id", "product_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_id: Mapped[int] = mapped_column(
+        ForeignKey("orders.id", ondelete="CASCADE"), nullable=False
+    )
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), nullable=False)
+    variant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="SET NULL"), nullable=True
+    )
+    name_snapshot: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    price_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    qty: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    order: Mapped["Order"] = relationship(back_populates="items")
+    product: Mapped["Product"] = relationship()
