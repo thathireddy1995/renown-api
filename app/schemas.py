@@ -584,3 +584,209 @@ class StoreInventory(Base):
 
     store: Mapped["Store"] = relationship()
     variant: Mapped["ProductVariant"] = relationship()
+
+
+class Supplier(Base):
+    __tablename__ = "suppliers"
+    __table_args__ = (Index("ix_suppliers_status", "status"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    contact: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    lead_time_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="Active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class PurchaseOrder(Base):
+    __tablename__ = "purchase_orders"
+    __table_args__ = (
+        Index("ix_purchase_orders_supplier_id", "supplier_id"),
+        Index("ix_purchase_orders_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    po_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    supplier_id: Mapped[int] = mapped_column(
+        ForeignKey("suppliers.id", ondelete="RESTRICT"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="Open")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    supplier: Mapped["Supplier"] = relationship()
+
+
+class Grn(Base):
+    __tablename__ = "grn"
+    __table_args__ = (
+        Index("ix_grn_purchase_order_id", "purchase_order_id"),
+        Index("ix_grn_warehouse_id", "warehouse_id"),
+        Index("ix_grn_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    grn_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    purchase_order_id: Mapped[int] = mapped_column(
+        ForeignKey("purchase_orders.id", ondelete="RESTRICT"), nullable=False
+    )
+    warehouse_id: Mapped[int] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="Pending")
+    received_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    purchase_order: Mapped["PurchaseOrder"] = relationship()
+    warehouse: Mapped["Warehouse"] = relationship()
+    items: Mapped[list["GrnItem"]] = relationship(
+        back_populates="grn", cascade="all, delete-orphan"
+    )
+
+
+class GrnItem(Base):
+    __tablename__ = "grn_items"
+    __table_args__ = (
+        Index("ix_grn_items_grn_id", "grn_id"),
+        Index("ix_grn_items_variant_id", "variant_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    grn_id: Mapped[int] = mapped_column(
+        ForeignKey("grn.id", ondelete="CASCADE"), nullable=False
+    )
+    variant_id: Mapped[int] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="RESTRICT"), nullable=False
+    )
+    qty_ordered: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    qty_received: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    grn: Mapped["Grn"] = relationship(back_populates="items")
+    variant: Mapped["ProductVariant"] = relationship()
+
+
+class PickList(Base):
+    __tablename__ = "pick_lists"
+    __table_args__ = (
+        Index("ix_pick_lists_warehouse_id", "warehouse_id"),
+        Index("ix_pick_lists_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    list_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    wave_number: Mapped[str] = mapped_column(String(80), nullable=False)
+    warehouse_id: Mapped[int] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    picker_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="Pending")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    warehouse: Mapped["Warehouse"] = relationship()
+    items: Mapped[list["PickListItem"]] = relationship(
+        back_populates="pick_list", cascade="all, delete-orphan"
+    )
+
+
+class PickListItem(Base):
+    __tablename__ = "pick_list_items"
+    __table_args__ = (
+        Index("ix_pick_list_items_pick_list_id", "pick_list_id"),
+        Index("ix_pick_list_items_variant_id", "variant_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pick_list_id: Mapped[int] = mapped_column(
+        ForeignKey("pick_lists.id", ondelete="CASCADE"), nullable=False
+    )
+    variant_id: Mapped[int] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="RESTRICT"), nullable=False
+    )
+    qty: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    picked_qty: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    pick_list: Mapped["PickList"] = relationship(back_populates="items")
+    variant: Mapped["ProductVariant"] = relationship()
+
+
+class DispatchOrder(Base):
+    __tablename__ = "dispatch_orders"
+    __table_args__ = (
+        Index("ix_dispatch_orders_warehouse_id", "warehouse_id"),
+        Index("ix_dispatch_orders_status", "status"),
+        Index("ix_dispatch_orders_destination_id", "destination_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    do_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    warehouse_id: Mapped[int] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    destination_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    destination_id: Mapped[int | None] = mapped_column(nullable=True)
+    destination_label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    carrier: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    awb: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="Pending")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    warehouse: Mapped["Warehouse"] = relationship()
+    items: Mapped[list["DispatchOrderItem"]] = relationship(
+        back_populates="dispatch_order", cascade="all, delete-orphan"
+    )
+
+
+class DispatchOrderItem(Base):
+    __tablename__ = "dispatch_order_items"
+    __table_args__ = (
+        Index("ix_dispatch_order_items_dispatch_order_id", "dispatch_order_id"),
+        Index("ix_dispatch_order_items_variant_id", "variant_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dispatch_order_id: Mapped[int] = mapped_column(
+        ForeignKey("dispatch_orders.id", ondelete="CASCADE"), nullable=False
+    )
+    variant_id: Mapped[int] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="RESTRICT"), nullable=False
+    )
+    qty: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    dispatch_order: Mapped["DispatchOrder"] = relationship(back_populates="items")
+    variant: Mapped["ProductVariant"] = relationship()
+
+
+class Pack(Base):
+    __tablename__ = "packs"
+    __table_args__ = (
+        Index("ix_packs_dispatch_order_id", "dispatch_order_id"),
+        Index("ix_packs_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pack_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    dispatch_order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("dispatch_orders.id", ondelete="SET NULL"), nullable=True
+    )
+    packer_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    boxes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    weight: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="Pending")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    dispatch_order: Mapped["DispatchOrder | None"] = relationship()

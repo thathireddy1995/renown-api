@@ -22,6 +22,11 @@ from app.routers import (
     customer_products,
     customer_wishlist,
     staff_auth,
+    staff_warehouse_dispatch,
+    staff_warehouse_packing,
+    staff_warehouse_picking,
+    staff_warehouse_receiving,
+    staff_warehouse_suppliers,
 )
 
 app = FastAPI(
@@ -40,6 +45,11 @@ app.add_middleware(
 
 app.include_router(admin_auth.router)
 app.include_router(staff_auth.router)
+app.include_router(staff_warehouse_suppliers.router)
+app.include_router(staff_warehouse_receiving.router)
+app.include_router(staff_warehouse_picking.router)
+app.include_router(staff_warehouse_packing.router)
+app.include_router(staff_warehouse_dispatch.router)
 app.include_router(customer_auth.router)
 app.include_router(admin_catalog.router)
 app.include_router(admin_catalog_variants.router)
