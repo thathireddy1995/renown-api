@@ -55,7 +55,7 @@ search, filters, and a customer detail view showing lifetime value.
 --------
 - Follow @renown-api/api_rules.txt fully (migrations, routers registered in
   main.py, schemas.py reused from Phases 1/5 — no duplicate model
-  definitions, hot db pool, orjson, requirements.txt, 700-line cap).
+  definitions, hot db pool, requirements.txt, 700-line cap).
 - No N+1: customer list's order-count/spend aggregation must be one JOIN +
   GROUP BY query, not N queries for N customers. Order list's total count
   must be one COUNT query, not len(fetch-all).

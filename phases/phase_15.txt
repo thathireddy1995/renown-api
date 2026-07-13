@@ -69,7 +69,7 @@ all three portals."
 - Follow @renown-api/api_rules.txt fully — this phase exists specifically
   to verify every earlier phase actually complied with it (migrations
   folder, no N+1, Lambda-fast, hot db connection, routers/schemas/dto
-  structure, 700-line cap, orjson, requirements.txt discipline).
+  structure, 700-line cap, requirements.txt discipline).
 - No N+1 anywhere in the codebase by the end of this phase — this is the
   final checkpoint, not a place to introduce new shortcuts.
 - Lambda-first: after this phase, a cold start should be measured (log the

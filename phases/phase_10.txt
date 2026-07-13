@@ -56,7 +56,7 @@ to the same data.
 5. RULES
 --------
 - Follow @renown-api/api_rules.txt fully (migrations, routers registered in
-  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap).
+  main.py, schemas.py, hot db pool, requirements.txt, 700-line cap).
 - No N+1: POS checkout inserts all order items and updates all inventory
   rows in bulk within one transaction, not row-by-row round trips; list/
   analytics endpoints aggregate in SQL.

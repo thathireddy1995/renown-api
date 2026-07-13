@@ -67,8 +67,7 @@ Router: app/routers/customer_auth.py, prefix /customer/auth
 - Follow @renown-api/api_rules.txt in full: migrations only in /migrations,
   router registered in app/main.py, database.py's existing hot connection
   pool reused (no new engine), table models in schemas.py, any new package
-  added to requirements.txt, response class stays orjson, keep this router
-  under 700 lines.
+  added to requirements.txt, keep this router under 700 lines.
 - No N+1 queries: OTP lookups and customer lookups are single indexed
   queries, never a loop.
 - Lambda-first: keep the OTP generation/hashing lightweight, no heavy new

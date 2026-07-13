@@ -65,8 +65,7 @@ jobs and real inventory-count data.
 5. RULES
 --------
 - Follow @renown-api/api_rules.txt fully (migrations, routers registered in
-  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line
-  cap).
+  main.py, schemas.py, hot db pool, requirements.txt, 700-line cap).
 - No N+1: bulk upload does one bulk insert/upsert, not per-row INSERTs;
   exports stream/paginate rather than materializing everything in memory;
   low-stock and audit variance are computed in SQL, not Python loops.

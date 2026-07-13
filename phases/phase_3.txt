@@ -66,7 +66,7 @@ customer storefront filter by category/brand using real data.
 5. RULES
 --------
 - Follow @renown-api/api_rules.txt fully (migrations folder only, routers
-  registered in main.py, schemas.py for table models, hot db pool, orjson,
+  registered in main.py, schemas.py for table models, hot db pool,
   requirements.txt, 700-line cap — split admin_taxonomy.py into per-entity
   files like admin_taxonomy_categories.py if needed).
 - No N+1: attribute values load via a single eager-loaded query per

@@ -61,7 +61,7 @@ real aggregate queries over the tables built in Phases 5-10.
 --------
 - Follow @renown-api/api_rules.txt fully (migrations, routers registered in
   main.py, schemas.py — reports routers don't add new models, they query
-  existing ones, hot db pool, orjson, requirements.txt, 700-line cap).
+  existing ones, hot db pool, requirements.txt, 700-line cap).
 - No N+1 — this is the phase most at risk of it: every chart/KPI must be
   ONE aggregate SQL query. If a report needs data from two tables, use a
   JOIN or a UNION, never a Python-side loop calling the DB per row/date/

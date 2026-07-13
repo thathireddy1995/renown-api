@@ -56,7 +56,7 @@ store staff who will run it.
 5. RULES
 --------
 - Follow @renown-api/api_rules.txt fully (migrations, routers registered in
-  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap).
+  main.py, schemas.py, hot db pool, requirements.txt, 700-line cap).
 - No N+1: appointment/prescription lists join customer/doctor names in one
   query, never fetched per row afterward.
 - Lambda-first: these are low-volume, low-latency-sensitive endpoints —

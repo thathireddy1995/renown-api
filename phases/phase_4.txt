@@ -67,7 +67,7 @@ localStorage as a fallback (do not break the guest experience).
 5. RULES
 --------
 - Follow @renown-api/api_rules.txt fully (migrations, routers registered in
-  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap).
+  main.py, schemas.py, hot db pool, requirements.txt, 700-line cap).
 - No N+1: cart/wishlist/compare list endpoints must join product data in
   the same query, never loop and re-query per item.
 - Lambda-first: these are small, frequent calls — keep payloads minimal and

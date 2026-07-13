@@ -59,7 +59,7 @@ role instead of trusting the frontend.
 5. RULES
 --------
 - Follow @renown-api/api_rules.txt fully (migrations, routers registered in
-  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap).
+  main.py, schemas.py, hot db pool, requirements.txt, 700-line cap).
 - No N+1: employee list joins store/warehouse names in one query.
 - Lambda-first: JWT decoding is in-memory and fast (already the case from
   the existing auth routers) — do not introduce a DB lookup per request

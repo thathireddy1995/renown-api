@@ -68,8 +68,8 @@ inbound-to-outbound flow: GRN receiving, pick lists, packing, and dispatch.
 5. RULES
 --------
 - Follow @renown-api/api_rules.txt fully (migrations, routers registered in
-  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap
-  — this domain has 5 routers precisely to stay under that cap).
+  main.py, schemas.py, hot db pool, requirements.txt, 700-line cap — this
+  domain has 5 routers precisely to stay under that cap).
 - No N+1: every list endpoint eager-loads its item rows (grn_items,
   pick_list_items, dispatch_order_items) in one query, never per-parent-row.
   Inventory updates from receiving/dispatch happen in the same transaction

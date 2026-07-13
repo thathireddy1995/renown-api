@@ -76,7 +76,7 @@ tables exist, not before.)
 --------
 - Follow @renown-api/api_rules.txt: migrations only in /migrations, routers
   registered in main.py, schemas.py holds all table models, hot db pool via
-  database.py, orjson responses, new deps in requirements.txt, 700-line
+  database.py, new deps in requirements.txt, 700-line
   file cap (split admin_catalog.py into admin_catalog_products.py /
   admin_catalog_variants.py if it grows past that).
 - No N+1: list endpoints select exactly the columns needed and paginate;

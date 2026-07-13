@@ -68,8 +68,8 @@ by the database instead of lib/store.tsx's localStorage orders array.
 5. RULES
 --------
 - Follow @renown-api/api_rules.txt fully (migrations, routers registered in
-  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap
-  — split customer_orders.py if create+list+detail logic grows past it).
+  main.py, schemas.py, hot db pool, requirements.txt, 700-line cap — split
+  customer_orders.py if create+list+detail logic grows past it).
 - No N+1: order creation inserts all order_items in a single bulk insert,
   not one insert per loop iteration issued as separate round-trips where
   avoidable; order detail eager-loads items in one query.

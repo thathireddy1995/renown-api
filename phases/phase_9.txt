@@ -70,7 +70,7 @@ toast.
 5. RULES
 --------
 - Follow @renown-api/api_rules.txt fully (migrations, routers registered in
-  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap).
+  main.py, schemas.py, hot db pool, requirements.txt, 700-line cap).
 - No N+1: every list endpoint eager-loads its items in one query; inventory
   mutations on approve/complete happen inside the same transaction as the
   status update, never as a separate follow-up call per item in a loop

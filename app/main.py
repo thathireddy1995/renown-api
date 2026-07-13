@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import ORJSONResponse
 from mangum import Mangum
 
 from app.core.config import CORS_ORIGIN_REGEX
@@ -10,7 +9,6 @@ app = FastAPI(
     title="Renown Opticals API",
     description="Backend API for the Renown opticals ecommerce platform",
     version="0.1.0",
-    default_response_class=ORJSONResponse,
 )
 
 app.add_middleware(

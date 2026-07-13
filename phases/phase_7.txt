@@ -54,7 +54,7 @@ mocks for inventory. This is the foundation Phases 8-10 build on.
 5. RULES
 --------
 - Follow @renown-api/api_rules.txt fully (migrations, routers registered in
-  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap).
+  main.py, schemas.py, hot db pool, requirements.txt, 700-line cap).
 - No N+1: inventory list endpoints join warehouse/store inventory with
   product/variant names in one query; stock-health status is a computed SQL
   CASE expression, not a per-row Python loop after fetch.
