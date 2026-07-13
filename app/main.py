@@ -7,7 +7,9 @@ from app.routers import (
     admin_auth,
     admin_catalog,
     admin_catalog_variants,
+    admin_customers,
     admin_opticals,
+    admin_orders,
     admin_taxonomy,
     customer_addresses,
     customer_auth,
@@ -41,6 +43,8 @@ app.include_router(admin_catalog.router)
 app.include_router(admin_catalog_variants.router)
 app.include_router(admin_taxonomy.router)
 app.include_router(admin_opticals.router)
+app.include_router(admin_orders.router)
+app.include_router(admin_customers.router)
 app.include_router(customer_products.router)
 app.include_router(customer_catalog.router)
 app.include_router(customer_cart.router)

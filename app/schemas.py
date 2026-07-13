@@ -56,6 +56,10 @@ class User(Base):
 
 class Customer(Base):
     __tablename__ = "customers"
+    __table_args__ = (
+        Index("ix_customers_created_at", "created_at"),
+        Index("ix_customers_is_active", "is_active"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -423,6 +427,8 @@ class Order(Base):
     __table_args__ = (
         Index("ix_orders_customer_id", "customer_id"),
         Index("ix_orders_status", "status"),
+        Index("ix_orders_customer_id_status", "customer_id", "status"),
+        Index("ix_orders_created_at", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -453,6 +459,7 @@ class Order(Base):
         order_by="OrderItem.id",
     )
     address: Mapped["Address | None"] = relationship()
+    customer: Mapped["Customer"] = relationship()
 
 
 class OrderItem(Base):
