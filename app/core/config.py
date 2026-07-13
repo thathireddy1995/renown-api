@@ -13,3 +13,19 @@ if not DATABASE_URL:
         "DATABASE_URL is not set. Add it to renown-api/.env for local dev, "
         "or as a Lambda environment variable in production."
     )
+
+JWT_SECRET = os.getenv("JWT_SECRET")
+
+if not JWT_SECRET:
+    raise RuntimeError(
+        "JWT_SECRET is not set. Add it to renown-api/.env for local dev, "
+        "or as a Lambda environment variable in production."
+    )
+
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "720"))
+
+CORS_ORIGIN_REGEX = os.getenv(
+    "CORS_ORIGIN_REGEX",
+    r"^https?://localhost(:\d+)?$|^https://.*\.renowneyewear\.com$",
+)
