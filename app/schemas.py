@@ -989,3 +989,96 @@ class StoreOrderItem(Base):
 
     store_order: Mapped["StoreOrder"] = relationship(back_populates="items")
     variant: Mapped["ProductVariant"] = relationship()
+
+
+class Doctor(Base):
+    __tablename__ = "doctors"
+    __table_args__ = (Index("ix_doctors_store_id", "store_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    specialty: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    store_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stores.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    store: Mapped["Store | None"] = relationship()
+
+
+class Appointment(Base):
+    __tablename__ = "appointments"
+    __table_args__ = (
+        CheckConstraint(
+            "appointment_type IN ('eye_test', 'fitting', 'lens_trial')",
+            name="appointments_type_check",
+        ),
+        CheckConstraint(
+            "status IN ('booked', 'confirmed', 'completed', 'cancelled')",
+            name="appointments_status_check",
+        ),
+        Index("ix_appointments_store_id", "store_id"),
+        Index("ix_appointments_scheduled_at", "scheduled_at"),
+        Index("ix_appointments_status", "status"),
+        Index("ix_appointments_customer_id", "customer_id"),
+        Index("ix_appointments_doctor_id", "doctor_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customers.id", ondelete="SET NULL"), nullable=True
+    )
+    store_id: Mapped[int] = mapped_column(
+        ForeignKey("stores.id", ondelete="RESTRICT"), nullable=False
+    )
+    doctor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("doctors.id", ondelete="SET NULL"), nullable=True
+    )
+    appointment_type: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="eye_test"
+    )
+    scheduled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="booked")
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    customer: Mapped["Customer | None"] = relationship()
+    store: Mapped["Store"] = relationship()
+    doctor: Mapped["Doctor | None"] = relationship()
+
+
+class Prescription(Base):
+    __tablename__ = "prescriptions"
+    __table_args__ = (
+        Index("ix_prescriptions_customer_id", "customer_id"),
+        Index("ix_prescriptions_doctor_id", "doctor_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id", ondelete="CASCADE"), nullable=False
+    )
+    doctor_id: Mapped[int | None] = mapped_column(
+        ForeignKey("doctors.id", ondelete="SET NULL"), nullable=True
+    )
+    right_sph: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    right_cyl: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    left_sph: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    left_cyl: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    pd: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    recorded_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    customer: Mapped["Customer"] = relationship()
+    doctor: Mapped["Doctor | None"] = relationship()
