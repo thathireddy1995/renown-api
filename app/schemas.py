@@ -1,10 +1,11 @@
 import enum
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -790,3 +791,146 @@ class Pack(Base):
     )
 
     dispatch_order: Mapped["DispatchOrder | None"] = relationship()
+
+
+class StockTransfer(Base):
+    __tablename__ = "stock_transfers"
+    __table_args__ = (
+        Index("ix_stock_transfers_status", "status"),
+        Index("ix_stock_transfers_from_warehouse_id", "from_warehouse_id"),
+        Index("ix_stock_transfers_to_warehouse_id", "to_warehouse_id"),
+        Index("ix_stock_transfers_to_store_id", "to_store_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    transfer_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    from_warehouse_id: Mapped[int] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    to_warehouse_id: Mapped[int | None] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True
+    )
+    to_store_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stores.id", ondelete="RESTRICT"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="requested")
+    requested_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    eta: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    from_warehouse: Mapped["Warehouse"] = relationship(
+        foreign_keys=[from_warehouse_id]
+    )
+    to_warehouse: Mapped["Warehouse | None"] = relationship(
+        foreign_keys=[to_warehouse_id]
+    )
+    to_store: Mapped["Store | None"] = relationship(foreign_keys=[to_store_id])
+    items: Mapped[list["StockTransferItem"]] = relationship(
+        back_populates="stock_transfer", cascade="all, delete-orphan"
+    )
+
+
+class StockTransferItem(Base):
+    __tablename__ = "stock_transfer_items"
+    __table_args__ = (
+        Index("ix_stock_transfer_items_stock_transfer_id", "stock_transfer_id"),
+        Index("ix_stock_transfer_items_variant_id", "variant_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    stock_transfer_id: Mapped[int] = mapped_column(
+        ForeignKey("stock_transfers.id", ondelete="CASCADE"), nullable=False
+    )
+    variant_id: Mapped[int] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="RESTRICT"), nullable=False
+    )
+    qty: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    stock_transfer: Mapped["StockTransfer"] = relationship(back_populates="items")
+    variant: Mapped["ProductVariant"] = relationship()
+
+
+class TransferRequest(Base):
+    __tablename__ = "transfer_requests"
+    __table_args__ = (
+        Index("ix_transfer_requests_store_id", "store_id"),
+        Index("ix_transfer_requests_status", "status"),
+        Index("ix_transfer_requests_requester_warehouse_id", "requester_warehouse_id"),
+        Index("ix_transfer_requests_target_warehouse_id", "target_warehouse_id"),
+        Index("ix_transfer_requests_variant_id", "variant_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    request_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    store_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stores.id", ondelete="RESTRICT"), nullable=True
+    )
+    requester_warehouse_id: Mapped[int | None] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True
+    )
+    target_warehouse_id: Mapped[int | None] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True
+    )
+    variant_id: Mapped[int] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="RESTRICT"), nullable=False
+    )
+    qty_requested: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    urgency: Mapped[str] = mapped_column(String(20), nullable=False, default="Medium")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    stock_transfer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stock_transfers.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    store: Mapped["Store | None"] = relationship(foreign_keys=[store_id])
+    requester_warehouse: Mapped["Warehouse | None"] = relationship(
+        foreign_keys=[requester_warehouse_id]
+    )
+    target_warehouse: Mapped["Warehouse | None"] = relationship(
+        foreign_keys=[target_warehouse_id]
+    )
+    variant: Mapped["ProductVariant"] = relationship()
+    stock_transfer: Mapped["StockTransfer | None"] = relationship()
+
+
+class StockAllocation(Base):
+    __tablename__ = "stock_allocations"
+    __table_args__ = (
+        Index("ix_stock_allocations_order_id", "order_id"),
+        Index("ix_stock_allocations_status", "status"),
+        Index("ix_stock_allocations_variant_id", "variant_id"),
+        Index("ix_stock_allocations_warehouse_id", "warehouse_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    allocation_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
+    )
+    order_number: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    variant_id: Mapped[int] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="RESTRICT"), nullable=False
+    )
+    warehouse_id: Mapped[int] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    qty: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
+    picker_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    order: Mapped["Order | None"] = relationship()
+    variant: Mapped["ProductVariant"] = relationship()
+    warehouse: Mapped["Warehouse"] = relationship()

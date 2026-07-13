@@ -10,8 +10,11 @@ from app.routers import (
     admin_customers,
     admin_opticals,
     admin_orders,
+    admin_stock_allocation,
     admin_stores,
     admin_taxonomy,
+    admin_transfer_requests,
+    admin_warehouse_transfers,
     admin_warehouses,
     customer_addresses,
     customer_auth,
@@ -27,6 +30,7 @@ from app.routers import (
     staff_warehouse_picking,
     staff_warehouse_receiving,
     staff_warehouse_suppliers,
+    staff_warehouse_transfers,
 )
 
 app = FastAPI(
@@ -50,6 +54,7 @@ app.include_router(staff_warehouse_receiving.router)
 app.include_router(staff_warehouse_picking.router)
 app.include_router(staff_warehouse_packing.router)
 app.include_router(staff_warehouse_dispatch.router)
+app.include_router(staff_warehouse_transfers.router)
 app.include_router(customer_auth.router)
 app.include_router(admin_catalog.router)
 app.include_router(admin_catalog_variants.router)
@@ -59,6 +64,9 @@ app.include_router(admin_orders.router)
 app.include_router(admin_customers.router)
 app.include_router(admin_warehouses.router)
 app.include_router(admin_stores.router)
+app.include_router(admin_warehouse_transfers.router)
+app.include_router(admin_transfer_requests.router)
+app.include_router(admin_stock_allocation.router)
 app.include_router(customer_products.router)
 app.include_router(customer_catalog.router)
 app.include_router(customer_cart.router)

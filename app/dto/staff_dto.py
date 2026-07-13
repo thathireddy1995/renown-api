@@ -156,3 +156,35 @@ class StaffSupplierListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class StaffStockTransferOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, ser_json_by_alias=True)
+
+    id: str
+    from_: str = Field(alias="from")
+    to: str
+    items: int
+    qty: int
+    requested: str
+    status: str
+
+
+class StaffStockTransferItemIn(BaseModel):
+    variant_id: int
+    qty: int
+
+
+class StaffStockTransferCreate(BaseModel):
+    from_warehouse_id: int | None = None
+    to_warehouse_id: int | None = None
+    to_store_id: int | None = None
+    status: str = "requested"
+    items: list[StaffStockTransferItemIn] = Field(default_factory=list)
+
+
+class StaffStockTransferListResponse(BaseModel):
+    items: list[StaffStockTransferOut]
+    total: int
+    limit: int
+    offset: int
