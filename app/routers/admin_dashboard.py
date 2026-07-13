@@ -137,7 +137,7 @@ def admin_dashboard(
         .limit(6)
     ).all()
     recent_orders = [
-        RecentOrderProp(
+        RecentOrderRow(
             id=r[0],
             customer=r[1] or "Customer",
             status=admin_status_label(r[2] or ""),

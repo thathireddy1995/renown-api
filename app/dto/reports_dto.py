@@ -57,7 +57,7 @@ class AdminDashboardResponse(BaseModel):
     periodLabel: str
     kpis: list[DashboardKpi]
     salesByDay: list[DayPoint]
-    recentOrders: list[RecentOrderProp]
+    recentOrders: list[RecentOrderRow]
     topProducts: list[TopProductProp]
     lowStockAlerts: list[LowStockProp]
 

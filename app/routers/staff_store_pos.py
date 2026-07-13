@@ -23,6 +23,7 @@ from app.schemas import (
     StoreInventory,
     StoreOrder,
     StoreOrderItem,
+    User,
 )
 
 router = APIRouter(prefix="/staff/store/pos", tags=["staff-store-pos"], dependencies=[Depends(require_role("store_manager"))])
@@ -175,13 +176,15 @@ def pos_checkout(
     while db.scalar(select(StoreOrder.id).where(StoreOrder.order_number == order_number)):
         order_number = f"SO-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
 
+    user = db.get(User, principal.sub)
+
     order = StoreOrder(
         order_number=order_number,
         store_id=store.id,
         customer_name=body.customer_name or f"Walk-in #{order_number[-4:]}",
         channel="in_store",
         payment_method=pay,
-        associate_name=body.associate_name or user.name,
+        associate_name=body.associate_name or (user.name if user else "Store Associate"),
         subtotal=subtotal,
         tax=tax,
         total=total,
