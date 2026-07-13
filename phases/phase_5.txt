@@ -1,0 +1,106 @@
+PHASE 5 — CUSTOMER CHECKOUT, ADDRESSES & ORDERS
+================================================================
+Portals: Customer (renowneyewear.com)
+Depends on: Phase 1 (auth), Phase 2 (products/variants), Phase 4 (cart)
+
+GOAL
+----
+Turn the simulated checkout in customer-renown into a real order-placement
+flow: addresses, order creation from the cart, and order tracking, backed
+by the database instead of lib/store.tsx's localStorage orders array.
+
+1. DATABASE (migrations/)
+--------------------------
+- 0016_create_addresses_table.sql
+    addresses: id BIGSERIAL PK, customer_id BIGINT NOT NULL REFERENCES
+    customers(id), label VARCHAR(40), line1 VARCHAR(200) NOT NULL, line2
+    VARCHAR(200), city VARCHAR(80), state VARCHAR(80), postal_code
+    VARCHAR(20), country VARCHAR(80), phone VARCHAR(20), is_default
+    BOOLEAN DEFAULT FALSE, created_at, updated_at.
+    Index on customer_id.
+- 0017_create_orders_table.sql
+    orders: id BIGSERIAL PK, order_number VARCHAR(20) NOT NULL, customer_id
+    BIGINT NOT NULL REFERENCES customers(id), address_id BIGINT REFERENCES
+    addresses(id), status VARCHAR(20) NOT NULL DEFAULT 'placed', subtotal
+    NUMERIC(10,2), discount NUMERIC(10,2) DEFAULT 0, shipping_fee
+    NUMERIC(10,2) DEFAULT 0, tax NUMERIC(10,2) DEFAULT 0, total
+    NUMERIC(10,2) NOT NULL, coupon_code VARCHAR(30), created_at, updated_at.
+    Indexes: UNIQUE on order_number, index on customer_id, index on status.
+- 0018_create_order_items_table.sql
+    order_items: id BIGSERIAL PK, order_id BIGINT NOT NULL REFERENCES
+    orders(id), product_id BIGINT NOT NULL REFERENCES products(id),
+    variant_id BIGINT REFERENCES product_variants(id), name_snapshot
+    VARCHAR(200), price_snapshot NUMERIC(10,2), qty INT NOT NULL.
+    Index on order_id.
+
+2. SEED DATA (scripts/)
+------------------------
+- scripts/seed_orders.py — creates the 2 pre-seeded demo orders
+  (RO-83291 delivered, RO-83402 shipped) against a seeded demo customer, so
+  the track-order page has known data to demo immediately after this phase.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- app/routers/customer_addresses.py, prefix /customer/addresses — GET/POST/
+  PATCH/DELETE, scoped to the authenticated customer.
+- app/routers/customer_orders.py, prefix /customer/orders
+    POST /customer/orders — creates an order + order_items from the
+    customer's current cart_items in a single DB transaction, applies the
+    coupon/shipping/tax rules currently in cart.tsx/checkout.tsx, clears
+    the cart on success, returns the created order.
+    GET /customer/orders — list the customer's own orders (paginated).
+    GET /customer/orders/{order_number} — order detail with items
+    eager-loaded in one query (join/selectinload, not per-item lookups).
+- app/schemas.py: Address, Order, OrderItem models.
+
+4. UI CHANGES
+--------------
+- customer-renown: src/routes/checkout.tsx calls
+  POST /customer/addresses (if a new address is entered) then
+  POST /customer/orders instead of lib/store.tsx's local addOrder(); still
+  navigates to /track-order?id={orderNumber} on success.
+- src/routes/track-order.tsx fetches GET /customer/orders/{id} instead of
+  reading from the local store.
+- src/routes/account.tsx orders tab lists from GET /customer/orders.
+- Keep all existing checkout steps/UI and the track-order timeline
+  component — only change where data comes from and gets written.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt fully (migrations, routers registered in
+  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap
+  — split customer_orders.py if create+list+detail logic grows past it).
+- No N+1: order creation inserts all order_items in a single bulk insert,
+  not one insert per loop iteration issued as separate round-trips where
+  avoidable; order detail eager-loads items in one query.
+- Lambda-first: wrap order creation in one transaction so a failed Lambda
+  invocation never leaves a half-written order.
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write. Swap data source only. Shape the API's request/response fields to
+  match exactly what the given UI already needs.
+
+6. DEFINITION OF DONE
+----------------------
+- All 3 migrations apply cleanly and idempotently.
+- seed_orders.py produces the two demo orders under a demo customer.
+- Full checkout flow tested end-to-end: add to cart → checkout → order
+  created → visible on track-order and account pages.
+- No linter errors; order creation verified to not leave partial rows on a
+  simulated failure (e.g. invalid address).
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 2 of them; after implementing and verifying
+locally, commit each one separately from within its own repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_5: customer checkout, addresses & orders (api)"
+
+    cd ../customer-renown
+    git add -A
+    git commit -m "phase_5: customer checkout, addresses & orders (ui)"

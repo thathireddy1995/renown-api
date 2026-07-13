@@ -1,0 +1,112 @@
+PHASE 14 — BULK OPERATIONS: IMPORT/EXPORT, BULK UPLOAD, INVENTORY AUDITS,
+LOW STOCK & SUPPLIERS
+================================================================
+Portals: Admin (admin.renowneyewear.com), Staff (staff.renowneyewear.com —
+warehouse side)
+Depends on: Phase 2 (products/variants), Phase 7 (inventory), Phase 8
+(suppliers)
+
+GOAL
+----
+Wire the remaining "simulated" admin operations pages (Import/Export, Bulk
+Upload) and the warehouse Audits/Low Stock pages to real background-style
+jobs and real inventory-count data.
+
+1. DATABASE (migrations/)
+--------------------------
+- 0036_create_import_jobs_table.sql — import_jobs: id, job_type
+  ('products'|'inventory'|...), file_name, status
+  ('pending'|'processing'|'completed'|'failed'), row_count, error_count,
+  created_by, created_at, completed_at. Index on status.
+- 0037_create_inventory_audits_table.sql — inventory_audits: id, audit_
+  number, warehouse_id FK, zone, status ('scheduled'|'in_progress'|
+  'completed'), auditor_name, created_at, completed_at. inventory_audit_
+  items: id, inventory_audit_id FK, variant_id FK, expected_qty,
+  counted_qty, variance. Index on warehouse_id, index on status.
+
+2. SEED DATA (scripts/)
+------------------------
+- scripts/seed_audits.py — loads the cycle audit mock rows from
+  warehouse-data.ts / staff-renown's warehouse/Audits.tsx into the new
+  tables, tied to Phase 7's warehouses and Phase 2's variants.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- app/routers/admin_operations.py, prefix /admin/operations
+    POST /admin/operations/export/{entity} — for now, generates a CSV for
+    a supported entity (products, orders, customers) using a single
+    streamed query (server-side cursor / chunked fetch), not loading the
+    whole table into memory at once.
+    POST /admin/operations/bulk-upload — accepts a parsed row payload from
+    the existing 4-step wizard UI, validates rows, and bulk-inserts/
+    upserts products in one transaction using SQLAlchemy's bulk insert,
+    not one INSERT per row in a Python loop. Writes a row to import_jobs
+    with the resulting row_count/error_count.
+    GET /admin/operations/import-jobs — recent job history, paginated.
+- app/routers/staff_warehouse_audits.py, prefix
+  /staff/warehouse/audits — list/create audits with items eager-loaded;
+  PATCH to record counted_qty per item (variance computed in SQL as
+  counted_qty - expected_qty, not recalculated in Python after fetch).
+- app/routers/staff_warehouse_low_stock.py, prefix
+  /staff/warehouse/low-stock — single query comparing
+  warehouse_inventory.on_hand to reorder_point, joined with variant/
+  product name, suggested reorder qty computed in SQL.
+- app/schemas.py: ImportJob, InventoryAudit, InventoryAuditItem models.
+
+4. UI CHANGES
+--------------
+- admin-renown: admin.operations.import-export.tsx and
+  admin.operations.bulk-upload.tsx call the new endpoints at each wizard
+  step instead of only showing toasts; keep all 4 existing wizard steps
+  and the recent-imports table layout.
+- staff-renown: warehouse/Audits.tsx and warehouse/LowStock.tsx switch from
+  inline rows to the new endpoints.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt fully (migrations, routers registered in
+  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line
+  cap).
+- No N+1: bulk upload does one bulk insert/upsert, not per-row INSERTs;
+  exports stream/paginate rather than materializing everything in memory;
+  low-stock and audit variance are computed in SQL, not Python loops.
+- Lambda-first: bulk-upload/export are the most likely endpoints to run
+  long — cap request size, process in reasonably sized batches, and keep
+  well under Lambda's timeout; if a future need arises for very large
+  imports, note it as a candidate for an async/queued job rather than
+  trying to force it synchronously into one Lambda invocation.
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write. Wire real calls into the existing wizard/pages, and shape the
+  API's request/response fields to match exactly what the given UI already
+  needs.
+
+6. DEFINITION OF DONE
+----------------------
+- Both migrations apply cleanly and idempotently.
+- seed_audits.py populates data consistent with Phases 2 and 7.
+- Bulk upload wizard verified to actually create products via one bulk
+  operation; import-jobs history reflects the result.
+- Warehouse Audits and Low Stock pages verified against real data with
+  variance/suggested-reorder computed correctly.
+- No linter errors.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 3 of them; after implementing and verifying
+locally, commit each one separately from within its own repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_14: bulk operations — import/export, audits, low stock, suppliers (api)"
+
+    cd ../admin-renown
+    git add -A
+    git commit -m "phase_14: bulk operations — import/export, audits, low stock, suppliers (admin ui)"
+
+    cd ../staff-renown
+    git add -A
+    git commit -m "phase_14: bulk operations — import/export, audits, low stock, suppliers (staff ui)"

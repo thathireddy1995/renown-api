@@ -1,0 +1,99 @@
+PHASE 10 — STORE POS & STAFF STORE OPERATIONS
+================================================================
+Portals: Staff (staff.renowneyewear.com — store side), Admin
+(admin.renowneyewear.com)
+Depends on: Phase 2 (products/variants), Phase 7 (store_inventory)
+
+GOAL
+----
+Wire the store manager's POS and Orders pages (currently a local-only cart
+in staff-renown/src/pages/store/POS.tsx and static rows in Orders.tsx) to
+real store orders, and make the payment button actually create an order and
+decrement store_inventory. Also wires admin's Store Orders/Analytics pages
+to the same data.
+
+1. DATABASE (migrations/)
+--------------------------
+- 0030_create_store_orders_table.sql — store_orders: id, order_number,
+  store_id FK, customer_name, channel ('in_store'|'click_collect'|
+  'home_delivery'), payment_method ('card'|'upi'|'cash'|'online'),
+  associate_name, subtotal, tax, total, status, created_at. store_order_
+  items: id, store_order_id FK, variant_id FK, qty, price_snapshot. Index
+  on store_id, index on status, index on channel.
+
+2. SEED DATA (scripts/)
+------------------------
+- scripts/seed_store_orders.py — loads the 8 store orders mock rows from
+  admin's store-data.ts and staff-renown's store/Orders.tsx into the new
+  table, tied to Phase 7's stores and Phase 2's variants.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- app/routers/staff_store_pos.py, prefix /staff/store/pos
+    GET /staff/store/pos/catalog — store's sellable variants with current
+    store_inventory (one joined query).
+    POST /staff/store/pos/checkout — creates a store_order + items in one
+    transaction, decrements store_inventory.on_hand for each line (bulk
+    update, not per-item round trips), returns the created order for the
+    receipt/toast.
+- app/routers/staff_store_orders.py, prefix /staff/store/orders — list
+  (filter by channel/status), detail with items eager-loaded.
+- app/routers/admin_store_orders.py, prefix /admin/store-orders — same
+  underlying queries as staff_store_orders, reused via a shared query
+  helper rather than duplicated SQL, exposed for admin's cross-store view.
+- app/schemas.py: StoreOrder, StoreOrderItem models.
+
+4. UI CHANGES
+--------------
+- staff-renown: POS.tsx calls GET /staff/store/pos/catalog for the product
+  grid and POST /staff/store/pos/checkout on "Collect Payment" instead of
+  only showing a toast; Orders.tsx switches from inline `rows` to
+  /staff/store/orders.
+- admin-renown: admin.store-orders.tsx and admin.store-analytics.tsx switch
+  from store-data.ts to /admin/store-orders (analytics aggregates computed
+  via SQL GROUP BY, not client-side reduction over all rows).
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt fully (migrations, routers registered in
+  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap).
+- No N+1: POS checkout inserts all order items and updates all inventory
+  rows in bulk within one transaction, not row-by-row round trips; list/
+  analytics endpoints aggregate in SQL.
+- Lambda-first: POS checkout is the most latency-sensitive endpoint in this
+  phase — keep it to the minimum necessary queries and commit fast.
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write. Wire real actions in, keep the existing POS/cart layout, and shape
+  the API's request/response fields to match exactly what the given UI
+  already needs.
+
+6. DEFINITION OF DONE
+----------------------
+- Migration applies cleanly and idempotently.
+- seed_store_orders.py populates data consistent with Phases 2 and 7.
+- A POS checkout in staff-renown creates a real store_order and reduces
+  store_inventory — verified via a before/after query.
+- Staff Orders page and admin Store Orders/Analytics pages verified against
+  real data.
+- No linter errors.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 3 of them; after implementing and verifying
+locally, commit each one separately from within its own repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_10: store POS & staff store operations (api)"
+
+    cd ../staff-renown
+    git add -A
+    git commit -m "phase_10: store POS & staff store operations (staff ui)"
+
+    cd ../admin-renown
+    git add -A
+    git commit -m "phase_10: store POS & staff store operations (admin ui)"

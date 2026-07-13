@@ -1,0 +1,102 @@
+PHASE 12 — EMPLOYEES, STAFF DIRECTORY & ROLE-BASED ACCESS CONTROL
+================================================================
+Portals: Admin (admin.renowneyewear.com), Staff (staff.renowneyewear.com)
+Depends on: existing users table (admin/store_manager/warehouse_manager
+auth already shipped), Phase 7 (warehouses/stores)
+
+GOAL
+----
+Two things in this phase: (1) a real employees directory (the operational
+floor/warehouse staff shown in admin's Employees page and staff-renown's
+Staff page — distinct from the login-capable `users` table), and (2) an
+actual authorization layer so every protected endpoint checks the caller's
+role instead of trusting the frontend.
+
+1. DATABASE (migrations/)
+--------------------------
+- 0034_create_employees_table.sql — employees: id, employee_code, name,
+  job_role VARCHAR(40) (Optician/Sales Executive/Trainee/Optometrist/
+  Warehouse Manager/Picker/Packer/Receiver/Forklift Operator/Auditor),
+  store_id FK NULL, warehouse_id FK NULL, shift VARCHAR(20), status
+  ('active'|'inactive'), mtd_sales NUMERIC(10,2) DEFAULT 0, created_at,
+  updated_at. Index on store_id, index on warehouse_id, index on job_role.
+
+2. SEED DATA (scripts/)
+------------------------
+- scripts/seed_employees.py — loads admin's employees mock list and
+  staff-renown's store/Staff.tsx rows into the new table.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- app/routers/admin_employees.py, prefix /admin/employees — CRUD, paginated
+  list with search/filter by role, joined with store/warehouse name in one
+  query.
+- app/routers/staff_store_staff.py, prefix /staff/store/staff — read-only
+  list scoped to the logged-in manager's store.
+- app/core/deps.py — add require_role(*roles) as a reusable FastAPI
+  dependency that decodes the JWT (already issued by the existing auth
+  routers), checks the role claim against the allowed set, and raises 403
+  otherwise. Apply it to every admin_*.py and staff_*.py router built so
+  far (admin routers require role="admin"; staff routers require role in
+  ("store_manager","warehouse_manager"), and where a route is
+  warehouse-only or store-only, further restrict to that single role).
+  Also thread the caller's own store_id/warehouse_id from the JWT into
+  queries that should be scoped to it (e.g. staff_store_appointments,
+  staff_store_pos) instead of trusting a client-supplied id.
+- app/schemas.py: Employee model.
+
+4. UI CHANGES
+--------------
+- admin-renown: admin.employees.tsx switches from its inline 20-employee
+  array to /admin/employees.
+- staff-renown: store/Staff.tsx switches from inline rows to
+  /staff/store/staff.
+- Both admin-renown and staff-renown: attach the stored JWT as an
+  Authorization: Bearer header on every API call (add this once in each
+  portal's src/lib/api.ts fetch wrapper rather than per-call), and handle
+  401/403 responses by redirecting to the portal's login page.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt fully (migrations, routers registered in
+  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap).
+- No N+1: employee list joins store/warehouse names in one query.
+- Lambda-first: JWT decoding is in-memory and fast (already the case from
+  the existing auth routers) — do not introduce a DB lookup per request
+  just to check a role; the role claim in the token is sufficient.
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write. Swap data source only, and add the auth header centrally rather
+  than touching every page. Shape the API's request/response fields to
+  match exactly what the given UI already needs.
+
+6. DEFINITION OF DONE
+----------------------
+- Migration applies cleanly and idempotently.
+- seed_employees.py populates data consistent with Phase 7's stores/
+  warehouses.
+- Every admin_*.py and staff_*.py endpoint built in Phases 2-11 now 401s
+  without a token and 403s with a token of the wrong role — spot-check at
+  least 5 endpoints across different routers.
+- Admin Employees and staff Staff pages verified against real data.
+- No linter errors.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 3 of them; after implementing and verifying
+locally, commit each one separately from within its own repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_12: employees, staff directory & role-based access control (api)"
+
+    cd ../admin-renown
+    git add -A
+    git commit -m "phase_12: employees, staff directory & role-based access control (admin ui)"
+
+    cd ../staff-renown
+    git add -A
+    git commit -m "phase_12: employees, staff directory & role-based access control (staff ui)"

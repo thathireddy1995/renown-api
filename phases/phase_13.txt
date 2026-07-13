@@ -1,0 +1,105 @@
+PHASE 13 — REPORTS & ANALYTICS (ADMIN + STAFF)
+================================================================
+Portals: Admin (admin.renowneyewear.com), Staff (staff.renowneyewear.com —
+both store and warehouse)
+Depends on: Phase 5 (orders), Phase 8 (warehouse ops), Phase 10 (store
+orders)
+
+GOAL
+----
+Replace every hardcoded KPI/chart array (admin.reports.tsx,
+admin.store-analytics.tsx, staff store/Reports.tsx, staff
+warehouse/Reports.tsx, and the dashboard KPIs on all of the above) with
+real aggregate queries over the tables built in Phases 5-10.
+
+1. DATABASE (migrations/)
+--------------------------
+- 0035_add_reporting_indexes.sql — add any indexes the aggregate queries
+  below need that don't already exist: orders(created_at), store_orders
+  (created_at), dispatch_orders(created_at), grn(received_at). Review
+  existing indexes from prior phases first — only add what's missing.
+  (No new tables this phase — reporting reads existing data.)
+
+2. SEED DATA (scripts/)
+------------------------
+- None required — reports run against data seeded in earlier phases. If
+  the seeded volume is too thin to make charts look meaningful, extend the
+  relevant Phase 5/8/10 seed script with more historical rows rather than
+  adding a new script here.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- app/routers/admin_reports.py, prefix /admin/reports — revenue trend
+  (GROUP BY date), category mix (GROUP BY category via join), top
+  products, KPI summary — every one of these is a single aggregate SQL
+  query (SUM/COUNT/GROUP BY), never "fetch all orders and reduce in
+  Python."
+- app/routers/admin_dashboard.py, prefix /admin/dashboard — the executive
+  KPI cards + low-stock alerts (low-stock computed via a single query
+  comparing on_hand to reorder_point across warehouse_inventory, not a
+  per-SKU loop).
+- app/routers/staff_store_reports.py, prefix /staff/store/reports — MTD
+  KPIs, revenue trend, top staff by sales, scoped to the caller's store_id
+  from the JWT (Phase 12).
+- app/routers/staff_warehouse_reports.py, prefix
+  /staff/warehouse/reports — fill rate, on-time dispatch %, pick accuracy,
+  capacity, scoped to the caller's warehouse_id.
+- Keep each of these 4 files focused on aggregate reads only — no writes —
+  to keep them small and easy to reason about for the 700-line cap.
+
+4. UI CHANGES
+--------------
+- admin-renown: admin.reports.tsx, admin.index.tsx (dashboard), and
+  admin.store-analytics.tsx switch from hardcoded KPI numbers / data.ts
+  reductions to the new endpoints, keeping the existing Recharts
+  components.
+- staff-renown: store/Reports.tsx, store/Dashboard.tsx,
+  warehouse/Reports.tsx, warehouse/Dashboard.tsx switch from their inline
+  arrays to the new endpoints.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt fully (migrations, routers registered in
+  main.py, schemas.py — reports routers don't add new models, they query
+  existing ones, hot db pool, orjson, requirements.txt, 700-line cap).
+- No N+1 — this is the phase most at risk of it: every chart/KPI must be
+  ONE aggregate SQL query. If a report needs data from two tables, use a
+  JOIN or a UNION, never a Python-side loop calling the DB per row/date/
+  category.
+- Lambda-first: aggregate queries should be indexed and bounded by a date
+  range parameter (default last 30/90 days) so a cold Lambda doesn't scan
+  full history on every request.
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write. Swap data source only. Shape the API's request/response fields to
+  match exactly what the given UI already needs.
+
+6. DEFINITION OF DONE
+----------------------
+- Any new indexes applied cleanly and idempotently.
+- All 4 report/dashboard routers verified via curl, and each one's queries
+  confirmed via EXPLAIN to be a single aggregate query (no loops, no
+  per-row DB calls).
+- Admin and staff dashboard/report pages render real charts/KPIs with no
+  regressions to layout.
+- No linter errors.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 3 of them; after implementing and verifying
+locally, commit each one separately from within its own repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_13: reports & analytics (api)"
+
+    cd ../admin-renown
+    git add -A
+    git commit -m "phase_13: reports & analytics (admin ui)"
+
+    cd ../staff-renown
+    git add -A
+    git commit -m "phase_13: reports & analytics (staff ui)"

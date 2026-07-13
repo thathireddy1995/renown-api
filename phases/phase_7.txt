@@ -1,0 +1,91 @@
+PHASE 7 — LOCATIONS & INVENTORY FOUNDATION
+================================================================
+Portals: Admin (admin.renowneyewear.com)
+Depends on: Phase 2 (products/variants)
+
+GOAL
+----
+Introduce warehouses and retail stores as first-class locations, and track
+stock per SKU per location, replacing warehouse-data.ts and store-data.ts
+mocks for inventory. This is the foundation Phases 8-10 build on.
+
+1. DATABASE (migrations/)
+--------------------------
+- 0020_create_warehouses_table.sql — warehouses: id, code, name, city,
+  country, manager, capacity, status, created_at, updated_at. UNIQUE index
+  on code.
+- 0021_create_stores_table.sql — stores: id, code, name, address, city,
+  phone, hours, status, created_at, updated_at. UNIQUE index on code.
+- 0022_create_warehouse_inventory_table.sql — warehouse_inventory: id,
+  warehouse_id FK, variant_id FK (product_variants), bin_location VARCHAR,
+  on_hand INT DEFAULT 0, reserved INT DEFAULT 0, reorder_point INT DEFAULT
+  0, updated_at. UNIQUE on (warehouse_id, variant_id), index on variant_id.
+- 0023_create_store_inventory_table.sql — store_inventory: id, store_id FK,
+  variant_id FK, on_hand INT DEFAULT 0, reserved INT DEFAULT 0, updated_at.
+  UNIQUE on (store_id, variant_id), index on variant_id.
+
+2. SEED DATA (scripts/)
+------------------------
+- scripts/seed_locations.py — loads the warehouses/stores lists from
+  warehouse-data.ts and store-data.ts.
+- scripts/seed_inventory.py — loads whInventory/storeInventory mock rows,
+  matched to the products/variants seeded in Phase 2 by SKU.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- app/routers/admin_warehouses.py, prefix /admin/warehouses — CRUD for
+  warehouses; GET /admin/warehouses/{id}/inventory — paginated, joined with
+  product/variant info in one query, filterable by status
+  (critical/low/healthy/overstock computed from on_hand vs reorder_point in
+  SQL, not row-by-row in Python).
+- app/routers/admin_stores.py, prefix /admin/stores — CRUD for stores;
+  GET /admin/stores/{id}/inventory — same join pattern as warehouse
+  inventory.
+- app/schemas.py: Warehouse, Store, WarehouseInventory, StoreInventory
+  models.
+
+4. UI CHANGES
+--------------
+- admin-renown: src/routes/admin.warehouses.tsx, admin.warehouse-inventory
+  .tsx, admin.stores.tsx, admin.store-inventory.tsx switch from
+  warehouse-data.ts/store-data.ts to the new endpoints. Keep existing
+  cards/tables/filters as-is.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt fully (migrations, routers registered in
+  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap).
+- No N+1: inventory list endpoints join warehouse/store inventory with
+  product/variant names in one query; stock-health status is a computed SQL
+  CASE expression, not a per-row Python loop after fetch.
+- Lambda-first: paginate inventory lists, index every column used in a
+  WHERE/JOIN (warehouse_id, store_id, variant_id already covered above).
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write. Swap data source only. Shape the API's request/response fields to
+  match exactly what the given UI already needs.
+
+6. DEFINITION OF DONE
+----------------------
+- All 4 migrations apply cleanly and idempotently.
+- seed_locations.py and seed_inventory.py populate consistent data tied to
+  Phase 2's products/variants.
+- Admin warehouse/store pages (list + inventory) verified against real
+  data, filters and stock-health badges working.
+- No linter errors; inventory queries confirmed single-query via EXPLAIN.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 2 of them; after implementing and verifying
+locally, commit each one separately from within its own repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_7: locations & inventory foundation (api)"
+
+    cd ../admin-renown
+    git add -A
+    git commit -m "phase_7: locations & inventory foundation (ui)"

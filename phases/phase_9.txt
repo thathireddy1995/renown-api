@@ -1,0 +1,114 @@
+PHASE 9 — STOCK TRANSFERS, REPLENISHMENT & ALLOCATION
+================================================================
+Portals: Admin (admin.renowneyewear.com), Staff (staff.renowneyewear.com —
+warehouse side)
+Depends on: Phase 7 (warehouse/store inventory), Phase 8 (dispatch orders)
+
+GOAL
+----
+Wire inter-warehouse transfers, store replenishment requests, and order
+allocation — currently mocked in admin's warehouse-data.ts and
+staff-renown's Transfers.tsx — to real tables, with actions (approve/
+reject/complete) that actually move inventory instead of just showing a
+toast.
+
+1. DATABASE (migrations/)
+--------------------------
+- 0027_create_stock_transfers_table.sql — stock_transfers: id, transfer_
+  number, from_warehouse_id FK, to_warehouse_id FK NULL, to_store_id FK
+  NULL, status ('requested'|'approved'|'in_transit'|'completed'|
+  'rejected'), requested_by, created_at, updated_at. stock_transfer_items:
+  id, stock_transfer_id FK, variant_id FK, qty. Index on status, index on
+  from_warehouse_id, index on to_warehouse_id, index on to_store_id.
+- 0028_create_transfer_requests_table.sql — transfer_requests: id,
+  store_id FK, variant_id FK, qty_requested, status
+  ('pending'|'approved'|'rejected'), created_at, updated_at. Index on
+  store_id, index on status.
+- 0029_create_stock_allocations_table.sql — stock_allocations: id, order_id
+  FK (references orders from Phase 5), variant_id FK, warehouse_id FK, qty,
+  status ('pending'|'allocated'|'released'), created_at. Index on order_id,
+  index on status.
+
+2. SEED DATA (scripts/)
+------------------------
+- scripts/seed_transfers.py — loads transfers/transferRequests/allocations
+  mock rows from admin's warehouse-data.ts, tied to Phase 7's warehouses/
+  stores and Phase 2's variants.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- app/routers/admin_warehouse_transfers.py, prefix
+  /admin/warehouse/transfers — list (filter by status tab, eager-load
+  items), POST to create, PATCH /{id}/status to approve/reject/complete;
+  on "completed" for a warehouse-to-warehouse transfer, decrement the
+  source and increment the destination warehouse_inventory rows in one
+  transaction.
+- app/routers/admin_transfer_requests.py, prefix
+  /admin/transfer-requests — list, PATCH /{id}/approve and /{id}/reject
+  which actually create a stock_transfer on approve (not just a status
+  flip) and update store_inventory accordingly on completion.
+- app/routers/admin_stock_allocation.py, prefix /admin/stock-allocation —
+  list pending allocations joined with order + variant in one query;
+  POST /{id}/allocate reserves stock (increments warehouse_inventory
+  .reserved) in the same transaction as marking the allocation 'allocated'.
+- app/routers/staff_warehouse_transfers.py, prefix
+  /staff/warehouse/transfers — read/create endpoints scoped to the staff
+  user's warehouse, reusing the same underlying tables/queries as the admin
+  router (share query-building helpers, don't duplicate SQL).
+- app/schemas.py: StockTransfer, StockTransferItem, TransferRequest,
+  StockAllocation models.
+
+4. UI CHANGES
+--------------
+- admin-renown: admin.stock-transfer.tsx, admin.transfer-requests.tsx,
+  admin.stock-allocation.tsx switch from warehouse-data.ts to the new
+  endpoints; approve/reject buttons call the real PATCH endpoints instead
+  of only showing a toast.
+- staff-renown: Transfers.tsx under src/pages/warehouse/ switches from its
+  inline mock rows to /staff/warehouse/transfers.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt fully (migrations, routers registered in
+  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap).
+- No N+1: every list endpoint eager-loads its items in one query; inventory
+  mutations on approve/complete happen inside the same transaction as the
+  status update, never as a separate follow-up call per item in a loop
+  (use a single bulk UPDATE where possible).
+- Lambda-first: keep transfer/allocation writes short transactions so a
+  Lambda invocation completes well within its timeout.
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write. Wire real actions in, keep the existing buttons/layout, and shape
+  the API's request/response fields to match exactly what the given UI
+  already needs.
+
+6. DEFINITION OF DONE
+----------------------
+- All 3 migrations apply cleanly and idempotently.
+- seed_transfers.py populates data consistent with Phases 2 and 7.
+- Approving a transfer/request/allocation in the admin UI is verified to
+  actually change warehouse_inventory/store_inventory rows, not just the
+  status column.
+- Staff transfers page reflects the same underlying data as admin.
+- No linter errors.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 3 of them; after implementing and verifying
+locally, commit each one separately from within its own repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_9: stock transfers, replenishment & allocation (api)"
+
+    cd ../admin-renown
+    git add -A
+    git commit -m "phase_9: stock transfers, replenishment & allocation (admin ui)"
+
+    cd ../staff-renown
+    git add -A
+    git commit -m "phase_9: stock transfers, replenishment & allocation (staff ui)"

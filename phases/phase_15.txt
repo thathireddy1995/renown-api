@@ -1,0 +1,119 @@
+PHASE 15 — HARDENING, SECURITY & PRODUCTION READINESS
+================================================================
+Portals: Admin, Staff, Customer (all three)
+Depends on: Phases 1-14 (this is the final pass across the whole API)
+
+GOAL
+----
+This phase adds no new business features. It closes the gap between "works
+locally against Neon" and "safe to run in production on AWS Lambda across
+all three portals."
+
+1. DATABASE (migrations/)
+--------------------------
+- 0038_add_missing_audit_columns.sql — sweep every table created in Phases
+  1-14 and add created_by/updated_by columns where writes happen through
+  authenticated staff/admin users but the column was omitted, plus any
+  index gaps found during the load-test pass in section 3 below. List the
+  specific gaps found as migration comments before writing the DDL — do
+  not add speculative columns nobody queries.
+
+2. SEED DATA (scripts/)
+------------------------
+- scripts/reset_demo_data.py — a single idempotent script that re-runs
+  every seed_*.py script from Phases 1-14 in dependency order, for
+  resetting a demo/staging environment to a known-good state in one
+  command.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- N+1 audit: go through every router built in Phases 1-14 and confirm each
+  list/detail endpoint is single-query or eager-loaded (spot-check with
+  EXPLAIN ANALYZE); fix any that regressed.
+- Secrets: move DATABASE_URL and JWT_SECRET out of the local .env pattern
+  for the deployed environment — read them from AWS Secrets Manager or SSM
+  Parameter Store at cold start (cached at module scope, same warm-reuse
+  pattern as the DB pool in database.py) instead of a plaintext Lambda
+  environment variable.
+- CORS: tighten app/core/config.py's CORS_ORIGIN_REGEX to the real
+  production domains only (admin.renowneyewear.com,
+  renowneyewear.com, staff.renowneyewear.com) for the production stack,
+  keeping the localhost regex only for local/dev config.
+- Rate limiting: add basic per-IP/per-phone throttling on the OTP endpoints
+  from Phase 1 and the login endpoints (reuse the otp_codes-style
+  windowed-count pattern; do not add a new heavy dependency for this).
+- Structured logging: standardize on one logging setup across all
+  routers (request id, route, status, duration) — no print()-based
+  debugging left in shipped routers.
+- Error handling: consistent HTTPException usage and a single global
+  exception handler in main.py so unhandled errors return a clean JSON
+  error instead of a stack trace.
+- requirements.txt: audit for unused packages and pin exact versions
+  (==) instead of >= for anything going to production, to keep Lambda
+  builds reproducible.
+
+4. UI CHANGES
+--------------
+- Across admin-renown, staff-renown, and customer-renown: confirm no page
+  still falls back to a local mock array when the API call fails silently
+  — failures should show a clear error state, not stale fake data.
+  Add a shared VITE_API_URL / production API base URL per portal (each
+  portal's src/lib/api.ts already reads import.meta.env.VITE_API_URL;
+  confirm the production build configs set it to the deployed API Gateway
+  URL).
+- Do not delete any existing UI component — this phase is about
+  reliability and configuration, not new UI.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt fully — this phase exists specifically
+  to verify every earlier phase actually complied with it (migrations
+  folder, no N+1, Lambda-fast, hot db connection, routers/schemas/dto
+  structure, 700-line cap, orjson, requirements.txt discipline).
+- No N+1 anywhere in the codebase by the end of this phase — this is the
+  final checkpoint, not a place to introduce new shortcuts.
+- Lambda-first: after this phase, a cold start should be measured (log the
+  duration) and be within an acceptable budget; note the measured number
+  in the phase's verification notes.
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write, in this phase or any prior one. The API must always be shaped to
+  fit the given UI, not the other way around.
+
+6. DEFINITION OF DONE
+----------------------
+- Migration (if any gaps found) applied cleanly and idempotently.
+- reset_demo_data.py successfully rebuilds a clean demo dataset end to end.
+- N+1 audit completed across all routers with no findings left open.
+- Secrets loaded from Secrets Manager/SSM in the deployed environment
+  config (or explicitly documented as a follow-up if deployment isn't
+  happening yet), CORS locked to real domains, rate limiting active on
+  auth endpoints, structured logging and a global error handler in place.
+- All three portals verified end-to-end against the real API with no
+  remaining silent mock-data fallbacks.
+- No linter errors anywhere in renown-api or the three frontend apps.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This is the only phase that touches all four; after implementing
+and verifying locally, commit each one separately from within its own
+repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_15: hardening, security & production readiness (api)"
+
+    cd ../admin-renown
+    git add -A
+    git commit -m "phase_15: hardening, security & production readiness (admin ui)"
+
+    cd ../customer-renown
+    git add -A
+    git commit -m "phase_15: hardening, security & production readiness (customer ui)"
+
+    cd ../staff-renown
+    git add -A
+    git commit -m "phase_15: hardening, security & production readiness (staff ui)"

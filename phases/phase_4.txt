@@ -1,0 +1,103 @@
+PHASE 4 — CUSTOMER CART, WISHLIST & COMPARE (SERVER-PERSISTED)
+================================================================
+Portals: Customer (renowneyewear.com)
+Depends on: Phase 1 (customer auth), Phase 2 (products/variants)
+
+GOAL
+----
+Move cart, wishlist, and compare out of customer-renown's localStorage-only
+lib/store.tsx into the database, keyed by the authenticated customer, so
+state survives across devices and sessions. Guests without a JWT keep using
+localStorage as a fallback (do not break the guest experience).
+
+1. DATABASE (migrations/)
+--------------------------
+- 0013_create_cart_items_table.sql
+    cart_items: id BIGSERIAL PK, customer_id BIGINT NOT NULL REFERENCES
+    customers(id), product_id BIGINT NOT NULL REFERENCES products(id),
+    variant_id BIGINT NULL REFERENCES product_variants(id), qty INT NOT
+    NULL DEFAULT 1, saved_for_later BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at, updated_at.
+    Indexes: UNIQUE on (customer_id, product_id, variant_id), index on
+    customer_id.
+- 0014_create_wishlist_items_table.sql
+    wishlist_items: id BIGSERIAL PK, customer_id BIGINT NOT NULL REFERENCES
+    customers(id), product_id BIGINT NOT NULL REFERENCES products(id),
+    created_at.
+    Indexes: UNIQUE on (customer_id, product_id).
+- 0015_create_compare_items_table.sql
+    compare_items: id BIGSERIAL PK, customer_id BIGINT NOT NULL REFERENCES
+    customers(id), product_id BIGINT NOT NULL REFERENCES products(id),
+    created_at.
+    Indexes: UNIQUE on (customer_id, product_id).
+
+2. SEED DATA (scripts/)
+------------------------
+- None required — these tables start empty per customer.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- app/routers/customer_cart.py, prefix /customer/cart
+    GET /customer/cart (returns cart items joined with product + variant in
+    one query via selectinload/join — never fetch product per cart row)
+    POST /customer/cart (add/increment), PATCH /customer/cart/{id} (qty,
+    saved_for_later), DELETE /customer/cart/{id}
+- app/routers/customer_wishlist.py, prefix /customer/wishlist — GET/POST/
+  DELETE, same join pattern as cart.
+- app/routers/customer_compare.py, prefix /customer/compare — GET/POST/
+  DELETE, capped at 4 items server-side (reject the 5th with 400, matching
+  existing UI behavior).
+- All three routers require a valid customer JWT (reuse the auth dependency
+  from Phase 1); return 401 if missing/invalid.
+- app/schemas.py: CartItem, WishlistItem, CompareItem models.
+
+4. UI CHANGES
+--------------
+- customer-renown: src/lib/store.tsx — when a JWT/session exists, cart/
+  wishlist/compare actions (addToCart, toggleWishlist, toggleCompare, etc.)
+  call the new endpoints instead of only writing to localStorage; when
+  there's no session, keep the current localStorage behavior unchanged for
+  guests. On sign-in, merge any local guest cart into the server cart via
+  the POST endpoint (call it once per local item, capped at a handful of
+  items — not a hot path, so this is fine).
+- Keep all existing cart/wishlist/compare UI components (cart.tsx,
+  wishlist.tsx, compare.tsx, Header badges) — only change where the data
+  comes from.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt fully (migrations, routers registered in
+  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap).
+- No N+1: cart/wishlist/compare list endpoints must join product data in
+  the same query, never loop and re-query per item.
+- Lambda-first: these are small, frequent calls — keep payloads minimal and
+  avoid unnecessary joins beyond what the UI needs.
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component (or the guest localStorage path) to
+  make the API more convenient to write. Shape the API's request/response
+  fields to match exactly what the given UI already needs.
+
+6. DEFINITION OF DONE
+----------------------
+- All 3 migrations apply cleanly and idempotently.
+- Cart/wishlist/compare endpoints verified via curl for a logged-in
+  customer, including the compare 4-item cap.
+- Guest (no JWT) flow still works exactly as before via localStorage.
+- Logged-in flow persists across a page reload and a fresh login.
+- No linter errors.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 2 of them; after implementing and verifying
+locally, commit each one separately from within its own repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_4: customer cart, wishlist & compare (api)"
+
+    cd ../customer-renown
+    git add -A
+    git commit -m "phase_4: customer cart, wishlist & compare (ui)"

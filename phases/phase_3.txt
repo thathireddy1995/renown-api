@@ -1,0 +1,108 @@
+PHASE 3 — TAXONOMY & OPTICAL ATTRIBUTES
+================================================================
+Portals: Admin (admin.renowneyewear.com), Customer (renowneyewear.com)
+Depends on: Phase 2 (products table exists, brand_id/category_id columns
+added but not yet constrained)
+
+GOAL
+----
+Build the merchandising taxonomy (categories, brands, collections,
+attributes) and optical specs (lens types, frame types, colors, sizes) that
+admin-data.ts currently mocks, wire admin CRUD for all of them, and let the
+customer storefront filter by category/brand using real data.
+
+1. DATABASE (migrations/)
+--------------------------
+- 0007_create_categories_table.sql — categories: id, name, slug, status,
+  created_at, updated_at. UNIQUE index on slug.
+- 0008_create_brands_table.sql — brands: id, name, slug, status,
+  created_at, updated_at. UNIQUE index on slug.
+- 0009_create_collections_table.sql — collections: id, name, slug, status,
+  created_at, updated_at. UNIQUE index on slug.
+- 0010_create_attributes_table.sql — attributes: id, name, type
+  ('select'|'boolean'), created_at. attribute_values: id, attribute_id FK,
+  value, created_at. Index on attribute_values.attribute_id.
+- 0011_create_optical_specs_tables.sql — lens_types (id, name, description,
+  price NUMERIC DEFAULT 0), frame_types (id, name), colors (id, name, hex),
+  sizes (id, name, code, measurement). Add product_variant columns/FKs
+  where the mock data ties a variant to a specific color/size row instead
+  of a free-text string (color_id, size_id nullable FKs on
+  product_variants, keeping the existing free-text columns for now to avoid
+  breaking Phase 2 data — backfill in this migration).
+- 0012_add_catalog_foreign_keys.sql — now that categories/brands exist, add
+  the FK constraints on products.category_id and products.brand_id
+  (deferred from Phase 2), plus indexes if not already present.
+
+2. SEED DATA (scripts/)
+------------------------
+- scripts/seed_taxonomy.py — loads categories/brands/collections/attributes
+  and optical specs from admin-data.ts mocks (idempotent, matched by slug/
+  name).
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- app/routers/admin_taxonomy.py, prefix /admin/taxonomy — CRUD for
+  categories, brands, collections, attributes (+ attribute values nested
+  under an attribute id, loaded with selectinload, not per-row queries).
+- app/routers/admin_opticals.py, prefix /admin/opticals — CRUD for
+  lens-types, frame-types, colors, sizes.
+- app/routers/customer_catalog.py (or extend customer_products.py from
+  Phase 2 if it's still small), add GET /customer/categories and
+  GET /customer/brands for storefront filter dropdowns — cheap, cacheable,
+  single query each.
+- app/schemas.py: Category, Brand, Collection, Attribute, AttributeValue,
+  LensType, FrameType, Color, Size models.
+
+4. UI CHANGES
+--------------
+- admin-renown: src/routes/admin.taxonomy.*.tsx and admin.opticals.*.tsx
+  switch from admin-data.ts arrays to the new endpoints, keeping the
+  existing CrudTable-based layout for each entity.
+- customer-renown: src/routes/products.index.tsx filter sidebar/sheet pulls
+  category and brand options from /customer/categories and
+  /customer/brands instead of the hardcoded CATEGORIES/BRANDS arrays in
+  lib/data.ts.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt fully (migrations folder only, routers
+  registered in main.py, schemas.py for table models, hot db pool, orjson,
+  requirements.txt, 700-line cap — split admin_taxonomy.py into per-entity
+  files like admin_taxonomy_categories.py if needed).
+- No N+1: attribute values load via a single eager-loaded query per
+  attribute list request, never one query per attribute.
+- Lambda-first: these are low-traffic CRUD endpoints — keep them simple and
+  dependency-light.
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write. Swap data source only. Shape the API's request/response fields to
+  match exactly what the given UI already needs.
+
+6. DEFINITION OF DONE
+----------------------
+- All migrations apply cleanly and idempotently, including the deferred FK
+  migration from Phase 2.
+- seed_taxonomy.py populates all taxonomy/optical tables.
+- Admin taxonomy and opticals CRUD pages verified against real data.
+- Customer product filters (category/brand) work against real endpoints.
+- No linter errors.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 3 of them; after implementing and verifying
+locally, commit each one separately from within its own repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_3: taxonomy & optical attributes (api)"
+
+    cd ../admin-renown
+    git add -A
+    git commit -m "phase_3: taxonomy & optical attributes (admin ui)"
+
+    cd ../customer-renown
+    git add -A
+    git commit -m "phase_3: taxonomy & optical attributes (customer ui)"

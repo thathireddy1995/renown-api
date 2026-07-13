@@ -1,0 +1,117 @@
+PHASE 2 — CATALOG FOUNDATION: PRODUCTS & VARIANTS
+================================================================
+Portals: Admin (admin.renowneyewear.com), Customer (renowneyewear.com)
+Depends on: Phase 1 (customer auth, for later ownership of carts/orders)
+
+GOAL
+----
+Move the core product catalog out of admin-data.ts/data.ts mock arrays into
+real tables, with admin CRUD and a read-only customer storefront feed. This
+is the foundation every later commerce phase depends on.
+
+1. DATABASE (migrations/)
+--------------------------
+- 0004_create_products_table.sql
+    products: id BIGSERIAL PK, name VARCHAR(200) NOT NULL, slug VARCHAR(220)
+    NOT NULL, sku VARCHAR(40) NOT NULL, description TEXT, price NUMERIC(10,2)
+    NOT NULL, compare_at_price NUMERIC(10,2), brand_id BIGINT, category_id
+    BIGINT, gender VARCHAR(20), shape VARCHAR(30), material VARCHAR(30),
+    rim_type VARCHAR(20), warranty VARCHAR(60), is_new BOOLEAN DEFAULT FALSE,
+    is_bestseller BOOLEAN DEFAULT FALSE, is_trending BOOLEAN DEFAULT FALSE,
+    status VARCHAR(20) NOT NULL DEFAULT 'draft', created_at, updated_at.
+    Indexes: UNIQUE on slug, UNIQUE on sku, index on brand_id, index on
+    category_id, index on status.
+- 0005_create_product_variants_table.sql
+    product_variants: id BIGSERIAL PK, product_id BIGINT NOT NULL REFERENCES
+    products(id), sku VARCHAR(40) NOT NULL, color VARCHAR(40), color_hex
+    VARCHAR(7), size VARCHAR(20), price NUMERIC(10,2), stock INT NOT NULL
+    DEFAULT 0, created_at, updated_at.
+    Indexes: UNIQUE on sku, index on product_id.
+- 0006_create_product_images_table.sql
+    product_images: id BIGSERIAL PK, product_id BIGINT NOT NULL REFERENCES
+    products(id), url TEXT NOT NULL, sort_order INT DEFAULT 0.
+    Index on product_id.
+(brand_id/category_id are forward references — Phase 3 adds the brands and
+categories tables; add the FK constraints in Phase 3's migration once those
+tables exist, not before.)
+
+2. SEED DATA (scripts/)
+------------------------
+- scripts/seed_products.py — loads the ~12 admin products and 36 customer
+  products from the existing mock files into the new tables (idempotent,
+  matched by slug/sku) so both portals have real, consistent data to test
+  against immediately.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- app/routers/admin_catalog.py, prefix /admin/catalog
+    GET /admin/catalog/products (paginated, filter by status/brand/category,
+    search by name — single query with LIMIT/OFFSET, no per-row lookups)
+    GET /admin/catalog/products/{id} (with variants + images eager-loaded
+    via selectinload, one query for the product, one for variants, one for
+    images — never per-row)
+    POST /admin/catalog/products, PATCH /admin/catalog/products/{id},
+    DELETE /admin/catalog/products/{id}
+    GET/POST/PATCH/DELETE /admin/catalog/variants (scoped by product_id)
+- app/routers/customer_products.py, prefix /customer/products
+    GET /customer/products (paginated list, filter by category/brand/price
+    range/search, only status='active')
+    GET /customer/products/{slug} (single product + variants + images)
+- app/schemas.py: Product, ProductVariant, ProductImage models.
+- app/dto/catalog_dto.py: ProductOut, ProductVariantOut, ProductCreate,
+  ProductUpdate, etc.
+
+4. UI CHANGES
+--------------
+- admin-renown: src/routes/admin.catalog.products.tsx and
+  admin.catalog.variants.tsx switch from lib/admin-data.ts static arrays to
+  fetching from /admin/catalog/*; keep the existing CrudTable component and
+  layout, only replace the data source and wire create/edit/delete to real
+  requests.
+- customer-renown: src/routes/products.index.tsx and products.$id.tsx
+  switch from lib/data.ts PRODUCTS to fetching /customer/products; keep
+  existing filter/sort UI, ProductCard, and PDP layout untouched.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt: migrations only in /migrations, routers
+  registered in main.py, schemas.py holds all table models, hot db pool via
+  database.py, orjson responses, new deps in requirements.txt, 700-line
+  file cap (split admin_catalog.py into admin_catalog_products.py /
+  admin_catalog_variants.py if it grows past that).
+- No N+1: list endpoints select exactly the columns needed and paginate;
+  detail endpoints eager-load variants/images instead of looping.
+- Lambda-first: keep this router lean, avoid loading the full catalog into
+  memory on every request.
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write. Swap data source only. Shape the API's request/response fields to
+  match exactly what the given UI already needs.
+
+6. DEFINITION OF DONE
+----------------------
+- All 3 migrations apply cleanly and idempotently.
+- seed_products.py populates both admin and customer catalogs consistently.
+- Admin catalog list/detail/CRUD verified via curl or the admin UI.
+- Customer product listing and PDP render real data with working filters.
+- No linter errors; no endpoint exceeds the N+1/pagination rules above.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 3 of them; after implementing and verifying
+locally, commit each one separately from within its own repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_2: catalog foundation — products & variants (api)"
+
+    cd ../admin-renown
+    git add -A
+    git commit -m "phase_2: catalog foundation — products & variants (admin ui)"
+
+    cd ../customer-renown
+    git add -A
+    git commit -m "phase_2: catalog foundation — products & variants (customer ui)"

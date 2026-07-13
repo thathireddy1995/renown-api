@@ -1,0 +1,97 @@
+PHASE 11 — EYE TEST APPOINTMENTS & PRESCRIPTIONS
+================================================================
+Portals: Customer (renowneyewear.com), Staff (staff.renowneyewear.com —
+store side), Admin (admin.renowneyewear.com, read-only)
+Depends on: Phase 1 (customers), Phase 7 (stores)
+
+GOAL
+----
+Wire eye-test booking (customer-renown's eye-test.tsx and account.tsx) and
+the store side's Appointments/Prescriptions pages to real tables shared
+across both portals, so a booking made on the storefront is visible to the
+store staff who will run it.
+
+1. DATABASE (migrations/)
+--------------------------
+- 0031_create_doctors_table.sql — doctors: id, name, specialty, store_id
+  FK NULL, created_at. Index on store_id.
+- 0032_create_appointments_table.sql — appointments: id, customer_id FK
+  NULL (nullable for walk-ins entered by staff), store_id FK, doctor_id FK
+  NULL, appointment_type ('eye_test'|'fitting'|'lens_trial'), scheduled_at
+  TIMESTAMPTZ NOT NULL, status ('booked'|'confirmed'|'completed'|
+  'cancelled'), phone VARCHAR(20), created_at, updated_at. Index on
+  store_id, index on scheduled_at, index on status.
+- 0033_create_prescriptions_table.sql — prescriptions: id, customer_id FK,
+  doctor_id FK NULL, right_sph, right_cyl, left_sph, left_cyl, pd,
+  recorded_at, created_at. Index on customer_id.
+
+2. SEED DATA (scripts/)
+------------------------
+- scripts/seed_clinical.py — loads the 3 doctors, appointment mocks from
+  customer-renown's DOCTORS/appointments and staff-renown's
+  store/Appointments.tsx and Prescriptions.tsx into the new tables.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- app/routers/customer_appointments.py, prefix /customer/appointments —
+  GET /doctors (by store), POST / (book, requires customer JWT from
+  Phase 1), GET / (the customer's own bookings, for account.tsx).
+- app/routers/staff_store_appointments.py, prefix
+  /staff/store/appointments — list for the staff user's store (joined with
+  customer/doctor in one query), PATCH /{id}/status.
+- app/routers/staff_store_prescriptions.py, prefix
+  /staff/store/prescriptions — list/create, joined with customer in one
+  query.
+- app/schemas.py: Doctor, Appointment, Prescription models.
+
+4. UI CHANGES
+--------------
+- customer-renown: eye-test.tsx books via POST /customer/appointments
+  instead of lib/store.tsx's local bookAppointment(); account.tsx's Eye
+  Tests tab lists from GET /customer/appointments.
+- staff-renown: store/Appointments.tsx and store/Prescriptions.tsx switch
+  from inline `rows` arrays to the new staff endpoints, scoped to the
+  logged-in store manager's store.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt fully (migrations, routers registered in
+  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap).
+- No N+1: appointment/prescription lists join customer/doctor names in one
+  query, never fetched per row afterward.
+- Lambda-first: these are low-volume, low-latency-sensitive endpoints —
+  keep them simple.
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write. Swap data source only. Shape the API's request/response fields to
+  match exactly what the given UI already needs.
+
+6. DEFINITION OF DONE
+----------------------
+- All 3 migrations apply cleanly and idempotently.
+- seed_clinical.py populates doctors/appointments/prescriptions consistent
+  with Phases 1 and 7.
+- A booking made via customer-renown's eye-test flow appears in
+  staff-renown's Appointments page for the correct store.
+- No linter errors.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 3 of them (admin-renown has no changes this
+phase — read-only — so do not commit it); after implementing and verifying
+locally, commit each touched repo separately from within its own root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_11: eye test appointments & prescriptions (api)"
+
+    cd ../customer-renown
+    git add -A
+    git commit -m "phase_11: eye test appointments & prescriptions (customer ui)"
+
+    cd ../staff-renown
+    git add -A
+    git commit -m "phase_11: eye test appointments & prescriptions (staff ui)"

@@ -1,0 +1,91 @@
+PHASE 6 — ADMIN ORDERS & CUSTOMERS MANAGEMENT
+================================================================
+Portals: Admin (admin.renowneyewear.com)
+Depends on: Phase 1 (customers table), Phase 5 (orders table)
+
+GOAL
+----
+Wire the admin Orders and Customers pages (currently data.ts mocks) to the
+real orders/customers tables created in Phases 1 and 5, with working
+search, filters, and a customer detail view showing lifetime value.
+
+1. DATABASE (migrations/)
+--------------------------
+- 0019_add_admin_order_customer_indexes.sql — add any composite indexes
+  admin filtering needs that aren't already covered: index on
+  orders(customer_id, status), index on customers(created_at) for sorting
+  new customers, index on customers(is_active).
+  (Only add indexes actually missing after reviewing Phase 1/5 migrations —
+  do not duplicate existing ones.)
+
+2. SEED DATA (scripts/)
+------------------------
+- None required — reuses customers/orders seeded in Phases 1 and 5. If more
+  demo volume is useful for admin table/pagination testing, extend
+  scripts/seed_orders.py with a `--bulk` flag rather than adding a new
+  script.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- app/routers/admin_orders.py, prefix /admin/orders
+    GET /admin/orders — paginated, filter by status/date range/search
+    (customer name or order number), single query with LIMIT/OFFSET plus
+    a separate COUNT query for total — never fetch all rows to count in
+    Python.
+    GET /admin/orders/{id} — order + items + customer, eager-loaded in one
+    round trip.
+    PATCH /admin/orders/{id}/status — update status (validate allowed
+    transitions server-side).
+- app/routers/admin_customers.py, prefix /admin/customers
+    GET /admin/customers — paginated list with total orders count and total
+    spend, computed via a single aggregated JOIN/GROUP BY query (never a
+    per-customer query in a loop).
+    GET /admin/customers/{id} — profile + recent orders (eager-loaded).
+- app/dto/admin_dto.py (or split per-router DTO files once this grows):
+  OrderOut, OrderDetailOut, CustomerOut, CustomerDetailOut.
+
+4. UI CHANGES
+--------------
+- admin-renown: src/routes/admin.orders.tsx and admin.customers.tsx switch
+  from lib/data.ts arrays to the new paginated endpoints; wire the existing
+  search/filter/export controls to real query params instead of client-side
+  array filtering. Keep the current table layout and columns.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt fully (migrations, routers registered in
+  main.py, schemas.py reused from Phases 1/5 — no duplicate model
+  definitions, hot db pool, orjson, requirements.txt, 700-line cap).
+- No N+1: customer list's order-count/spend aggregation must be one JOIN +
+  GROUP BY query, not N queries for N customers. Order list's total count
+  must be one COUNT query, not len(fetch-all).
+- Lambda-first: paginate everything, cap page size (e.g. max 100).
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write. Swap data source only. Shape the API's request/response fields to
+  match exactly what the given UI already needs.
+
+6. DEFINITION OF DONE
+----------------------
+- Any new indexes applied cleanly and idempotently.
+- Admin orders and customers pages verified against real data with
+  pagination, search, and filters all working.
+- Confirmed (via EXPLAIN or query log) that the customer list aggregation
+  and order list pagination are each a single query, not N+1.
+- No linter errors.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 2 of them; after implementing and verifying
+locally, commit each one separately from within its own repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_6: admin orders & customers management (api)"
+
+    cd ../admin-renown
+    git add -A
+    git commit -m "phase_6: admin orders & customers management (ui)"

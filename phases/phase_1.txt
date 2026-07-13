@@ -1,0 +1,106 @@
+PHASE 1 — CUSTOMER PHONE NUMBER OTP AUTHENTICATION
+================================================================
+Portals: Customer (renowneyewear.com)
+Depends on: none (first phase)
+
+GOAL
+----
+Replace the simulated sign-in in customer-renown (currently instant, no real
+check) with real phone-number + OTP authentication. Any phone number that
+verifies an OTP becomes a customer (auto-signup on first successful verify).
+
+1. DATABASE (migrations/)
+--------------------------
+- 0002_create_customers_table.sql
+    customers: id BIGSERIAL PK, name VARCHAR(120) NULL, phone VARCHAR(20) NOT
+    NULL, email VARCHAR(160) NULL, is_active BOOLEAN DEFAULT TRUE,
+    created_at, updated_at.
+    Indexes: UNIQUE on phone (this is the login identifier), index on email.
+- 0003_create_otp_codes_table.sql
+    otp_codes: id BIGSERIAL PK, phone VARCHAR(20) NOT NULL, code VARCHAR(6)
+    NOT NULL, purpose VARCHAR(20) NOT NULL DEFAULT 'login', expires_at
+    TIMESTAMPTZ NOT NULL, consumed_at TIMESTAMPTZ NULL, attempt_count INT
+    NOT NULL DEFAULT 0, created_at TIMESTAMPTZ DEFAULT now().
+    Indexes: composite index on (phone, expires_at) — used both to fetch the
+    latest active code for a phone and to rate-limit repeated requests.
+
+2. SEED DATA (scripts/)
+------------------------
+- scripts/seed_customers.py — creates 2-3 demo customers with known phone
+  numbers (e.g. 9000000001, 9000000002) so QA/demo flows have existing
+  accounts to test the "returning customer" path alongside auto-signup.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+Router: app/routers/customer_auth.py, prefix /customer/auth
+- POST /customer/auth/otp/request  { phone }
+    Generates a 6-digit code, stores it in otp_codes with a short expiry
+    (5 minutes). Rate-limit: reject with 429 if 5+ non-expired codes were
+    already requested for that phone in the last 10 minutes (single indexed
+    query, no loop). Never return the code itself in the response body.
+    SMS sending is out of scope for this phase — log the code server-side.
+- POST /customer/auth/otp/verify  { phone, code }
+    Looks up the latest unconsumed, unexpired code for that phone (one
+    indexed query). In non-production only, also accept the fixed demo code
+    123456 (gate this behind an ENVIRONMENT config flag — never enabled in
+    production). On match: mark the code consumed, get_or_create the
+    customer row by phone, issue a JWT (role="customer", sub=customer id),
+    return { access_token, customer }. On mismatch: increment attempt_count
+    and return 401; lock the code after 5 failed attempts.
+- app/schemas.py: add Customer and OtpCode ORM models.
+- app/dto/auth_dto.py (or a new customer_auth_dto.py if it keeps files
+  focused): OtpRequest, OtpVerifyRequest, CustomerOut, CustomerTokenResponse.
+
+4. UI CHANGES (customer-renown)
+---------------------------------
+- src/lib/api.ts (new) — requestOtp(phone), verifyOtp(phone, code).
+- src/routes/auth.tsx — wire the existing OTP tab to call the real
+  endpoints instead of instantly signing in. Keep the Google/Apple/email
+  tabs exactly as they are (still simulated, out of scope this phase) — do
+  not remove or restyle them.
+- src/lib/store.tsx — extend signIn()/session state to persist the JWT and
+  real customer id/phone returned by the API, still backed by
+  localStorage for session continuity across reloads.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt in full: migrations only in /migrations,
+  router registered in app/main.py, database.py's existing hot connection
+  pool reused (no new engine), table models in schemas.py, any new package
+  added to requirements.txt, response class stays orjson, keep this router
+  under 700 lines.
+- No N+1 queries: OTP lookups and customer lookups are single indexed
+  queries, never a loop.
+- Lambda-first: keep the OTP generation/hashing lightweight, no heavy new
+  dependencies, cold-start stays fast.
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write. Only change data wiring. Shape the API's request/response fields
+  to match exactly what the given UI already needs.
+
+6. DEFINITION OF DONE
+----------------------
+- Both migrations apply cleanly and are idempotent on re-run.
+- seed_customers.py runs and is safe to re-run.
+- otp/request and otp/verify tested end-to-end via curl, including: valid
+  flow, expired code, wrong code, rate-limit trigger, demo-code bypass in
+  dev.
+- customer-renown OTP tab signs a real user in against the local API and
+  the session survives a page reload.
+- No linter errors in touched files.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 2 of them; after implementing and verifying
+locally, commit each one separately from within its own repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_1: customer phone number OTP authentication (api)"
+
+    cd ../customer-renown
+    git add -A
+    git commit -m "phase_1: customer phone number OTP authentication (ui)"

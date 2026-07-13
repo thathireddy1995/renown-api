@@ -1,0 +1,108 @@
+PHASE 8 — WAREHOUSE OPERATIONS: RECEIVING, PICKING, PACKING, DISPATCH
+================================================================
+Portals: Staff (staff.renowneyewear.com — warehouse side)
+Depends on: Phase 7 (warehouses, warehouse_inventory)
+
+GOAL
+----
+Wire the warehouse manager's operational pages (currently static per-file
+mocks in staff-renown/src/pages/warehouse/) to real tables covering the
+inbound-to-outbound flow: GRN receiving, pick lists, packing, and dispatch.
+
+1. DATABASE (migrations/)
+--------------------------
+- 0024_create_suppliers_table.sql — suppliers: id, code, name, contact,
+  category, lead_time_days, status, created_at. UNIQUE on code.
+- 0025_create_purchase_orders_and_grn_tables.sql — purchase_orders: id,
+  po_number, supplier_id FK, status, created_at. grn (goods receipt notes):
+  id, grn_number, purchase_order_id FK, warehouse_id FK, status,
+  received_at, created_at. grn_items: id, grn_id FK, variant_id FK,
+  qty_ordered, qty_received. Index on purchase_order_id, index on
+  grn.warehouse_id.
+- 0026_create_pick_pack_dispatch_tables.sql — pick_lists: id, wave_number,
+  warehouse_id FK, picker_name, status, created_at. pick_list_items: id,
+  pick_list_id FK, variant_id FK, qty, picked_qty. packs: id, pack_number,
+  dispatch_order_id FK (nullable until linked), packer_name, boxes, weight,
+  status, created_at. dispatch_orders: id, do_number, warehouse_id FK,
+  destination_type ('store_replen'|'d2c'), destination_id, carrier, awb,
+  status, created_at. dispatch_order_items: id, dispatch_order_id FK,
+  variant_id FK, qty. Indexes on every *_id FK column and on each table's
+  status column.
+
+2. SEED DATA (scripts/)
+------------------------
+- scripts/seed_warehouse_ops.py — loads suppliers, receiving (GRN vs PO),
+  picking, packing, and dispatch mock rows from staff-renown's
+  warehouse/Receiving.tsx, Picking.tsx, Packing.tsx, Dispatch.tsx,
+  Suppliers.tsx into the new tables, tied to the warehouse seeded in
+  Phase 7.
+
+3. API (follow renown-api/api_rules.txt for everything below)
+----------------------------------------------------------------
+- app/routers/staff_warehouse_receiving.py, prefix
+  /staff/warehouse/receiving — list GRNs joined with PO/supplier in one
+  query; POST to record a receipt (updates warehouse_inventory.on_hand in
+  the same transaction).
+- app/routers/staff_warehouse_picking.py, prefix /staff/warehouse/picking —
+  list pick lists with items eager-loaded; PATCH to update picked_qty per
+  item.
+- app/routers/staff_warehouse_packing.py, prefix /staff/warehouse/packing —
+  list/create packs.
+- app/routers/staff_warehouse_dispatch.py, prefix
+  /staff/warehouse/dispatch — list/create dispatch orders with items,
+  decrements warehouse_inventory in the same transaction as dispatch
+  creation.
+- app/routers/staff_warehouse_suppliers.py, prefix
+  /staff/warehouse/suppliers — CRUD.
+- app/schemas.py: Supplier, PurchaseOrder, Grn, GrnItem, PickList,
+  PickListItem, Pack, DispatchOrder, DispatchOrderItem models.
+
+4. UI CHANGES
+--------------
+- staff-renown: Receiving.tsx, Picking.tsx, Packing.tsx, Dispatch.tsx,
+  Suppliers.tsx under src/pages/warehouse/ switch from inline `rows` const
+  arrays to fetching from the new endpoints, using the existing
+  DataTable/StatCard components unchanged. Require the staff JWT from the
+  auth phase already shipped (Phase 0 baseline) on every request.
+
+5. RULES
+--------
+- Follow @renown-api/api_rules.txt fully (migrations, routers registered in
+  main.py, schemas.py, hot db pool, orjson, requirements.txt, 700-line cap
+  — this domain has 5 routers precisely to stay under that cap).
+- No N+1: every list endpoint eager-loads its item rows (grn_items,
+  pick_list_items, dispatch_order_items) in one query, never per-parent-row.
+  Inventory updates from receiving/dispatch happen in the same transaction
+  as the triggering write, not as separate follow-up queries in a loop.
+- Lambda-first: keep each router scoped to one sub-domain so cold start
+  only pulls in what a given request path needs.
+- The UI is locked after client review: never delete, restructure, or
+  simplify any existing UI component to make the API more convenient to
+  write. Swap data source only. Shape the API's request/response fields to
+  match exactly what the given UI already needs.
+
+6. DEFINITION OF DONE
+----------------------
+- All 3 migrations apply cleanly and idempotently.
+- seed_warehouse_ops.py populates supplier/PO/GRN/pick/pack/dispatch data
+  consistent with Phase 7's warehouse and Phase 2's variants.
+- All 5 warehouse ops pages in staff-renown verified against real data.
+- Receiving a GRN increases warehouse_inventory.on_hand; dispatching
+  decreases it — verified via a before/after query.
+- No linter errors.
+
+7. COMMIT
+---------
+Do not explain the code changes in chat. renown-suite is FOUR separate git
+repositories (renown-api, admin-renown, customer-renown, staff-renown),
+each with its own GitHub remote — never combine their history into one
+commit. This phase touches 2 of them; after implementing and verifying
+locally, commit each one separately from within its own repo root:
+
+    cd renown-api
+    git add -A
+    git commit -m "phase_8: warehouse operations — receiving, picking, packing, dispatch (api)"
+
+    cd ../staff-renown
+    git add -A
+    git commit -m "phase_8: warehouse operations — receiving, picking, packing, dispatch (ui)"
