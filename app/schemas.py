@@ -934,3 +934,58 @@ class StockAllocation(Base):
     order: Mapped["Order | None"] = relationship()
     variant: Mapped["ProductVariant"] = relationship()
     warehouse: Mapped["Warehouse"] = relationship()
+
+
+class StoreOrder(Base):
+    __tablename__ = "store_orders"
+    __table_args__ = (
+        Index("ix_store_orders_store_id", "store_id"),
+        Index("ix_store_orders_status", "status"),
+        Index("ix_store_orders_channel", "channel"),
+        Index("ix_store_orders_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    store_id: Mapped[int] = mapped_column(
+        ForeignKey("stores.id", ondelete="RESTRICT"), nullable=False
+    )
+    customer_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    channel: Mapped[str] = mapped_column(String(30), nullable=False, default="in_store")
+    payment_method: Mapped[str] = mapped_column(String(20), nullable=False, default="cash")
+    associate_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="Completed")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    store: Mapped["Store"] = relationship()
+    items: Mapped[list["StoreOrderItem"]] = relationship(
+        back_populates="store_order", cascade="all, delete-orphan"
+    )
+
+
+class StoreOrderItem(Base):
+    __tablename__ = "store_order_items"
+    __table_args__ = (
+        Index("ix_store_order_items_store_order_id", "store_order_id"),
+        Index("ix_store_order_items_variant_id", "variant_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_order_id: Mapped[int] = mapped_column(
+        ForeignKey("store_orders.id", ondelete="CASCADE"), nullable=False
+    )
+    variant_id: Mapped[int] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="RESTRICT"), nullable=False
+    )
+    qty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    price_snapshot: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=0
+    )
+
+    store_order: Mapped["StoreOrder"] = relationship(back_populates="items")
+    variant: Mapped["ProductVariant"] = relationship()

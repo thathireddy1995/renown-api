@@ -11,6 +11,7 @@ from app.routers import (
     admin_opticals,
     admin_orders,
     admin_stock_allocation,
+    admin_store_orders,
     admin_stores,
     admin_taxonomy,
     admin_transfer_requests,
@@ -25,6 +26,8 @@ from app.routers import (
     customer_products,
     customer_wishlist,
     staff_auth,
+    staff_store_orders,
+    staff_store_pos,
     staff_warehouse_dispatch,
     staff_warehouse_packing,
     staff_warehouse_picking,
@@ -55,6 +58,8 @@ app.include_router(staff_warehouse_picking.router)
 app.include_router(staff_warehouse_packing.router)
 app.include_router(staff_warehouse_dispatch.router)
 app.include_router(staff_warehouse_transfers.router)
+app.include_router(staff_store_pos.router)
+app.include_router(staff_store_orders.router)
 app.include_router(customer_auth.router)
 app.include_router(admin_catalog.router)
 app.include_router(admin_catalog_variants.router)
@@ -67,6 +72,7 @@ app.include_router(admin_stores.router)
 app.include_router(admin_warehouse_transfers.router)
 app.include_router(admin_transfer_requests.router)
 app.include_router(admin_stock_allocation.router)
+app.include_router(admin_store_orders.router)
 app.include_router(customer_products.router)
 app.include_router(customer_catalog.router)
 app.include_router(customer_cart.router)

@@ -14,6 +14,7 @@ _bearer = HTTPBearer(auto_error=False)
 
 STAFF_ROLES = frozenset({"store_manager", "warehouse_manager", "admin"})
 WAREHOUSE_ROLES = frozenset({"warehouse_manager", "admin"})
+STORE_ROLES = frozenset({"store_manager", "admin"})
 
 
 def pagination(
@@ -115,5 +116,16 @@ def get_current_warehouse_staff(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Warehouse staff access required.",
+        )
+    return user
+
+
+def get_current_store_staff(
+    user: User = Depends(get_current_staff),
+) -> User:
+    if user.role not in STORE_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Store staff access required.",
         )
     return user
