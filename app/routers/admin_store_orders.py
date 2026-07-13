@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.store_orders import admin_order_row, list_store_orders_query
 from app.database import get_db
-from app.deps import pagination
+from app.deps import pagination, require_role
 from app.dto.store_order_dto import (
     StoreAnalyticsKpis,
     StoreAnalyticsMixPoint,
@@ -19,7 +19,7 @@ from app.dto.store_order_dto import (
 )
 from app.schemas import Store, StoreOrder
 
-router = APIRouter(prefix="/admin/store-orders", tags=["admin-store-orders"])
+router = APIRouter(prefix="/admin/store-orders", tags=["admin-store-orders"], dependencies=[Depends(require_role("admin"))])
 
 
 @router.get("/analytics", response_model=StoreAnalyticsResponse)

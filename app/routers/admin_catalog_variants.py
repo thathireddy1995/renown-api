@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.catalog_serialize import variant_out
 from app.database import get_db
-from app.deps import pagination
+from app.deps import pagination, require_role
 from app.dto.catalog_dto import (
     ProductVariantCreate,
     ProductVariantOut,
@@ -15,7 +15,7 @@ from app.dto.catalog_dto import (
 )
 from app.schemas import Product, ProductVariant
 
-router = APIRouter(prefix="/admin/catalog", tags=["admin-catalog-variants"])
+router = APIRouter(prefix="/admin/catalog", tags=["admin-catalog-variants"], dependencies=[Depends(require_role("admin"))])
 
 
 @router.get("/variants", response_model=VariantListResponse)

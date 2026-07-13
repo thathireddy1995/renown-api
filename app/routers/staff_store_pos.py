@@ -8,7 +8,7 @@ from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.deps import get_current_store_staff
+from app.deps import require_role, TokenPrincipal
 from app.dto.store_order_dto import (
     PosCatalogItemOut,
     PosCatalogResponse,
@@ -23,10 +23,9 @@ from app.schemas import (
     StoreInventory,
     StoreOrder,
     StoreOrderItem,
-    User,
 )
 
-router = APIRouter(prefix="/staff/store/pos", tags=["staff-store-pos"])
+router = APIRouter(prefix="/staff/store/pos", tags=["staff-store-pos"], dependencies=[Depends(require_role("store_manager"))])
 
 
 def _default_store(db: Session) -> Store | None:
@@ -35,14 +34,21 @@ def _default_store(db: Session) -> Store | None:
     ) or db.scalar(select(Store).order_by(Store.id.asc()).limit(1))
 
 
+def _resolve_store(db: Session, principal: TokenPrincipal, store_id: int | None) -> Store | None:
+    sid = principal.store_id or store_id
+    if sid is not None:
+        return db.get(Store, sid)
+    return _default_store(db)
+
+
 @router.get("/catalog", response_model=PosCatalogResponse)
 def pos_catalog(
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_store_staff),
+    principal: TokenPrincipal = Depends(require_role("store_manager")),
     store_id: int | None = None,
     search: str | None = Query(None, alias="q"),
 ) -> PosCatalogResponse:
-    store = db.get(Store, store_id) if store_id else _default_store(db)
+    store = _resolve_store(db, principal, store_id)
     if not store:
         raise HTTPException(status_code=400, detail="No store configured")
 
@@ -103,12 +109,12 @@ def pos_catalog(
 def pos_checkout(
     body: PosCheckoutRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_store_staff),
+    principal: TokenPrincipal = Depends(require_role("store_manager")),
 ) -> PosCheckoutOut:
     if not body.items:
         raise HTTPException(status_code=422, detail="Cart is empty")
 
-    store = db.get(Store, body.store_id) if body.store_id else _default_store(db)
+    store = _resolve_store(db, principal, body.store_id)
     if not store:
         raise HTTPException(status_code=400, detail="No store configured")
 

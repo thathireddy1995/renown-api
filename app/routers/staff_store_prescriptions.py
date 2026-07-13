@@ -14,21 +14,21 @@ from app.core.clinical import (
     staff_prescription_row,
 )
 from app.database import get_db
-from app.deps import get_current_store_staff, pagination
+from app.deps import pagination, require_role, TokenPrincipal
 from app.dto.clinical_dto import (
     StaffPrescriptionCreate,
     StaffPrescriptionListResponse,
     StaffPrescriptionOut,
 )
-from app.schemas import Customer, Doctor, Prescription, User
+from app.schemas import Customer, Doctor, Prescription
 
-router = APIRouter(prefix="/staff/store/prescriptions", tags=["staff-store-prescriptions"])
+router = APIRouter(prefix="/staff/store/prescriptions", tags=["staff-store-prescriptions"], dependencies=[Depends(require_role("store_manager"))])
 
 
 @router.get("", response_model=StaffPrescriptionListResponse)
 def list_prescriptions(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_store_staff),
+    principal: TokenPrincipal = Depends(require_role("store_manager")),
     page: tuple[int, int] = Depends(pagination),
     store_id: int | None = None,
     search: str | None = Query(None, alias="q"),
@@ -38,7 +38,7 @@ def list_prescriptions(
     Optional store_id scopes to doctors assigned to that store (or unassigned).
     """
     limit, offset = page
-    sid = store_id
+    sid = principal.store_id or store_id
     if sid is None:
         store = default_store(db)
         sid = store.id if store else None
@@ -102,7 +102,7 @@ def list_prescriptions(
 def create_prescription(
     payload: StaffPrescriptionCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_store_staff),
+    _: TokenPrincipal = Depends(require_role("store_manager")),
 ) -> StaffPrescriptionOut:
     customer = None
     if payload.customer_id is not None:

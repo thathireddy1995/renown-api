@@ -7,7 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.deps import get_current_warehouse_staff, pagination
+from app.deps import get_current_warehouse_staff, pagination, require_role
 from app.dto.staff_dto import (
     StaffDispatchCreate,
     StaffDispatchListResponse,
@@ -23,7 +23,7 @@ from app.schemas import (
     WarehouseInventory,
 )
 
-router = APIRouter(prefix="/staff/warehouse/dispatch", tags=["staff-warehouse-dispatch"])
+router = APIRouter(prefix="/staff/warehouse/dispatch", tags=["staff-warehouse-dispatch"], dependencies=[Depends(require_role("warehouse_manager"))])
 
 TYPE_LABEL = {
     "store_replen": "Store Replen",

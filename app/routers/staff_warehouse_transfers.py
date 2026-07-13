@@ -13,7 +13,7 @@ from app.core.stock_transfers import (
     transfer_eager_options,
 )
 from app.database import get_db
-from app.deps import get_current_warehouse_staff, pagination
+from app.deps import get_current_warehouse_staff, pagination, require_role
 from app.dto.staff_dto import (
     StaffStockTransferCreate,
     StaffStockTransferListResponse,
@@ -22,7 +22,8 @@ from app.dto.staff_dto import (
 from app.schemas import ProductVariant, StockTransfer, StockTransferItem, User, Warehouse
 
 router = APIRouter(
-    prefix="/staff/warehouse/transfers", tags=["staff-warehouse-transfers"]
+    prefix="/staff/warehouse/transfers", tags=["staff-warehouse-transfers"],
+    dependencies=[Depends(require_role("warehouse_manager"))],
 )
 
 

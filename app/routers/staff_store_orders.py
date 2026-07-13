@@ -5,12 +5,12 @@ from sqlalchemy.orm import Session
 
 from app.core.store_orders import list_store_orders_query, staff_order_row, store_order_eager
 from app.database import get_db
-from app.deps import get_current_store_staff, pagination
+from app.deps import pagination, require_role, TokenPrincipal
 from app.dto.store_order_dto import StaffStoreOrderListResponse, StaffStoreOrderOut
-from app.schemas import Store, StoreOrder, User
+from app.schemas import Store, StoreOrder
 from sqlalchemy import select
 
-router = APIRouter(prefix="/staff/store/orders", tags=["staff-store-orders"])
+router = APIRouter(prefix="/staff/store/orders", tags=["staff-store-orders"], dependencies=[Depends(require_role("store_manager"))])
 
 
 def _default_store(db: Session) -> Store | None:
@@ -22,7 +22,7 @@ def _default_store(db: Session) -> Store | None:
 @router.get("", response_model=StaffStoreOrderListResponse)
 def list_orders(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_store_staff),
+    principal: TokenPrincipal = Depends(require_role("store_manager")),
     page: tuple[int, int] = Depends(pagination),
     store_id: int | None = None,
     status_filter: str | None = Query(None, alias="status"),
@@ -30,7 +30,7 @@ def list_orders(
     search: str | None = Query(None, alias="q"),
 ) -> StaffStoreOrderListResponse:
     limit, offset = page
-    sid = store_id
+    sid = principal.store_id or store_id
     if sid is None:
         store = _default_store(db)
         sid = store.id if store else None
@@ -73,7 +73,7 @@ def list_orders(
 def get_order(
     order_ref: str,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_store_staff),
+    _: TokenPrincipal = Depends(require_role("store_manager")),
 ) -> StaffStoreOrderOut:
     stmt = select(StoreOrder).options(*store_order_eager())
     order = db.scalar(stmt.where(StoreOrder.order_number == order_ref))

@@ -5,7 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.deps import get_current_warehouse_staff, pagination
+from app.deps import get_current_warehouse_staff, pagination, require_role
 from app.dto.staff_dto import (
     StaffPickListOut,
     StaffPickListPatch,
@@ -13,7 +13,7 @@ from app.dto.staff_dto import (
 )
 from app.schemas import PickList, PickListItem, User
 
-router = APIRouter(prefix="/staff/warehouse/picking", tags=["staff-warehouse-picking"])
+router = APIRouter(prefix="/staff/warehouse/picking", tags=["staff-warehouse-picking"], dependencies=[Depends(require_role("warehouse_manager"))])
 
 
 def _pick_out(p: PickList) -> StaffPickListOut:

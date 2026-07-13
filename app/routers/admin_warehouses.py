@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.inventory_status import warehouse_stock_status
 from app.database import get_db
-from app.deps import pagination
+from app.deps import pagination, require_role
 from app.dto.location_dto import (
     WarehouseCreate,
     WarehouseListResponse,
@@ -17,7 +17,7 @@ from app.dto.location_dto import (
 )
 from app.schemas import Product, ProductVariant, Warehouse, WarehouseInventory
 
-router = APIRouter(prefix="/admin/warehouses", tags=["admin-warehouses"])
+router = APIRouter(prefix="/admin/warehouses", tags=["admin-warehouses"], dependencies=[Depends(require_role("admin"))])
 
 
 def case_dot_color():

@@ -6,14 +6,14 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.stock_transfers import reserve_allocation_stock
 from app.database import get_db
-from app.deps import pagination
+from app.deps import pagination, require_role
 from app.dto.admin_dto import (
     AdminStockAllocationListResponse,
     AdminStockAllocationOut,
 )
 from app.schemas import ProductVariant, StockAllocation, Warehouse
 
-router = APIRouter(prefix="/admin/stock-allocation", tags=["admin-stock-allocation"])
+router = APIRouter(prefix="/admin/stock-allocation", tags=["admin-stock-allocation"], dependencies=[Depends(require_role("admin"))])
 
 # UI display statuses (seed stores these); DB also accepts pending/allocated/released.
 DISPLAY = {

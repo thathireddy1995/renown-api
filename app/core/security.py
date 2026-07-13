@@ -14,9 +14,19 @@ def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
 
 
-def create_access_token(user_id: int, role: str) -> str:
+def create_access_token(
+    user_id: int,
+    role: str,
+    *,
+    store_id: int | None = None,
+    warehouse_id: int | None = None,
+) -> str:
     expires_at = datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRE_MINUTES)
-    payload = {"sub": str(user_id), "role": role, "exp": expires_at}
+    payload: dict = {"sub": str(user_id), "role": role, "exp": expires_at}
+    if store_id is not None:
+        payload["store_id"] = store_id
+    if warehouse_id is not None:
+        payload["warehouse_id"] = warehouse_id
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 

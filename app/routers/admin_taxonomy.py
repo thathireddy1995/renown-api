@@ -14,7 +14,7 @@ from app.core.taxonomy_utils import (
     type_store,
 )
 from app.database import get_db
-from app.deps import pagination
+from app.deps import pagination, require_role
 from app.dto.taxonomy_dto import (
     AttributeCreate,
     AttributeListResponse,
@@ -29,7 +29,7 @@ from app.dto.taxonomy_dto import (
 )
 from app.schemas import Attribute, AttributeValue, Brand, Category, Collection, Product
 
-router = APIRouter(prefix="/admin/taxonomy", tags=["admin-taxonomy"])
+router = APIRouter(prefix="/admin/taxonomy", tags=["admin-taxonomy"], dependencies=[Depends(require_role("admin"))])
 
 
 def _product_counts_by_category(db: Session) -> dict[int, int]:

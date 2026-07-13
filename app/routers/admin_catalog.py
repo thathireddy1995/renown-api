@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.catalog_lookups import brand_id_for, category_id_for
 from app.core.catalog_serialize import product_out, slugify
 from app.database import get_db
-from app.deps import pagination
+from app.deps import pagination, require_role
 from app.dto.catalog_dto import (
     ProductCreate,
     ProductListResponse,
@@ -16,7 +16,7 @@ from app.dto.catalog_dto import (
 )
 from app.schemas import Product, ProductImage, ProductVariant
 
-router = APIRouter(prefix="/admin/catalog", tags=["admin-catalog"])
+router = APIRouter(prefix="/admin/catalog", tags=["admin-catalog"], dependencies=[Depends(require_role("admin"))])
 
 
 def _load_product(db: Session, product_id: int) -> Product | None:

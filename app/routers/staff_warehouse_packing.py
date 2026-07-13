@@ -8,7 +8,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.deps import get_current_warehouse_staff, pagination
+from app.deps import get_current_warehouse_staff, pagination, require_role
 from app.dto.staff_dto import (
     StaffPackCreate,
     StaffPackListResponse,
@@ -16,7 +16,7 @@ from app.dto.staff_dto import (
 )
 from app.schemas import DispatchOrder, Pack, User
 
-router = APIRouter(prefix="/staff/warehouse/packing", tags=["staff-warehouse-packing"])
+router = APIRouter(prefix="/staff/warehouse/packing", tags=["staff-warehouse-packing"], dependencies=[Depends(require_role("warehouse_manager"))])
 
 
 def _pack_out(p: Pack) -> StaffPackOut:

@@ -15,7 +15,7 @@ from app.core.stock_transfers import (
     transfer_eager_options,
 )
 from app.database import get_db
-from app.deps import pagination
+from app.deps import pagination, require_role
 from app.dto.admin_dto import (
     AdminStockTransferCreate,
     AdminStockTransferListResponse,
@@ -24,7 +24,7 @@ from app.dto.admin_dto import (
 )
 from app.schemas import ProductVariant, StockTransfer, StockTransferItem, Warehouse
 
-router = APIRouter(prefix="/admin/warehouse/transfers", tags=["admin-warehouse-transfers"])
+router = APIRouter(prefix="/admin/warehouse/transfers", tags=["admin-warehouse-transfers"], dependencies=[Depends(require_role("admin"))])
 
 
 def _out(row: dict) -> AdminStockTransferOut:

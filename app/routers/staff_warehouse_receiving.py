@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.relative_time import relative_received_label
 from app.database import get_db
-from app.deps import get_current_warehouse_staff, pagination
+from app.deps import get_current_warehouse_staff, pagination, require_role
 from app.dto.staff_dto import (
     StaffGrnCreate,
     StaffGrnListResponse,
@@ -25,7 +25,7 @@ from app.schemas import (
     WarehouseInventory,
 )
 
-router = APIRouter(prefix="/staff/warehouse/receiving", tags=["staff-warehouse-receiving"])
+router = APIRouter(prefix="/staff/warehouse/receiving", tags=["staff-warehouse-receiving"], dependencies=[Depends(require_role("warehouse_manager"))])
 
 
 def _default_warehouse(db: Session) -> Warehouse | None:

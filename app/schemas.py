@@ -1082,3 +1082,40 @@ class Prescription(Base):
 
     customer: Mapped["Customer"] = relationship()
     doctor: Mapped["Doctor | None"] = relationship()
+
+
+class Employee(Base):
+    __tablename__ = "employees"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'inactive')",
+            name="employees_status_check",
+        ),
+        Index("ix_employees_store_id", "store_id"),
+        Index("ix_employees_warehouse_id", "warehouse_id"),
+        Index("ix_employees_job_role", "job_role"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    employee_code: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    job_role: Mapped[str] = mapped_column(String(40), nullable=False)
+    store_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stores.id", ondelete="SET NULL"), nullable=True
+    )
+    warehouse_id: Mapped[int | None] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="SET NULL"), nullable=True
+    )
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    shift: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    mtd_sales: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    store: Mapped["Store | None"] = relationship()
+    warehouse: Mapped["Warehouse | None"] = relationship()

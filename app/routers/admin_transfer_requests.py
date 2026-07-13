@@ -7,7 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
-from app.deps import pagination
+from app.deps import pagination, require_role
 from app.dto.admin_dto import (
     AdminTransferRequestListResponse,
     AdminTransferRequestOut,
@@ -20,7 +20,7 @@ from app.schemas import (
     Warehouse,
 )
 
-router = APIRouter(prefix="/admin/transfer-requests", tags=["admin-transfer-requests"])
+router = APIRouter(prefix="/admin/transfer-requests", tags=["admin-transfer-requests"], dependencies=[Depends(require_role("admin"))])
 
 STATUS_LABEL = {
     "pending": "Pending",

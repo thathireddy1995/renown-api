@@ -5,7 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import get_current_warehouse_staff, pagination
+from app.deps import get_current_warehouse_staff, pagination, require_role
 from app.dto.staff_dto import (
     StaffSupplierCreate,
     StaffSupplierListResponse,
@@ -15,7 +15,8 @@ from app.dto.staff_dto import (
 from app.schemas import PurchaseOrder, Supplier, User
 
 router = APIRouter(
-    prefix="/staff/warehouse/suppliers", tags=["staff-warehouse-suppliers"]
+    prefix="/staff/warehouse/suppliers", tags=["staff-warehouse-suppliers"],
+    dependencies=[Depends(require_role("warehouse_manager"))],
 )
 
 OPEN_PO_STATUSES = ("Open", "Pending", "Processing")

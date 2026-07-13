@@ -11,28 +11,28 @@ from app.core.clinical import (
     staff_appointment_row,
 )
 from app.database import get_db
-from app.deps import get_current_store_staff, pagination
+from app.deps import pagination, require_role, TokenPrincipal
 from app.dto.clinical_dto import (
     AppointmentStatusIn,
     StaffAppointmentListResponse,
     StaffAppointmentOut,
 )
-from app.schemas import Appointment, Customer, Doctor, User
+from app.schemas import Appointment, Customer, Doctor
 
-router = APIRouter(prefix="/staff/store/appointments", tags=["staff-store-appointments"])
+router = APIRouter(prefix="/staff/store/appointments", tags=["staff-store-appointments"], dependencies=[Depends(require_role("store_manager"))])
 
 
 @router.get("", response_model=StaffAppointmentListResponse)
 def list_appointments(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_store_staff),
+    principal: TokenPrincipal = Depends(require_role("store_manager")),
     page: tuple[int, int] = Depends(pagination),
     store_id: int | None = None,
     status_filter: str | None = Query(None, alias="status"),
     search: str | None = Query(None, alias="q"),
 ) -> StaffAppointmentListResponse:
     limit, offset = page
-    sid = store_id
+    sid = principal.store_id or store_id
     if sid is None:
         store = default_store(db)
         sid = store.id if store else None
@@ -107,7 +107,7 @@ def patch_status(
     appointment_ref: str,
     payload: AppointmentStatusIn,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_store_staff),
+    _: TokenPrincipal = Depends(require_role("store_manager")),
 ) -> StaffAppointmentOut:
     ref = appointment_ref.strip()
     numeric = ref[3:] if ref.upper().startswith("AP-") else ref

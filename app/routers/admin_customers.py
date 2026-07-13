@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.admin_order_status import admin_status_label
 from app.database import get_db
-from app.deps import pagination
+from app.deps import pagination, require_role
 from app.dto.admin_dto import (
     AdminCustomerDetailOut,
     AdminCustomerListResponse,
@@ -15,7 +15,7 @@ from app.dto.admin_dto import (
 )
 from app.schemas import Customer, Order
 
-router = APIRouter(prefix="/admin/customers", tags=["admin-customers"])
+router = APIRouter(prefix="/admin/customers", tags=["admin-customers"], dependencies=[Depends(require_role("admin"))])
 
 
 def _order_stats_subq():

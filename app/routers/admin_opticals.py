@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.taxonomy_utils import public_id
 from app.database import get_db
-from app.deps import pagination
+from app.deps import pagination, require_role
 from app.dto.taxonomy_dto import (
     ColorCreate,
     ColorListResponse,
@@ -27,7 +27,7 @@ from app.dto.taxonomy_dto import (
 )
 from app.schemas import Color, FrameType, LensType, ProductVariant, Size
 
-router = APIRouter(prefix="/admin/opticals", tags=["admin-opticals"])
+router = APIRouter(prefix="/admin/opticals", tags=["admin-opticals"], dependencies=[Depends(require_role("admin"))])
 
 
 def _color_counts(db: Session) -> dict[int, int]:

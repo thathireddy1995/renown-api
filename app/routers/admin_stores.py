@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.inventory_status import store_stock_status
 from app.database import get_db
-from app.deps import pagination
+from app.deps import pagination, require_role
 from app.dto.location_dto import (
     StoreCreate,
     StoreInventoryListResponse,
@@ -18,7 +18,7 @@ from app.dto.location_dto import (
 from app.routers.admin_warehouses import case_dot_color
 from app.schemas import Product, ProductVariant, Store, StoreInventory
 
-router = APIRouter(prefix="/admin/stores", tags=["admin-stores"])
+router = APIRouter(prefix="/admin/stores", tags=["admin-stores"], dependencies=[Depends(require_role("admin"))])
 
 
 def _store_out(s: Store, skus: int = 0) -> StoreOut:

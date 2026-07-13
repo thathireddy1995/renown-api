@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.admin_order_status import STATUS_LABEL, admin_status_label
 from app.core.product_resolve import public_product_id
 from app.database import get_db
-from app.deps import pagination
+from app.deps import pagination, require_role
 from app.dto.admin_dto import (
     AdminOrderDetailOut,
     AdminOrderItemOut,
@@ -19,7 +19,7 @@ from app.dto.admin_dto import (
 )
 from app.schemas import Customer, Order, OrderItem
 
-router = APIRouter(prefix="/admin/orders", tags=["admin-orders"])
+router = APIRouter(prefix="/admin/orders", tags=["admin-orders"], dependencies=[Depends(require_role("admin"))])
 
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "placed": {"verified", "packed", "cancelled"},
