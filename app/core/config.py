@@ -29,3 +29,11 @@ CORS_ORIGIN_REGEX = os.getenv(
     "CORS_ORIGIN_REGEX",
     r"^https?://localhost(:\d+)?$|^https://.*\.renowneyewear\.com$",
 )
+
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+IS_PRODUCTION = ENVIRONMENT == "production"
+DEMO_OTP_CODE = "123456"
+OTP_EXPIRY_MINUTES = 5
+OTP_RATE_LIMIT_WINDOW_MINUTES = 10
+OTP_RATE_LIMIT_MAX = 5
+OTP_MAX_ATTEMPTS = 5

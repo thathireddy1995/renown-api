@@ -4,7 +4,7 @@ from fastapi.responses import ORJSONResponse
 from mangum import Mangum
 
 from app.core.config import CORS_ORIGIN_REGEX
-from app.routers import admin_auth, staff_auth
+from app.routers import admin_auth, customer_auth, staff_auth
 
 app = FastAPI(
     title="Renown Opticals API",
@@ -23,6 +23,7 @@ app.add_middleware(
 
 app.include_router(admin_auth.router)
 app.include_router(staff_auth.router)
+app.include_router(customer_auth.router)
 
 
 @app.get("/health")
