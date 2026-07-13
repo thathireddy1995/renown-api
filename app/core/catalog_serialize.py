@@ -2,7 +2,6 @@
 
 from decimal import Decimal
 
-from app.core.catalog_lookups import brand_name, category_name
 from app.dto.catalog_dto import ProductOut, ProductVariantOut
 from app.schemas import Product, ProductVariant
 
@@ -33,13 +32,11 @@ def product_out(product: Product, *, public_id: str | None = None) -> ProductOut
     """Build a UI-shaped ProductOut. public_id defaults to slug so customer
     ProductCard links (/products/$id) keep working without UI rewrites."""
     images = [img.url for img in (product.images or [])]
-    variants = [
-        variant_out(v, product.name) for v in (product.variants or [])
-    ]
+    variants = [variant_out(v, product.name) for v in (product.variants or [])]
     stock = sum(v.stock for v in (product.variants or []))
     first = (product.variants or [None])[0]
-    brand = brand_name(product.brand_id)
-    category = category_name(product.category_id)
+    brand = product.brand.name if product.brand else ""
+    category = product.category.name if product.category else ""
     price = _money(product.price) or 0.0
     compare = _money(product.compare_at_price)
     offer = None

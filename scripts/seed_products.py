@@ -305,8 +305,8 @@ def upsert_product(db, data: dict, image_urls: list[str]) -> Product:
     existing = db.scalar(
         select(Product).where((Product.slug == slug) | (Product.sku == data["sku"]))
     )
-    brand_id = brand_id_for(data["brand"])
-    category_id = category_id_for(data["category"])
+    brand_id = brand_id_for(db, data["brand"])
+    category_id = category_id_for(db, data["category"])
     fields = dict(
         name=data["name"],
         slug=slug,

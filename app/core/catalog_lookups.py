@@ -1,82 +1,47 @@
-"""Temporary brand/category name lookups until Phase 3 adds real tables.
+"""Resolve brand/category names via real brands/categories tables (Phase 3)."""
 
-brand_id / category_id on products are forward references — FKs land in
-Phase 3. Until then, seed scripts and catalog routers resolve names via
-these ordered lists (1-based ids).
-"""
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
 
-BRANDS: list[str] = [
-    "Aperture",
-    "Northline",
-    "Atelier",
-    "Maison Vue",
-    "ClearLab",
-    "Boreal",
-    "Foundry",
-    "Mirador",
-    "Halcyon",
-    "Coastline",
-    "Verre & Or",
-    "Slate House",
-    "RenOwn Signature",
-    "Aurelia",
-    "Northwind",
-    "Kestrel",
-    "Marlow & Ives",
-    "Studio Nine",
-    "Vireo",
-]
-
-CATEGORIES: list[str] = [
-    "eyeglasses",
-    "sunglasses",
-    "reading",
-    "contacts",
-    "computer",
-    "kids",
-    "accessories",
-    "solutions",
-    "Eyeglasses",
-    "Sunglasses",
-    "Contact Lenses",
-    "Reading Glasses",
-    "Blue Light",
-    "Sports",
-    "Kids",
-    "Accessories",
-]
+from app.schemas import Brand, Category
 
 
-def brand_name(brand_id: int | None) -> str:
-    if brand_id is None or brand_id < 1 or brand_id > len(BRANDS):
+def brand_name(brand) -> str:
+    """Accept a Brand ORM row, a Product with .brand loaded, or None."""
+    if brand is None:
         return ""
-    return BRANDS[brand_id - 1]
+    if hasattr(brand, "name") and not hasattr(brand, "brand_id"):
+        return brand.name or ""
+    rel = getattr(brand, "brand", None)
+    return rel.name if rel else ""
 
 
-def category_name(category_id: int | None) -> str:
-    if category_id is None or category_id < 1 or category_id > len(CATEGORIES):
+def category_name(category) -> str:
+    if category is None:
         return ""
-    return CATEGORIES[category_id - 1]
+    if hasattr(category, "name") and not hasattr(category, "category_id"):
+        return category.name or ""
+    rel = getattr(category, "category", None)
+    return rel.name if rel else ""
 
 
-def brand_id_for(name: str | None) -> int | None:
+def brand_id_for(db: Session, name: str | None) -> int | None:
     if not name:
         return None
-    try:
-        return BRANDS.index(name) + 1
-    except ValueError:
-        return None
+    row = db.scalar(select(Brand).where(func.lower(Brand.name) == name.strip().lower()))
+    return row.id if row else None
 
 
-def category_id_for(name: str | None) -> int | None:
+def category_id_for(db: Session, name: str | None) -> int | None:
     if not name:
         return None
-    try:
-        return CATEGORIES.index(name) + 1
-    except ValueError:
-        # Accept title-case / slug mismatches for common admin categories.
-        lowered = name.lower().replace(" ", "-")
-        for i, cat in enumerate(CATEGORIES):
-            if cat.lower().replace(" ", "-") == lowered:
-                return i + 1
-        return None
+    needle = name.strip().lower()
+    row = db.scalar(
+        select(Category).where(
+            or_(
+                func.lower(Category.name) == needle,
+                func.lower(Category.slug) == needle.replace(" ", "-"),
+            )
+        )
+    )
+    return row.id if row else None

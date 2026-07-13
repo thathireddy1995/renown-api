@@ -3,7 +3,6 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -104,8 +103,12 @@ class Product(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     compare_at_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
-    brand_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    category_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    brand_id: Mapped[int | None] = mapped_column(
+        ForeignKey("brands.id"), nullable=True
+    )
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categories.id"), nullable=True
+    )
     gender: Mapped[str | None] = mapped_column(String(20), nullable=True)
     shape: Mapped[str | None] = mapped_column(String(30), nullable=True)
     material: Mapped[str | None] = mapped_column(String(30), nullable=True)
@@ -122,6 +125,8 @@ class Product(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    brand: Mapped["Brand | None"] = relationship()
+    category: Mapped["Category | None"] = relationship()
     variants: Mapped[list["ProductVariant"]] = relationship(
         back_populates="product",
         cascade="all, delete-orphan",
@@ -136,7 +141,11 @@ class Product(Base):
 
 class ProductVariant(Base):
     __tablename__ = "product_variants"
-    __table_args__ = (Index("ix_product_variants_product_id", "product_id"),)
+    __table_args__ = (
+        Index("ix_product_variants_product_id", "product_id"),
+        Index("ix_product_variants_color_id", "color_id"),
+        Index("ix_product_variants_size_id", "size_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(
@@ -146,6 +155,8 @@ class ProductVariant(Base):
     color: Mapped[str | None] = mapped_column(String(40), nullable=True)
     color_hex: Mapped[str | None] = mapped_column(String(7), nullable=True)
     size: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    color_id: Mapped[int | None] = mapped_column(ForeignKey("colors.id"), nullable=True)
+    size_id: Mapped[int | None] = mapped_column(ForeignKey("sizes.id"), nullable=True)
     price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
@@ -156,6 +167,8 @@ class ProductVariant(Base):
     )
 
     product: Mapped["Product"] = relationship(back_populates="variants")
+    color_ref: Mapped["Color | None"] = relationship()
+    size_ref: Mapped["Size | None"] = relationship()
 
 
 class ProductImage(Base):
@@ -170,3 +183,145 @@ class ProductImage(Base):
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     product: Mapped["Product"] = relationship(back_populates="images")
+
+
+class Category(Base):
+    __tablename__ = "categories"
+    __table_args__ = (Index("ix_categories_status", "status"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    slug: Mapped[str] = mapped_column(String(140), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Brand(Base):
+    __tablename__ = "brands"
+    __table_args__ = (Index("ix_brands_status", "status"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    slug: Mapped[str] = mapped_column(String(140), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Collection(Base):
+    __tablename__ = "collections"
+    __table_args__ = (Index("ix_collections_status", "status"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    slug: Mapped[str] = mapped_column(String(140), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Attribute(Base):
+    __tablename__ = "attributes"
+    __table_args__ = (
+        CheckConstraint("type IN ('select', 'boolean')", name="attributes_type_check"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    type: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    values: Mapped[list["AttributeValue"]] = relationship(
+        back_populates="attribute",
+        cascade="all, delete-orphan",
+        order_by="AttributeValue.id",
+    )
+
+
+class AttributeValue(Base):
+    __tablename__ = "attribute_values"
+    __table_args__ = (Index("ix_attribute_values_attribute_id", "attribute_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    attribute_id: Mapped[int] = mapped_column(
+        ForeignKey("attributes.id", ondelete="CASCADE"), nullable=False
+    )
+    value: Mapped[str] = mapped_column(String(120), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    attribute: Mapped["Attribute"] = relationship(back_populates="values")
+
+
+class LensType(Base):
+    __tablename__ = "lens_types"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class FrameType(Base):
+    __tablename__ = "frame_types"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Color(Base):
+    __tablename__ = "colors"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+    hex: Mapped[str] = mapped_column(String(7), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Size(Base):
+    __tablename__ = "sizes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False, unique=True)
+    measurement: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

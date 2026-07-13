@@ -15,6 +15,13 @@ from app.schemas import Product
 
 router = APIRouter(prefix="/customer/products", tags=["customer-products"])
 
+_PRODUCT_LOAD = (
+    selectinload(Product.variants),
+    selectinload(Product.images),
+    selectinload(Product.brand),
+    selectinload(Product.category),
+)
+
 
 def _active_base():
     return Product.status == "active"
@@ -36,12 +43,14 @@ def list_products(
     stmt = select(Product).where(_active_base())
     count_stmt = select(func.count()).select_from(Product).where(_active_base())
 
-    resolved_brand = brand_id if brand_id is not None else brand_id_for(brand)
+    resolved_brand = brand_id if brand_id is not None else brand_id_for(db, brand)
     if resolved_brand is not None:
         stmt = stmt.where(Product.brand_id == resolved_brand)
         count_stmt = count_stmt.where(Product.brand_id == resolved_brand)
 
-    resolved_category = category_id if category_id is not None else category_id_for(category)
+    resolved_category = (
+        category_id if category_id is not None else category_id_for(db, category)
+    )
     if resolved_category is not None:
         stmt = stmt.where(Product.category_id == resolved_category)
         count_stmt = count_stmt.where(Product.category_id == resolved_category)
@@ -66,10 +75,7 @@ def list_products(
 
     total = db.scalar(count_stmt) or 0
     rows = db.scalars(
-        stmt.options(
-            selectinload(Product.variants),
-            selectinload(Product.images),
-        )
+        stmt.options(*_PRODUCT_LOAD)
         .order_by(Product.id.asc())
         .limit(limit)
         .offset(offset)
@@ -88,22 +94,14 @@ def get_product(slug: str, db: Session = Depends(get_db)) -> ProductOut:
     product = db.scalar(
         select(Product)
         .where(Product.slug == slug, _active_base())
-        .options(
-            selectinload(Product.variants),
-            selectinload(Product.images),
-        )
+        .options(*_PRODUCT_LOAD)
     )
-    if not product:
-        # Also accept numeric id for bookmarks that still use db ids.
-        if slug.isdigit():
-            product = db.scalar(
-                select(Product)
-                .where(Product.id == int(slug), _active_base())
-                .options(
-                    selectinload(Product.variants),
-                    selectinload(Product.images),
-                )
-            )
+    if not product and slug.isdigit():
+        product = db.scalar(
+            select(Product)
+            .where(Product.id == int(slug), _active_base())
+            .options(*_PRODUCT_LOAD)
+        )
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
     return product_out(product)

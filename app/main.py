@@ -7,7 +7,10 @@ from app.routers import (
     admin_auth,
     admin_catalog,
     admin_catalog_variants,
+    admin_opticals,
+    admin_taxonomy,
     customer_auth,
+    customer_catalog,
     customer_products,
     staff_auth,
 )
@@ -31,7 +34,10 @@ app.include_router(staff_auth.router)
 app.include_router(customer_auth.router)
 app.include_router(admin_catalog.router)
 app.include_router(admin_catalog_variants.router)
+app.include_router(admin_taxonomy.router)
+app.include_router(admin_opticals.router)
 app.include_router(customer_products.router)
+app.include_router(customer_catalog.router)
 
 
 @app.get("/health")

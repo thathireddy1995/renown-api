@@ -26,18 +26,23 @@ def _load_product(db: Session, product_id: int) -> Product | None:
         .options(
             selectinload(Product.variants),
             selectinload(Product.images),
+            selectinload(Product.brand),
+            selectinload(Product.category),
         )
     )
 
 
 def _resolve_brand_category(
+    db: Session,
     brand: str | None,
     brand_id: int | None,
     category: str | None,
     category_id: int | None,
 ) -> tuple[int | None, int | None]:
-    resolved_brand = brand_id if brand_id is not None else brand_id_for(brand)
-    resolved_category = category_id if category_id is not None else category_id_for(category)
+    resolved_brand = brand_id if brand_id is not None else brand_id_for(db, brand)
+    resolved_category = (
+        category_id if category_id is not None else category_id_for(db, category)
+    )
     return resolved_brand, resolved_category
 
 
@@ -60,12 +65,14 @@ def list_products(
         stmt = stmt.where(Product.status == status_filter)
         count_stmt = count_stmt.where(Product.status == status_filter)
 
-    resolved_brand = brand_id if brand_id is not None else brand_id_for(brand)
+    resolved_brand = brand_id if brand_id is not None else brand_id_for(db, brand)
     if resolved_brand is not None:
         stmt = stmt.where(Product.brand_id == resolved_brand)
         count_stmt = count_stmt.where(Product.brand_id == resolved_brand)
 
-    resolved_category = category_id if category_id is not None else category_id_for(category)
+    resolved_category = (
+        category_id if category_id is not None else category_id_for(db, category)
+    )
     if resolved_category is not None:
         stmt = stmt.where(Product.category_id == resolved_category)
         count_stmt = count_stmt.where(Product.category_id == resolved_category)
@@ -81,6 +88,8 @@ def list_products(
         stmt.options(
             selectinload(Product.variants),
             selectinload(Product.images),
+            selectinload(Product.brand),
+            selectinload(Product.category),
         )
         .order_by(Product.id.asc())
         .limit(limit)
@@ -116,7 +125,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
         )
 
     brand_id, category_id = _resolve_brand_category(
-        payload.brand, payload.brand_id, payload.category, payload.category_id
+        db, payload.brand, payload.brand_id, payload.category, payload.category_id
     )
 
     product = Product(
@@ -185,6 +194,7 @@ def update_product(
 
     if brand is not None or category is not None or "brand_id" in data or "category_id" in data:
         brand_id, category_id = _resolve_brand_category(
+            db,
             brand,
             data.get("brand_id", product.brand_id),
             category,
