@@ -1,6 +1,26 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 
+Parameters:
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    Description: "Postgres connection string (Neon) — passed via --parameter-overrides, never committed here."
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    Description: "Secret used to sign customer/staff/admin JWTs — passed via --parameter-overrides, never committed here."
+  JwtExpireMinutes:
+    Type: String
+    Default: "720"
+  EnvironmentName:
+    Type: String
+    Default: "production"
+    AllowedValues:
+      - production
+      - development
+    Description: "Gates dev-only behavior (e.g. the demo OTP bypass) — must stay 'production' for real deployments."
+
 Globals:
   Function:
     Timeout: 900
@@ -30,6 +50,12 @@ Resources:
         - x86_64
       Handler: app.main.handler
       CodeUri: .
+      Environment:
+        Variables:
+          DATABASE_URL: !Ref DatabaseUrl
+          JWT_SECRET: !Ref JwtSecret
+          JWT_EXPIRE_MINUTES: !Ref JwtExpireMinutes
+          ENVIRONMENT: !Ref EnvironmentName
       Policies:
         - Statement:
             - Effect: Allow
