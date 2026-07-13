@@ -1,0 +1,109 @@
+"""Customer storefront product feed under /customer/products."""
+
+from decimal import Decimal
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session, selectinload
+
+from app.core.catalog_lookups import brand_id_for, category_id_for
+from app.core.catalog_serialize import product_out
+from app.database import get_db
+from app.deps import pagination
+from app.dto.catalog_dto import ProductListResponse, ProductOut
+from app.schemas import Product
+
+router = APIRouter(prefix="/customer/products", tags=["customer-products"])
+
+
+def _active_base():
+    return Product.status == "active"
+
+
+@router.get("/", response_model=ProductListResponse)
+def list_products(
+    db: Session = Depends(get_db),
+    page: tuple[int, int] = Depends(pagination),
+    brand: str | None = None,
+    brand_id: int | None = None,
+    category: str | None = None,
+    category_id: int | None = None,
+    min_price: Decimal | None = Query(None),
+    max_price: Decimal | None = Query(None),
+    search: str | None = Query(None, alias="q"),
+) -> ProductListResponse:
+    limit, offset = page
+    stmt = select(Product).where(_active_base())
+    count_stmt = select(func.count()).select_from(Product).where(_active_base())
+
+    resolved_brand = brand_id if brand_id is not None else brand_id_for(brand)
+    if resolved_brand is not None:
+        stmt = stmt.where(Product.brand_id == resolved_brand)
+        count_stmt = count_stmt.where(Product.brand_id == resolved_brand)
+
+    resolved_category = category_id if category_id is not None else category_id_for(category)
+    if resolved_category is not None:
+        stmt = stmt.where(Product.category_id == resolved_category)
+        count_stmt = count_stmt.where(Product.category_id == resolved_category)
+
+    if min_price is not None:
+        stmt = stmt.where(Product.price >= min_price)
+        count_stmt = count_stmt.where(Product.price >= min_price)
+    if max_price is not None:
+        stmt = stmt.where(Product.price <= max_price)
+        count_stmt = count_stmt.where(Product.price <= max_price)
+
+    if search:
+        like = f"%{search.strip()}%"
+        filt = or_(
+            Product.name.ilike(like),
+            Product.sku.ilike(like),
+            Product.slug.ilike(like),
+            Product.description.ilike(like),
+        )
+        stmt = stmt.where(filt)
+        count_stmt = count_stmt.where(filt)
+
+    total = db.scalar(count_stmt) or 0
+    rows = db.scalars(
+        stmt.options(
+            selectinload(Product.variants),
+            selectinload(Product.images),
+        )
+        .order_by(Product.id.asc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+
+    return ProductListResponse(
+        items=[product_out(p) for p in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/{slug}", response_model=ProductOut)
+def get_product(slug: str, db: Session = Depends(get_db)) -> ProductOut:
+    product = db.scalar(
+        select(Product)
+        .where(Product.slug == slug, _active_base())
+        .options(
+            selectinload(Product.variants),
+            selectinload(Product.images),
+        )
+    )
+    if not product:
+        # Also accept numeric id for bookmarks that still use db ids.
+        if slug.isdigit():
+            product = db.scalar(
+                select(Product)
+                .where(Product.id == int(slug), _active_base())
+                .options(
+                    selectinload(Product.variants),
+                    selectinload(Product.images),
+                )
+            )
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
+    return product_out(product)
