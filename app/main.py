@@ -10,6 +10,7 @@ from app.routers import (
     admin_customers,
     admin_dashboard,
     admin_employees,
+    admin_operations,
     admin_opticals,
     admin_orders,
     admin_reports,
@@ -36,7 +37,9 @@ from app.routers import (
     staff_store_prescriptions,
     staff_store_reports,
     staff_store_staff,
+    staff_warehouse_audits,
     staff_warehouse_dispatch,
+    staff_warehouse_low_stock,
     staff_warehouse_packing,
     staff_warehouse_picking,
     staff_warehouse_receiving,
@@ -76,6 +79,8 @@ app.include_router(staff_store_reports.reports_router)
 app.include_router(staff_store_reports.dashboard_router)
 app.include_router(staff_warehouse_reports.reports_router)
 app.include_router(staff_warehouse_reports.dashboard_router)
+app.include_router(staff_warehouse_audits.router)
+app.include_router(staff_warehouse_low_stock.router)
 app.include_router(customer_auth.router)
 app.include_router(customer_appointments.router)
 app.include_router(admin_catalog.router)
@@ -87,6 +92,7 @@ app.include_router(admin_customers.router)
 app.include_router(admin_employees.router)
 app.include_router(admin_reports.router)
 app.include_router(admin_dashboard.router)
+app.include_router(admin_operations.router)
 app.include_router(admin_warehouses.router)
 app.include_router(admin_stores.router)
 app.include_router(admin_warehouse_transfers.router)

@@ -1119,3 +1119,83 @@ class Employee(Base):
 
     store: Mapped["Store | None"] = relationship()
     warehouse: Mapped["Warehouse | None"] = relationship()
+
+
+class ImportJob(Base):
+    __tablename__ = "import_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'processing', 'completed', 'failed')",
+            name="import_jobs_status_check",
+        ),
+        Index("ix_import_jobs_status", "status"),
+        Index("ix_import_jobs_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_type: Mapped[str] = mapped_column(String(40), nullable=False, default="products")
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class InventoryAudit(Base):
+    __tablename__ = "inventory_audits"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('scheduled', 'in_progress', 'completed')",
+            name="inventory_audits_status_check",
+        ),
+        Index("ix_inventory_audits_warehouse_id", "warehouse_id"),
+        Index("ix_inventory_audits_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    audit_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    warehouse_id: Mapped[int] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    zone: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled")
+    auditor_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    warehouse: Mapped["Warehouse"] = relationship()
+    items: Mapped[list["InventoryAuditItem"]] = relationship(
+        back_populates="audit", cascade="all, delete-orphan"
+    )
+
+
+class InventoryAuditItem(Base):
+    __tablename__ = "inventory_audit_items"
+    __table_args__ = (
+        Index("ix_inventory_audit_items_inventory_audit_id", "inventory_audit_id"),
+        Index("ix_inventory_audit_items_variant_id", "variant_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inventory_audit_id: Mapped[int] = mapped_column(
+        ForeignKey("inventory_audits.id", ondelete="CASCADE"), nullable=False
+    )
+    variant_id: Mapped[int] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="RESTRICT"), nullable=False
+    )
+    expected_qty: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    counted_qty: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    variance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    audit: Mapped["InventoryAudit"] = relationship(back_populates="items")
+    variant: Mapped["ProductVariant"] = relationship()
