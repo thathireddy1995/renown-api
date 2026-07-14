@@ -47,6 +47,17 @@ STAFF_STATUS = {
 
 def normalize_transfer_status(value: str) -> str:
     key = (value or "").strip().lower().replace(" ", "_")
+    # Staff portal labels → DB keys
+    staff_ui = {
+        "pending": "requested",
+        "processing": "in_transit",
+        "delivered": "completed",
+        "cancelled": "rejected",
+        "canceled": "rejected",
+        "done": "completed",
+    }
+    if key in staff_ui:
+        return staff_ui[key]
     if key in ADMIN_STATUS:
         return key
     mapped = ADMIN_STATUS_REVERSE.get((value or "").strip().lower())
@@ -144,7 +155,12 @@ def admin_transfer_row(t: StockTransfer) -> dict:
     }
 
 
-def staff_transfer_row(t: StockTransfer) -> dict:
+def staff_transfer_row(
+    t: StockTransfer,
+    *,
+    items_override: int | None = None,
+    qty_override: int | None = None,
+) -> dict:
     items = t.items or []
     qty = sum(i.qty for i in items)
     to_name = (
@@ -156,8 +172,8 @@ def staff_transfer_row(t: StockTransfer) -> dict:
         "id": t.transfer_number,
         "from": t.from_warehouse.name if t.from_warehouse else "",
         "to": to_name,
-        "items": len(items),
-        "qty": qty,
+        "items": items_override if items_override is not None else len(items),
+        "qty": qty_override if qty_override is not None else qty,
         "requested": _relative_day(t.created_at),
         "status": staff_status_label(t.status),
     }

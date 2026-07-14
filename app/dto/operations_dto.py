@@ -83,6 +83,13 @@ class AuditCreate(BaseModel):
     warehouse_id: int | None = None
     zone: str = "A · Frames"
     auditor_name: str | None = None
+    status: str | None = None
+    counted: int | None = None
+    expected: int | None = None
+
+
+class AuditStatusUpdate(BaseModel):
+    status: str
 
 
 class AuditItemCountIn(BaseModel):

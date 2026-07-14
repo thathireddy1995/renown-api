@@ -11,8 +11,10 @@ from app.database import get_db
 from app.deps import get_current_warehouse_staff, pagination, require_role
 from app.dto.staff_dto import (
     StaffGrnCreate,
+    StaffGrnItemIn,
     StaffGrnListResponse,
     StaffGrnOut,
+    StaffGrnStatusUpdate,
 )
 from app.schemas import (
     Grn,
@@ -133,6 +135,19 @@ def create_grn(
     elif not db.get(Warehouse, warehouse_id):
         raise HTTPException(status_code=404, detail="Warehouse not found")
 
+    items = list(body.items)
+    if not items and body.qty and body.qty > 0:
+        variant = db.scalar(select(ProductVariant).order_by(ProductVariant.id.asc()).limit(1))
+        if not variant:
+            raise HTTPException(status_code=400, detail="No product variants available for GRN lines")
+        items = [
+            StaffGrnItemIn(
+                variant_id=variant.id,
+                qty_ordered=body.qty,
+                qty_received=body.qty,
+            )
+        ]
+
     po: PurchaseOrder | None = None
     if body.purchase_order_id:
         po = db.get(PurchaseOrder, body.purchase_order_id)
@@ -141,26 +156,45 @@ def create_grn(
             select(PurchaseOrder).where(PurchaseOrder.po_number == body.po_number)
         )
 
-    if not po:
-        if not body.supplier_id:
-            raise HTTPException(
-                status_code=422, detail="purchase_order_id or supplier_id required"
+    supplier_id = body.supplier_id
+    if supplier_id is None and body.vendor and body.vendor.strip():
+        supplier = db.scalar(
+            select(Supplier).where(func.lower(Supplier.name) == body.vendor.strip().lower())
+        )
+        if not supplier:
+            code = f"SUP-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+            while db.scalar(select(Supplier.id).where(Supplier.code == code)):
+                code = f"SUP-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
+            supplier = Supplier(
+                code=code,
+                name=body.vendor.strip(),
+                status="Active",
+                lead_time_days=7,
             )
-        if not db.get(Supplier, body.supplier_id):
+            db.add(supplier)
+            db.flush()
+        supplier_id = supplier.id
+
+    if not po:
+        if not supplier_id:
+            raise HTTPException(
+                status_code=422, detail="purchase_order_id, supplier_id, or vendor required"
+            )
+        if not db.get(Supplier, supplier_id):
             raise HTTPException(status_code=404, detail="Supplier not found")
         po_num = body.po_number or f"PO-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
         po = PurchaseOrder(
             po_number=po_num,
-            supplier_id=body.supplier_id,
+            supplier_id=supplier_id,
             status="Open",
         )
         db.add(po)
         db.flush()
 
-    if not body.items:
-        raise HTTPException(status_code=422, detail="At least one item required")
+    if not items:
+        raise HTTPException(status_code=422, detail="At least one item or qty required")
 
-    for it in body.items:
+    for it in items:
         if not db.get(ProductVariant, it.variant_id):
             raise HTTPException(
                 status_code=404, detail=f"Variant {it.variant_id} not found"
@@ -182,7 +216,7 @@ def create_grn(
     db.add(grn)
     db.flush()
 
-    for it in body.items:
+    for it in items:
         db.add(
             GrnItem(
                 grn_id=grn.id,
@@ -207,5 +241,52 @@ def create_grn(
             selectinload(Grn.purchase_order).selectinload(PurchaseOrder.supplier),
         )
     )
+    assert loaded
+    return _grn_out(loaded)
+
+
+def _resolve_grn(db: Session, grn_ref: str) -> Grn | None:
+    stmt = select(Grn).options(
+        selectinload(Grn.items),
+        selectinload(Grn.purchase_order).selectinload(PurchaseOrder.supplier),
+    )
+    row = db.scalar(stmt.where(Grn.grn_number == grn_ref))
+    if row:
+        return row
+    if grn_ref.isdigit():
+        return db.scalar(stmt.where(Grn.id == int(grn_ref)))
+    return None
+
+
+@router.patch("/{grn_ref}/status", response_model=StaffGrnOut)
+def patch_grn_status(
+    grn_ref: str,
+    body: StaffGrnStatusUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_warehouse_staff),
+) -> StaffGrnOut:
+    grn = _resolve_grn(db, grn_ref)
+    if not grn:
+        raise HTTPException(status_code=404, detail="GRN not found")
+
+    raw = (body.status or "").strip().title()
+    allowed = {"Done", "Pending", "Partial", "Cancelled"}
+    if raw not in allowed:
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    grn.status = raw
+    if raw == "Done" and grn.received_at is None:
+        grn.received_at = datetime.now(timezone.utc)
+        if grn.purchase_order:
+            grn.purchase_order.status = "Received"
+    elif raw != "Done":
+        grn.received_at = None
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    loaded = _resolve_grn(db, grn.grn_number)
     assert loaded
     return _grn_out(loaded)

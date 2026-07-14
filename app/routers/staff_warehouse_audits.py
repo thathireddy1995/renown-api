@@ -14,6 +14,7 @@ from app.dto.operations_dto import (
     AuditItemCountIn,
     AuditListResponse,
     AuditOut,
+    AuditStatusUpdate,
 )
 from app.schemas import (
     InventoryAudit,
@@ -30,9 +31,26 @@ router = APIRouter(
 
 STATUS_UI = {
     "scheduled": "Pending",
-    "in_progress": "Pending",
+    "in_progress": "In progress",
     "completed": "Done",
 }
+
+STATUS_DB = {
+    "pending": "scheduled",
+    "scheduled": "scheduled",
+    "in progress": "in_progress",
+    "in_progress": "in_progress",
+    "processing": "in_progress",
+    "done": "completed",
+    "completed": "completed",
+}
+
+
+def _normalize_status(raw: str | None) -> str:
+    key = (raw or "Pending").strip().lower().replace("_", " ")
+    if key not in STATUS_DB:
+        raise HTTPException(status_code=422, detail=f"Unknown status: {raw}")
+    return STATUS_DB[key]
 
 
 def _wh_id(db: Session, principal: TokenPrincipal) -> int | None:
@@ -59,11 +77,24 @@ def _date_label(row: InventoryAudit) -> str:
     return d.isoformat()
 
 
-def _audit_out(row: InventoryAudit) -> AuditOut:
+def _audit_out(
+    row: InventoryAudit,
+    *,
+    counted_override: int | None = None,
+    expected_override: int | None = None,
+) -> AuditOut:
     items = row.items or []
-    counted = sum(i.counted_qty for i in items)
-    expected = sum(i.expected_qty for i in items)
-    variance = sum(i.variance for i in items)
+    counted = (
+        counted_override
+        if counted_override is not None
+        else sum(i.counted_qty for i in items)
+    )
+    expected = (
+        expected_override
+        if expected_override is not None
+        else sum(i.expected_qty for i in items)
+    )
+    variance = counted - expected
     return AuditOut(
         id=row.audit_number,
         zone=row.zone or "—",
@@ -74,6 +105,16 @@ def _audit_out(row: InventoryAudit) -> AuditOut:
         date=_date_label(row),
         status=STATUS_UI.get(row.status, row.status),
     )
+
+
+def _resolve_audit(db: Session, audit_ref: str) -> InventoryAudit | None:
+    stmt = select(InventoryAudit).options(selectinload(InventoryAudit.items))
+    row = db.scalar(stmt.where(InventoryAudit.audit_number == audit_ref))
+    if row:
+        return row
+    if audit_ref.isdigit():
+        return db.scalar(stmt.where(InventoryAudit.id == int(audit_ref)))
+    return None
 
 
 @router.get("", response_model=AuditListResponse)
@@ -143,7 +184,7 @@ def create_audit(
         audit_number=number,
         warehouse_id=wid,
         zone=body.zone,
-        status="scheduled",
+        status=_normalize_status(body.status) if body.status else "scheduled",
         auditor_name=body.auditor_name,
     )
     db.add(audit)
@@ -168,7 +209,36 @@ def create_audit(
         .options(selectinload(InventoryAudit.items))
         .where(InventoryAudit.id == audit.id)
     )
-    return _audit_out(row)
+    return _audit_out(
+        row,
+        counted_override=body.counted,
+        expected_override=body.expected,
+    )
+
+
+@router.patch("/{audit_ref}/status", response_model=AuditOut)
+def patch_audit_status(
+    audit_ref: str,
+    body: AuditStatusUpdate,
+    db: Session = Depends(get_db),
+    _: TokenPrincipal = Depends(require_role("warehouse_manager")),
+) -> AuditOut:
+    audit = _resolve_audit(db, audit_ref)
+    if not audit:
+        raise HTTPException(status_code=404, detail="Audit not found")
+
+    new_status = _normalize_status(body.status)
+    audit.status = new_status
+    if new_status == "completed":
+        audit.completed_at = datetime.now(timezone.utc)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    refreshed = _resolve_audit(db, audit_ref)
+    assert refreshed
+    return _audit_out(refreshed)
 
 
 @router.patch("/{audit_ref}/items/{item_id}", response_model=AuditOut)

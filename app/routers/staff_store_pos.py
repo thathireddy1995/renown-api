@@ -56,6 +56,17 @@ def pos_catalog(
     stock_expr = func.coalesce(StoreInventory.on_hand, 0)
     cat_expr = func.coalesce(Category.name, "General")
     price_expr = func.coalesce(ProductVariant.price, Product.price)
+    # Prefer store inventory rows so POS maps to products stocked at this store.
+    has_inventory = (
+        db.scalar(
+            select(func.count())
+            .select_from(StoreInventory)
+            .where(StoreInventory.store_id == store.id)
+        )
+        or 0
+    ) > 0
+
+    from sqlalchemy import or_
 
     stmt = (
         select(
@@ -67,19 +78,29 @@ def pos_catalog(
         )
         .join(Product, Product.id == ProductVariant.product_id)
         .outerjoin(Category, Category.id == Product.category_id)
-        .outerjoin(
+    )
+    if has_inventory:
+        stmt = stmt.join(
             StoreInventory,
             (StoreInventory.variant_id == ProductVariant.id)
             & (StoreInventory.store_id == store.id),
         )
-        .where(Product.status == "active")
-        .order_by(ProductVariant.id.asc())
-        .limit(100)
-    )
+    else:
+        stmt = stmt.outerjoin(
+            StoreInventory,
+            (StoreInventory.variant_id == ProductVariant.id)
+            & (StoreInventory.store_id == store.id),
+        )
+
+    stmt = stmt.where(
+        func.lower(func.coalesce(Product.status, "active")) != "inactive"
+    ).order_by(
+        stock_expr.desc(),
+        ProductVariant.id.asc(),
+    ).limit(200)
+
     if search and search.strip():
         like = f"%{search.strip()}%"
-        from sqlalchemy import or_
-
         stmt = stmt.where(
             or_(
                 ProductVariant.sku.ilike(like),
@@ -89,11 +110,45 @@ def pos_catalog(
         )
 
     rows = db.execute(stmt).all()
+    # If inventory join filtered everything out, fall back to full active catalog.
+    if has_inventory and not rows:
+        stmt = (
+            select(
+                ProductVariant,
+                Product.name,
+                cat_expr,
+                price_expr,
+                stock_expr,
+            )
+            .join(Product, Product.id == ProductVariant.product_id)
+            .outerjoin(Category, Category.id == Product.category_id)
+            .outerjoin(
+                StoreInventory,
+                (StoreInventory.variant_id == ProductVariant.id)
+                & (StoreInventory.store_id == store.id),
+            )
+            .where(
+                func.lower(func.coalesce(Product.status, "active")) != "inactive"
+            )
+            .order_by(ProductVariant.id.asc())
+            .limit(200)
+        )
+        if search and search.strip():
+            like = f"%{search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    ProductVariant.sku.ilike(like),
+                    Product.name.ilike(like),
+                    Product.sku.ilike(like),
+                )
+            )
+        rows = db.execute(stmt).all()
+
     items = [
         PosCatalogItemOut(
             id=str(variant.id),
             name=name or variant.sku,
-            sku=variant.sku,
+            sku=variant.sku or "",
             price=float(price or 0),
             category=category or "General",
             stock=int(stock or 0),

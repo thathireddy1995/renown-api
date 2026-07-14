@@ -24,6 +24,8 @@ class StaffGrnCreate(BaseModel):
     purchase_order_id: int | None = None
     po_number: str | None = None
     supplier_id: int | None = None
+    vendor: str | None = None
+    qty: int | None = None
     status: str = "Done"
     items: list[StaffGrnItemIn] = Field(default_factory=list)
 
@@ -33,6 +35,10 @@ class StaffGrnListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class StaffGrnStatusUpdate(BaseModel):
+    status: str
 
 
 class StaffPickListOut(BaseModel):
@@ -62,6 +68,14 @@ class StaffPickListResponse(BaseModel):
     offset: int
 
 
+class StaffPickListCreate(BaseModel):
+    wave: str | None = None
+    picker: str | None = None
+    items: int = Field(default=12, ge=1, le=500)
+    status: str = "Pending"
+    warehouse_id: int | None = None
+
+
 class StaffPackOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -89,6 +103,10 @@ class StaffPackListResponse(BaseModel):
     offset: int
 
 
+class StaffPackStatusUpdate(BaseModel):
+    status: str
+
+
 class StaffDispatchOut(BaseModel):
     id: str
     destination: str
@@ -112,7 +130,12 @@ class StaffDispatchCreate(BaseModel):
     carrier: str | None = None
     awb: str | None = None
     status: str = "Pending"
+    items_count: int | None = None
     items: list[StaffDispatchItemIn] = Field(default_factory=list)
+
+
+class StaffDispatchStatusUpdate(BaseModel):
+    status: str
 
 
 class StaffDispatchListResponse(BaseModel):
@@ -179,8 +202,17 @@ class StaffStockTransferCreate(BaseModel):
     from_warehouse_id: int | None = None
     to_warehouse_id: int | None = None
     to_store_id: int | None = None
+    from_label: str | None = None
+    to_label: str | None = None
+    destination_type: str | None = None  # "store" | "warehouse"
     status: str = "requested"
+    items_count: int | None = None
+    qty: int | None = None
     items: list[StaffStockTransferItemIn] = Field(default_factory=list)
+
+
+class StaffStockTransferStatusUpdate(BaseModel):
+    status: str
 
 
 class StaffStockTransferListResponse(BaseModel):

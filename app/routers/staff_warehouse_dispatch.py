@@ -12,6 +12,7 @@ from app.dto.staff_dto import (
     StaffDispatchCreate,
     StaffDispatchListResponse,
     StaffDispatchOut,
+    StaffDispatchStatusUpdate,
 )
 from app.schemas import (
     DispatchOrder,
@@ -35,17 +36,41 @@ def _default_warehouse(db: Session) -> Warehouse | None:
     return db.scalar(select(Warehouse).order_by(Warehouse.id.asc()).limit(1))
 
 
-def _dispatch_out(d: DispatchOrder) -> StaffDispatchOut:
+def _dispatch_out(d: DispatchOrder, items_override: int | None = None) -> StaffDispatchOut:
     items = d.items or []
+    qty = items_override if items_override is not None else sum(i.qty for i in items)
     return StaffDispatchOut(
         id=d.do_number,
         destination=d.destination_label or "",
         type=TYPE_LABEL.get(d.destination_type, d.destination_type),
         carrier=d.carrier or "",
         awb=d.awb or "",
-        items=sum(i.qty for i in items),
+        items=qty,
         status=d.status,
     )
+
+
+def _normalize_status(raw: str | None) -> str:
+    key = (raw or "Pending").strip().lower()
+    if key in ("pending", "open", "queued"):
+        return "Pending"
+    if key in ("processing", "in progress", "in_transit", "in transit", "shipped"):
+        return "Processing"
+    if key in ("done", "completed", "complete", "delivered"):
+        return "Done"
+    if key in ("cancelled", "canceled", "void"):
+        return "Cancelled"
+    return "Pending"
+
+
+def _resolve_dispatch(db: Session, do_ref: str) -> DispatchOrder | None:
+    stmt = select(DispatchOrder).options(selectinload(DispatchOrder.items))
+    row = db.scalar(stmt.where(DispatchOrder.do_number == do_ref))
+    if row:
+        return row
+    if do_ref.isdigit():
+        return db.scalar(stmt.where(DispatchOrder.id == int(do_ref)))
+    return None
 
 
 def _decrement_inventory(
@@ -138,9 +163,6 @@ def create_dispatch(
         if store:
             label = store.name
 
-    if not body.items:
-        raise HTTPException(status_code=422, detail="At least one item required")
-
     for it in body.items:
         if not db.get(ProductVariant, it.variant_id):
             raise HTTPException(
@@ -159,7 +181,7 @@ def create_dispatch(
         destination_label=label or "",
         carrier=body.carrier,
         awb=body.awb,
-        status=body.status or "Pending",
+        status=_normalize_status(body.status),
     )
     db.add(order)
     db.flush()
@@ -181,4 +203,23 @@ def create_dispatch(
         .options(selectinload(DispatchOrder.items))
     )
     assert loaded
-    return _dispatch_out(loaded)
+    items_override = None
+    if not body.items and body.items_count is not None:
+        items_override = max(0, int(body.items_count))
+    return _dispatch_out(loaded, items_override=items_override)
+
+
+@router.patch("/{do_ref}/status", response_model=StaffDispatchOut)
+def patch_dispatch_status(
+    do_ref: str,
+    body: StaffDispatchStatusUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_warehouse_staff),
+) -> StaffDispatchOut:
+    order = _resolve_dispatch(db, do_ref)
+    if not order:
+        raise HTTPException(status_code=404, detail="Dispatch order not found")
+    order.status = _normalize_status(body.status)
+    db.commit()
+    db.refresh(order)
+    return _dispatch_out(order)

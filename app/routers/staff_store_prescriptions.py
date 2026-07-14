@@ -104,11 +104,15 @@ def create_prescription(
     db: Session = Depends(get_db),
     _: TokenPrincipal = Depends(require_role("store_manager")),
 ) -> StaffPrescriptionOut:
+    phone = None
+    if payload.phone:
+        phone = "".join(ch for ch in payload.phone if ch.isdigit()) or payload.phone
+
     customer = None
     if payload.customer_id is not None:
         customer = db.get(Customer, payload.customer_id)
     if not customer:
-        customer = find_or_create_customer_by_name(db, payload.customer, payload.phone)
+        customer = find_or_create_customer_by_name(db, payload.customer, phone)
     if not customer:
         raise HTTPException(status_code=400, detail="Customer is required")
 
@@ -117,6 +121,10 @@ def create_prescription(
         doctor = db.get(Doctor, payload.doctor_id)
     if not doctor and payload.doctor:
         doctor = find_doctor_by_name(db, payload.doctor)
+    if not doctor and payload.doctor:
+        doctor = Doctor(name=payload.doctor.strip(), specialty="Optometrist")
+        db.add(doctor)
+        db.flush()
 
     recorded = None
     if payload.date:

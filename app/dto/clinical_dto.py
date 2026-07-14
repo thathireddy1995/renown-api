@@ -56,6 +56,17 @@ class StaffAppointmentListResponse(BaseModel):
     offset: int
 
 
+class StaffAppointmentCreate(BaseModel):
+    customer: str = Field(min_length=1, max_length=120)
+    phone: str = Field(min_length=5, max_length=20)
+    time: str = Field(min_length=1, max_length=40)
+    date: str | None = None
+    type: str = "Eye Test"
+    doctor: str = Field(min_length=1, max_length=120)
+    status: str = "Pending"
+    store_id: int | None = None
+
+
 class AppointmentStatusIn(BaseModel):
     status: str
 

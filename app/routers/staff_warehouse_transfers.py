@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.stock_transfers import (
+    apply_transfer_completion,
     list_stock_transfers_query,
     normalize_transfer_status,
     staff_transfer_row,
@@ -18,11 +19,13 @@ from app.dto.staff_dto import (
     StaffStockTransferCreate,
     StaffStockTransferListResponse,
     StaffStockTransferOut,
+    StaffStockTransferStatusUpdate,
 )
-from app.schemas import ProductVariant, StockTransfer, StockTransferItem, User, Warehouse
+from app.schemas import ProductVariant, StockTransfer, StockTransferItem, Store, User, Warehouse
 
 router = APIRouter(
-    prefix="/staff/warehouse/transfers", tags=["staff-warehouse-transfers"],
+    prefix="/staff/warehouse/transfers",
+    tags=["staff-warehouse-transfers"],
     dependencies=[Depends(require_role("warehouse_manager"))],
 )
 
@@ -35,6 +38,30 @@ def _out(row: dict) -> StaffStockTransferOut:
 
 def _default_warehouse(db: Session) -> Warehouse | None:
     return db.scalar(select(Warehouse).order_by(Warehouse.id.asc()).limit(1))
+
+
+def _resolve_warehouse_by_name(db: Session, name: str) -> Warehouse | None:
+    if not name.strip():
+        return None
+    return db.scalar(
+        select(Warehouse).where(Warehouse.name.ilike(name.strip())).limit(1)
+    )
+
+
+def _resolve_store_by_name(db: Session, name: str) -> Store | None:
+    if not name.strip():
+        return None
+    return db.scalar(select(Store).where(Store.name.ilike(name.strip())).limit(1))
+
+
+def _resolve_transfer(db: Session, transfer_ref: str) -> StockTransfer | None:
+    stmt = select(StockTransfer).options(*transfer_eager_options())
+    row = db.scalar(stmt.where(StockTransfer.transfer_number == transfer_ref))
+    if row:
+        return row
+    if transfer_ref.isdigit():
+        return db.scalar(stmt.where(StockTransfer.id == int(transfer_ref)))
+    return None
 
 
 @router.get("", response_model=StaffStockTransferListResponse)
@@ -68,15 +95,42 @@ def create_transfer(
     _: User = Depends(get_current_warehouse_staff),
 ) -> StaffStockTransferOut:
     from_id = body.from_warehouse_id
+    if from_id is None and body.from_label:
+        wh = _resolve_warehouse_by_name(db, body.from_label)
+        if wh:
+            from_id = wh.id
     if from_id is None:
         wh = _default_warehouse(db)
         if not wh:
             raise HTTPException(status_code=400, detail="No warehouse configured")
         from_id = wh.id
-    if not body.to_warehouse_id and not body.to_store_id:
+    elif not db.get(Warehouse, from_id):
+        raise HTTPException(status_code=404, detail="Source warehouse not found")
+
+    to_wh_id = body.to_warehouse_id
+    to_store_id = body.to_store_id
+    dest_type = (body.destination_type or "").strip().lower()
+
+    if not to_wh_id and not to_store_id and body.to_label:
+        if dest_type in ("store", "store_replen", "retail"):
+            store = _resolve_store_by_name(db, body.to_label)
+            if store:
+                to_store_id = store.id
+            else:
+                wh = _resolve_warehouse_by_name(db, body.to_label)
+                if wh:
+                    to_wh_id = wh.id
+        else:
+            wh = _resolve_warehouse_by_name(db, body.to_label)
+            if wh:
+                to_wh_id = wh.id
+            else:
+                store = _resolve_store_by_name(db, body.to_label)
+                if store:
+                    to_store_id = store.id
+
+    if not to_wh_id and not to_store_id:
         raise HTTPException(status_code=422, detail="Destination required")
-    if not body.items:
-        raise HTTPException(status_code=422, detail="At least one item required")
 
     for it in body.items:
         if not db.get(ProductVariant, it.variant_id):
@@ -89,8 +143,8 @@ def create_transfer(
     transfer = StockTransfer(
         transfer_number=num,
         from_warehouse_id=from_id,
-        to_warehouse_id=body.to_warehouse_id,
-        to_store_id=body.to_store_id,
+        to_warehouse_id=to_wh_id,
+        to_store_id=to_store_id,
         status=normalize_transfer_status(body.status),
     )
     db.add(transfer)
@@ -110,4 +164,39 @@ def create_transfer(
         .options(*transfer_eager_options())
     )
     assert loaded
-    return _out(staff_transfer_row(loaded))
+    items_override = None
+    qty_override = None
+    if not body.items:
+        if body.items_count is not None:
+            items_override = max(0, int(body.items_count))
+        if body.qty is not None:
+            qty_override = max(0, int(body.qty))
+    return _out(
+        staff_transfer_row(
+            loaded, items_override=items_override, qty_override=qty_override
+        )
+    )
+
+
+@router.patch("/{transfer_ref}/status", response_model=StaffStockTransferOut)
+def patch_transfer_status(
+    transfer_ref: str,
+    body: StaffStockTransferStatusUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_warehouse_staff),
+) -> StaffStockTransferOut:
+    transfer = _resolve_transfer(db, transfer_ref)
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not found")
+
+    new_status = normalize_transfer_status(body.status)
+    old = transfer.status
+    transfer.status = new_status
+
+    if new_status == "completed" and old != "completed":
+        apply_transfer_completion(db, transfer)
+
+    db.commit()
+    refreshed = _resolve_transfer(db, transfer_ref)
+    assert refreshed
+    return _out(staff_transfer_row(refreshed))

@@ -62,3 +62,17 @@ class StaffEmployeeListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class StaffEmployeeCreate(BaseModel):
+    name: str
+    role: str
+    phone: str | None = None
+    shift: str = "Day"
+    status: str = "Active"
+    employee_code: str | None = None
+    store_id: int | None = None
+
+
+class StaffEmployeeStatusUpdate(BaseModel):
+    status: str

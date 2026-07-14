@@ -13,6 +13,7 @@ from app.dto.staff_dto import (
     StaffPackCreate,
     StaffPackListResponse,
     StaffPackOut,
+    StaffPackStatusUpdate,
 )
 from app.schemas import DispatchOrder, Pack, User
 
@@ -92,13 +93,17 @@ def create_pack(
     while db.scalar(select(Pack.id).where(Pack.pack_number == pack_number)):
         pack_number = f"PK-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
 
+    status_val = (body.status or "Processing").strip().title()
+    if status_val not in ("Pending", "Processing", "Done", "Cancelled"):
+        status_val = "Processing"
+
     pack = Pack(
         pack_number=pack_number,
         dispatch_order_id=dispatch_id,
         packer_name=body.packer_name,
         boxes=body.boxes,
         weight=Decimal(str(body.weight)) if body.weight is not None else None,
-        status=body.status or "Processing",
+        status=status_val,
     )
     db.add(pack)
     db.commit()
@@ -107,5 +112,40 @@ def create_pack(
         .where(Pack.id == pack.id)
         .options(selectinload(Pack.dispatch_order))
     )
+    assert loaded
+    return _pack_out(loaded)
+
+
+def _resolve_pack(db: Session, pack_ref: str) -> Pack | None:
+    stmt = select(Pack).options(selectinload(Pack.dispatch_order))
+    row = db.scalar(stmt.where(Pack.pack_number == pack_ref))
+    if row:
+        return row
+    if pack_ref.isdigit():
+        return db.scalar(stmt.where(Pack.id == int(pack_ref)))
+    return None
+
+
+@router.patch("/{pack_ref}/status", response_model=StaffPackOut)
+def patch_pack_status(
+    pack_ref: str,
+    body: StaffPackStatusUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_warehouse_staff),
+) -> StaffPackOut:
+    pack = _resolve_pack(db, pack_ref)
+    if not pack:
+        raise HTTPException(status_code=404, detail="Pack not found")
+
+    raw = (body.status or "").strip().title()
+    if raw not in ("Pending", "Processing", "Done", "Cancelled"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+    pack.status = raw
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    loaded = _resolve_pack(db, pack.pack_number)
     assert loaded
     return _pack_out(loaded)

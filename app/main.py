@@ -32,18 +32,23 @@ from app.routers import (
     customer_wishlist,
     staff_auth,
     staff_store_appointments,
+    staff_store_customers,
+    staff_store_inventory,
     staff_store_orders,
     staff_store_pos,
     staff_store_prescriptions,
     staff_store_reports,
+    staff_store_settings,
     staff_store_staff,
     staff_warehouse_audits,
     staff_warehouse_dispatch,
+    staff_warehouse_inventory,
     staff_warehouse_low_stock,
     staff_warehouse_packing,
     staff_warehouse_picking,
     staff_warehouse_receiving,
     staff_warehouse_reports,
+    staff_warehouse_settings,
     staff_warehouse_suppliers,
     staff_warehouse_transfers,
 )
@@ -70,9 +75,13 @@ app.include_router(staff_warehouse_picking.router)
 app.include_router(staff_warehouse_packing.router)
 app.include_router(staff_warehouse_dispatch.router)
 app.include_router(staff_warehouse_transfers.router)
+app.include_router(staff_warehouse_inventory.router)
 app.include_router(staff_store_pos.router)
 app.include_router(staff_store_orders.router)
+app.include_router(staff_store_customers.router)
+app.include_router(staff_store_inventory.router)
 app.include_router(staff_store_appointments.router)
+app.include_router(staff_store_settings.router)
 app.include_router(staff_store_prescriptions.router)
 app.include_router(staff_store_staff.router)
 app.include_router(staff_store_reports.reports_router)
@@ -81,6 +90,7 @@ app.include_router(staff_warehouse_reports.reports_router)
 app.include_router(staff_warehouse_reports.dashboard_router)
 app.include_router(staff_warehouse_audits.router)
 app.include_router(staff_warehouse_low_stock.router)
+app.include_router(staff_warehouse_settings.router)
 app.include_router(customer_auth.router)
 app.include_router(customer_appointments.router)
 app.include_router(admin_catalog.router)
