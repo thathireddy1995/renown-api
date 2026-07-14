@@ -7,18 +7,18 @@ from app.core.catalog_serialize import slugify
 
 def status_label(status: str | None) -> str:
     raw = (status or "active").lower()
-    return "Active" if raw == "active" else "Draft"
+    return "Active" if raw == "active" else "Inactive"
 
 
 def status_store(value: str | None) -> str:
     if not value:
         return "active"
     v = value.strip().lower()
-    if v in ("active", "draft"):
-        return v
-    if v == "active":
+    if v in ("active",):
         return "active"
-    return "draft" if "draft" in v else "active"
+    if v in ("inactive", "draft", "off", "disabled"):
+        return "inactive"
+    return "active"
 
 
 def type_label(attr_type: str | None) -> str:

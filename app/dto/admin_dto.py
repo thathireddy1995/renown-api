@@ -125,6 +125,14 @@ class AdminTransferRequestOut(BaseModel):
     status: str
 
 
+class AdminTransferRequestCreate(BaseModel):
+    requester_warehouse_id: int
+    target_warehouse_id: int
+    variant_id: int
+    qty: int
+    urgency: str = "Medium"
+
+
 class AdminTransferRequestListResponse(BaseModel):
     items: list[AdminTransferRequestOut]
     total: int

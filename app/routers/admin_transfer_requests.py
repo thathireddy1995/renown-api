@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.dto.admin_dto import (
+    AdminTransferRequestCreate,
     AdminTransferRequestListResponse,
     AdminTransferRequestOut,
 )
@@ -92,6 +93,48 @@ def list_transfer_requests(
         limit=limit,
         offset=offset,
     )
+
+
+@router.post("", response_model=AdminTransferRequestOut, status_code=status.HTTP_201_CREATED)
+def create_transfer_request(
+    body: AdminTransferRequestCreate, db: Session = Depends(get_db)
+) -> AdminTransferRequestOut:
+    if body.requester_warehouse_id == body.target_warehouse_id:
+        raise HTTPException(status_code=422, detail="Requester and target must differ")
+    if body.qty < 1:
+        raise HTTPException(status_code=422, detail="Quantity must be at least 1")
+    if body.qty > 10000:
+        raise HTTPException(status_code=422, detail="Quantity cannot exceed 10000")
+    if not db.get(Warehouse, body.requester_warehouse_id):
+        raise HTTPException(status_code=404, detail="Requester warehouse not found")
+    if not db.get(Warehouse, body.target_warehouse_id):
+        raise HTTPException(status_code=404, detail="Target warehouse not found")
+    if not db.get(ProductVariant, body.variant_id):
+        raise HTTPException(status_code=404, detail="Variant not found")
+
+    urgency = (body.urgency or "Medium").strip().title()
+    if urgency not in ("Low", "Medium", "High"):
+        raise HTTPException(status_code=422, detail="Urgency must be Low, Medium, or High")
+
+    num = f"REQ-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+    while db.scalar(select(TransferRequest.id).where(TransferRequest.request_number == num)):
+        num = f"REQ-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
+
+    row = TransferRequest(
+        request_number=num,
+        requester_warehouse_id=body.requester_warehouse_id,
+        target_warehouse_id=body.target_warehouse_id,
+        variant_id=body.variant_id,
+        qty_requested=body.qty,
+        urgency=urgency,
+        status="pending",
+    )
+    db.add(row)
+    db.commit()
+
+    loaded = _resolve(db, num)
+    assert loaded
+    return _req_out(loaded)
 
 
 def _resolve(db: Session, ref: str) -> TransferRequest | None:

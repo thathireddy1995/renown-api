@@ -1,6 +1,7 @@
 """Admin catalog — variants CRUD under /admin/catalog/variants."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -13,7 +14,18 @@ from app.dto.catalog_dto import (
     ProductVariantUpdate,
     VariantListResponse,
 )
-from app.schemas import Product, ProductVariant
+from app.schemas import (
+    DispatchOrderItem,
+    GrnItem,
+    InventoryAuditItem,
+    PickListItem,
+    Product,
+    ProductVariant,
+    StockAllocation,
+    StockTransferItem,
+    StoreOrderItem,
+    TransferRequest,
+)
 
 router = APIRouter(prefix="/admin/catalog", tags=["admin-catalog-variants"], dependencies=[Depends(require_role("admin"))])
 
@@ -125,6 +137,20 @@ def delete_variant(variant_id: int, db: Session = Depends(get_db)) -> None:
     variant = db.get(ProductVariant, variant_id)
     if not variant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Variant not found.")
+
+    # Clear RESTRICT FK children so admin hard-delete works.
+    for model in (
+        InventoryAuditItem,
+        StoreOrderItem,
+        StockAllocation,
+        TransferRequest,
+        StockTransferItem,
+        PickListItem,
+        DispatchOrderItem,
+        GrnItem,
+    ):
+        db.execute(sa_delete(model).where(model.variant_id == variant_id))
+
     db.delete(variant)
     try:
         db.commit()
