@@ -14,6 +14,23 @@ class GoogleAuthRequest(BaseModel):
     id_token: str
 
 
+class CustomerLoginRequest(BaseModel):
+    phone: str
+    password: str
+
+
+class RegisterRequestOtp(BaseModel):
+    name: str
+    phone: str
+
+
+class RegisterCompleteRequest(BaseModel):
+    name: str
+    phone: str
+    code: str
+    password: str
+
+
 class CustomerOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

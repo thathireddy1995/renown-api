@@ -14,15 +14,18 @@ from app.core.config import (
     OTP_RATE_LIMIT_MAX,
     OTP_RATE_LIMIT_WINDOW_MINUTES,
 )
-from app.core.security import create_access_token
+from app.core.security import create_access_token, hash_password, verify_password
 from app.database import get_db
 from app.dto.customer_auth_dto import (
+    CustomerLoginRequest,
     CustomerOut,
     CustomerTokenResponse,
     GoogleAuthRequest,
     OtpRequest,
     OtpRequestResponse,
     OtpVerifyRequest,
+    RegisterCompleteRequest,
+    RegisterRequestOtp,
 )
 from app.schemas import Customer, OtpCode
 
@@ -54,6 +57,56 @@ def _token_response(customer: Customer) -> CustomerTokenResponse:
         access_token=token,
         customer=CustomerOut.model_validate(customer),
     )
+
+
+def _recent_otp_count(db: Session, phone: str, now: datetime) -> int:
+    window_start = now - timedelta(minutes=OTP_RATE_LIMIT_WINDOW_MINUTES)
+    # Single indexed count — no per-row loop (api_rules §3).
+    return db.scalar(
+        select(func.count())
+        .select_from(OtpCode)
+        .where(
+            OtpCode.phone == phone,
+            OtpCode.created_at >= window_start,
+            OtpCode.expires_at > now,
+        )
+    ) or 0
+
+
+def _consume_valid_otp(db: Session, phone: str, purpose: str, code: str, now: datetime) -> None:
+    """Raise 401 unless `code` matches the latest unconsumed OTP for phone/purpose."""
+    otp = db.scalar(
+        select(OtpCode)
+        .where(
+            OtpCode.phone == phone,
+            OtpCode.purpose == purpose,
+            OtpCode.consumed_at.is_(None),
+            OtpCode.expires_at > now,
+        )
+        .order_by(OtpCode.created_at.desc())
+        .limit(1)
+    )
+
+    demo_ok = (not IS_PRODUCTION) and code == DEMO_OTP_CODE
+    code_ok = bool(otp) and otp.code == code and otp.attempt_count < OTP_MAX_ATTEMPTS
+
+    if not demo_ok and not code_ok:
+        if otp:
+            otp.attempt_count += 1
+            db.commit()
+            if otp.attempt_count >= OTP_MAX_ATTEMPTS:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="OTP locked after too many attempts. Request a new code.",
+                )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired OTP.",
+        )
+
+    if otp and (code_ok or demo_ok):
+        otp.consumed_at = now
+        db.flush()
 
 
 @router.post("/otp/request", response_model=OtpRequestResponse)
@@ -157,6 +210,122 @@ def verify_otp(payload: OtpVerifyRequest, db: Session = Depends(get_db)) -> Cust
 
     db.commit()
     db.refresh(customer)
+    return _token_response(customer)
+
+
+@router.post("/register/request-otp", response_model=OtpRequestResponse)
+def register_request_otp(
+    payload: RegisterRequestOtp, db: Session = Depends(get_db)
+) -> OtpRequestResponse:
+    """Step 1 of registration: collect name + mobile, send an OTP to verify it."""
+    phone = _normalize_phone(payload.phone)
+    if not payload.name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter your full name.",
+        )
+
+    existing = db.scalar(select(Customer).where(Customer.phone == phone))
+    if existing and existing.password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This mobile number is already registered. Please sign in instead.",
+        )
+
+    now = _now()
+    if _recent_otp_count(db, phone, now) >= OTP_RATE_LIMIT_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many OTP requests. Try again later.",
+        )
+
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    otp = OtpCode(
+        phone=phone,
+        code=code,
+        purpose="register",
+        expires_at=now + timedelta(minutes=OTP_EXPIRY_MINUTES),
+        attempt_count=0,
+    )
+    db.add(otp)
+    db.commit()
+
+    if not IS_PRODUCTION:
+        logger.info("Register OTP for phone ending %s: %s", phone[-4:], code)
+
+    return OtpRequestResponse(
+        message="OTP sent.",
+        expires_in_seconds=OTP_EXPIRY_MINUTES * 60,
+    )
+
+
+@router.post("/register/complete", response_model=CustomerTokenResponse)
+def register_complete(
+    payload: RegisterCompleteRequest, db: Session = Depends(get_db)
+) -> CustomerTokenResponse:
+    """Step 2 of registration: verify the OTP and set the account password."""
+    phone = _normalize_phone(payload.phone)
+    name = payload.name.strip()
+    code = payload.code.strip()
+    if not name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter your full name.",
+        )
+    if len(payload.password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 6 characters.",
+        )
+
+    now = _now()
+    _consume_valid_otp(db, phone, "register", code, now)
+
+    customer = db.scalar(select(Customer).where(Customer.phone == phone))
+    if customer and customer.password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This mobile number is already registered. Please sign in instead.",
+        )
+
+    if customer:
+        customer.name = name
+        customer.password_hash = hash_password(payload.password)
+        customer.is_active = True
+    else:
+        customer = Customer(
+            phone=phone,
+            name=name,
+            password_hash=hash_password(payload.password),
+            is_active=True,
+        )
+        db.add(customer)
+        db.flush()
+
+    db.commit()
+    db.refresh(customer)
+    return _token_response(customer)
+
+
+@router.post("/login", response_model=CustomerTokenResponse)
+def login(payload: CustomerLoginRequest, db: Session = Depends(get_db)) -> CustomerTokenResponse:
+    """Mobile number + password sign-in for customers who completed registration."""
+    phone = _normalize_phone(payload.phone)
+    customer = db.scalar(select(Customer).where(Customer.phone == phone))
+
+    if not customer or not customer.password_hash or not verify_password(
+        payload.password, customer.password_hash
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid mobile number or password.",
+        )
+    if not customer.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is inactive.",
+        )
+
     return _token_response(customer)
 
 
