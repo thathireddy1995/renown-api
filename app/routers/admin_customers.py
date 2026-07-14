@@ -42,7 +42,9 @@ def _customer_row(
         last = last_order.strftime("%Y-%m-%d") if hasattr(last_order, "strftime") else str(last_order)[:10]
     return AdminCustomerOut(
         id=f"C-{customer.id:03d}" if customer.id < 1000 else f"C-{customer.id}",
-        name=customer.name or f"Customer {customer.phone[-4:]}",
+        name=customer.name
+        or (f"Customer {customer.phone[-4:]}" if customer.phone else None)
+        or (customer.email.split("@")[0].title() if customer.email else "Customer"),
         email=customer.email or "",
         orders=int(orders or 0),
         spent=float(spent or 0),

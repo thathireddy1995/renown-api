@@ -64,8 +64,9 @@ class Customer(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    phone: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True, unique=True)
     email: Mapped[str | None] = mapped_column(String(160), nullable=True, index=True)
+    google_sub: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

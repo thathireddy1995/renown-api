@@ -10,12 +10,16 @@ class OtpVerifyRequest(BaseModel):
     code: str
 
 
+class GoogleAuthRequest(BaseModel):
+    id_token: str
+
+
 class CustomerOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     name: str | None
-    phone: str
+    phone: str | None
     email: str | None
 
 

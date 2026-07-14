@@ -19,6 +19,7 @@ from app.database import get_db
 from app.dto.customer_auth_dto import (
     CustomerOut,
     CustomerTokenResponse,
+    GoogleAuthRequest,
     OtpRequest,
     OtpRequestResponse,
     OtpVerifyRequest,
@@ -28,6 +29,9 @@ from app.schemas import Customer, OtpCode
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/customer/auth", tags=["customer-auth"])
+
+# Must match customer-renown VITE_GOOGLE_CLIENT_ID / hardcoded client id.
+GOOGLE_CLIENT_ID = "454759368223-lu1gj25efraqtaops85ar172hgdkl6p2.apps.googleusercontent.com"
 
 
 def _normalize_phone(raw: str) -> str:
@@ -42,6 +46,14 @@ def _normalize_phone(raw: str) -> str:
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _token_response(customer: Customer) -> CustomerTokenResponse:
+    token = create_access_token(customer.id, "customer")
+    return CustomerTokenResponse(
+        access_token=token,
+        customer=CustomerOut.model_validate(customer),
+    )
 
 
 @router.post("/otp/request", response_model=OtpRequestResponse)
@@ -145,9 +157,56 @@ def verify_otp(payload: OtpVerifyRequest, db: Session = Depends(get_db)) -> Cust
 
     db.commit()
     db.refresh(customer)
+    return _token_response(customer)
 
-    token = create_access_token(customer.id, "customer")
-    return CustomerTokenResponse(
-        access_token=token,
-        customer=CustomerOut.model_validate(customer),
-    )
+
+@router.post("/google", response_model=CustomerTokenResponse)
+def google_auth(payload: GoogleAuthRequest, db: Session = Depends(get_db)) -> CustomerTokenResponse:
+    """Verify a Google ID token and issue a customer JWT."""
+    try:
+        from google.oauth2 import id_token as google_id_token
+        from google.auth.transport import requests as google_requests
+
+        info = google_id_token.verify_oauth2_token(
+            payload.id_token,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID,
+        )
+        email = info.get("email")
+        google_sub = info.get("sub")
+        name = info.get("name") or (email.split("@")[0].title() if email else "Customer")
+        if not email or not google_sub:
+            raise ValueError("Email or sub not present in Google token")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid Google token: {exc}",
+        ) from exc
+
+    customer = db.scalar(select(Customer).where(Customer.google_sub == google_sub))
+    if not customer:
+        customer = db.scalar(select(Customer).where(Customer.email == email))
+
+    if customer is None:
+        customer = Customer(
+            email=email,
+            name=name,
+            google_sub=google_sub,
+            phone=None,
+            is_active=True,
+        )
+        db.add(customer)
+        db.flush()
+    else:
+        if not customer.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account is inactive.",
+            )
+        customer.email = email
+        customer.name = name or customer.name
+        customer.google_sub = google_sub
+
+    db.commit()
+    db.refresh(customer)
+    return _token_response(customer)
