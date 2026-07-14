@@ -67,17 +67,6 @@ def _parse_day_end(value: date) -> datetime:
     return datetime.combine(value, time.max, tzinfo=timezone.utc)
 
 
-def _item_count_subq():
-    return (
-        select(
-            OrderItem.order_id.label("order_id"),
-            func.count(OrderItem.id).label("items"),
-        )
-        .group_by(OrderItem.order_id)
-        .subquery()
-    )
-
-
 def _order_list_row(
     order: Order, customer_name: str | None, items: int
 ) -> AdminOrderOut:
@@ -89,6 +78,12 @@ def _order_list_row(
         status=_label(order.status),
         total=float(order.total or 0),
     )
+
+
+def _order_to_list_row(order: Order) -> AdminOrderOut:
+    customer = order.customer
+    name = customer.name if customer else None
+    return _order_list_row(order, name, len(order.items or []))
 
 
 def _resolve_order(db: Session, order_ref: str) -> Order | None:
@@ -114,20 +109,15 @@ def list_orders(
     page: tuple[int, int] = Depends(pagination),
     status_filter: str | None = Query(None, alias="status"),
     search: str | None = Query(None, alias="q"),
-    date_from: date | None = None,
-    date_to: date | None = None,
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
 ) -> AdminOrderListResponse:
     limit, offset = page
-    counts = _item_count_subq()
 
     stmt = (
-        select(
-            Order,
-            Customer.name,
-            func.coalesce(counts.c.items, 0).label("items"),
-        )
+        select(Order)
+        .options(selectinload(Order.items), selectinload(Order.customer))
         .join(Customer, Customer.id == Order.customer_id)
-        .outerjoin(counts, counts.c.order_id == Order.id)
     )
     count_stmt = (
         select(func.count())
@@ -169,14 +159,14 @@ def list_orders(
         count_stmt = count_stmt.where(filt)
 
     total = db.scalar(count_stmt) or 0
-    rows = db.execute(
+    orders = db.scalars(
         stmt.order_by(Order.created_at.desc(), Order.id.desc())
         .limit(limit)
         .offset(offset)
-    ).all()
+    ).unique().all()
 
     return AdminOrderListResponse(
-        items=[_order_list_row(order, name, items) for order, name, items in rows],
+        items=[_order_to_list_row(order) for order in orders],
         total=total,
         limit=limit,
         offset=offset,
