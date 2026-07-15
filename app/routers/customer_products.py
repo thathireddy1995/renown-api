@@ -11,7 +11,7 @@ from app.core.catalog_serialize import product_out
 from app.database import get_db
 from app.deps import pagination
 from app.dto.catalog_dto import ProductListResponse, ProductOut
-from app.schemas import Product
+from app.schemas import Brand, Category, Product
 
 router = APIRouter(prefix="/customer/products", tags=["customer-products"])
 
@@ -64,11 +64,16 @@ def list_products(
 
     if search:
         like = f"%{search.strip()}%"
+        # Match on the product's own fields as well as its brand/category
+        # names, so searching "sunglasses" or "Aperture" finds matching
+        # products even when those words aren't in the name/SKU/description.
         filt = or_(
             Product.name.ilike(like),
             Product.sku.ilike(like),
             Product.slug.ilike(like),
             Product.description.ilike(like),
+            Product.brand.has(Brand.name.ilike(like)),
+            Product.category.has(Category.name.ilike(like)),
         )
         stmt = stmt.where(filt)
         count_stmt = count_stmt.where(filt)

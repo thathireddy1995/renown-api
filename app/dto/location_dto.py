@@ -148,3 +148,21 @@ class StoreInventoryListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class AdminInventoryAuditOut(BaseModel):
+    id: str
+    warehouse: str
+    scope: str
+    scanned: int
+    expected: int
+    variance: int
+    status: str
+    date: str
+
+
+class AdminInventoryAuditListResponse(BaseModel):
+    items: list[AdminInventoryAuditOut]
+    total: int
+    limit: int
+    offset: int

@@ -1,13 +1,17 @@
 """Admin warehouses — /admin/warehouses."""
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.inventory_status import warehouse_stock_status
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.dto.location_dto import (
+    AdminInventoryAuditListResponse,
+    AdminInventoryAuditOut,
     WarehouseCreate,
     WarehouseListResponse,
     WarehouseOut,
@@ -15,7 +19,7 @@ from app.dto.location_dto import (
     WhInventoryListResponse,
     WhInventoryOut,
 )
-from app.schemas import Product, ProductVariant, Warehouse, WarehouseInventory
+from app.schemas import InventoryAudit, Product, ProductVariant, Warehouse, WarehouseInventory
 
 router = APIRouter(prefix="/admin/warehouses", tags=["admin-warehouses"], dependencies=[Depends(require_role("admin"))])
 
@@ -276,5 +280,81 @@ def _list_wh_inventory(
         for row, wh_name, sku, product, stock_status in rows
     ]
     return WhInventoryListResponse(
+        items=items, total=total, limit=limit, offset=offset
+    )
+
+
+_AUDIT_STATUS_UI = {
+    "scheduled": "Scheduled",
+    "in_progress": "In review",
+    "completed": "Completed",
+}
+
+
+def _audit_date_label(row: InventoryAudit) -> str:
+    when = row.completed_at or row.created_at
+    if when is None:
+        return "—"
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    today = datetime.now(timezone.utc).date()
+    d = when.date()
+    if d == today:
+        return "Today"
+    if d == today - timedelta(days=1):
+        return "Yesterday"
+    return d.isoformat()
+
+
+@router.get("/inventory-audits", response_model=AdminInventoryAuditListResponse)
+def list_inventory_audits(
+    db: Session = Depends(get_db),
+    page: tuple[int, int] = Depends(pagination),
+    search: str | None = Query(None, alias="q"),
+) -> AdminInventoryAuditListResponse:
+    limit, offset = page
+    stmt = (
+        select(InventoryAudit, Warehouse.name)
+        .join(Warehouse, Warehouse.id == InventoryAudit.warehouse_id)
+        .options(selectinload(InventoryAudit.items))
+    )
+    count_stmt = select(func.count()).select_from(InventoryAudit)
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        filt = or_(
+            InventoryAudit.audit_number.ilike(like),
+            InventoryAudit.zone.ilike(like),
+            InventoryAudit.auditor_name.ilike(like),
+            Warehouse.name.ilike(like),
+        )
+        stmt = stmt.where(filt)
+        count_stmt = count_stmt.join(
+            Warehouse, Warehouse.id == InventoryAudit.warehouse_id
+        ).where(filt)
+
+    total = db.scalar(count_stmt) or 0
+    rows = db.execute(
+        stmt.order_by(InventoryAudit.id.desc()).limit(limit).offset(offset)
+    ).all()
+
+    items: list[AdminInventoryAuditOut] = []
+    for audit, wh_name in rows:
+        items_list = audit.items or []
+        scanned = sum(i.counted_qty for i in items_list)
+        expected = sum(i.expected_qty for i in items_list)
+        items.append(
+            AdminInventoryAuditOut(
+                id=audit.audit_number,
+                warehouse=wh_name or "—",
+                scope=audit.zone or "Cycle count",
+                scanned=scanned,
+                expected=expected,
+                variance=scanned - expected,
+                status=_AUDIT_STATUS_UI.get(audit.status, audit.status),
+                date=_audit_date_label(audit),
+            )
+        )
+
+    return AdminInventoryAuditListResponse(
         items=items, total=total, limit=limit, offset=offset
     )
