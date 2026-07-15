@@ -28,6 +28,13 @@ SEED_USERS = [
         "role": "admin",
     },
     {
+        "name": "Seed Admin",
+        "email": "seed.admin@renowneyewear.com",
+        "phone": "7013332720",
+        "password": "7013332720",
+        "role": "admin",
+    },
+    {
         "name": "Aarav Singh",
         "email": "store.manager@optihub.com",
         "phone": "9876543211",
@@ -48,16 +55,21 @@ def seed() -> None:
     db = SessionLocal()
     try:
         for seed_user in SEED_USERS:
-            existing = db.scalar(select(User).where(User.email == seed_user["email"]))
+            existing = db.scalar(
+                select(User).where(
+                    (User.email == seed_user["email"]) | (User.phone == seed_user["phone"])
+                )
+            )
             password_hash = hash_password(seed_user["password"])
 
             if existing:
                 existing.name = seed_user["name"]
+                existing.email = seed_user["email"]
                 existing.phone = seed_user["phone"]
                 existing.password_hash = password_hash
                 existing.role = seed_user["role"]
                 existing.is_active = True
-                print(f"Updated: {seed_user['email']} ({seed_user['role']})")
+                print(f"Updated: {seed_user['phone']} / {seed_user['email']} ({seed_user['role']})")
             else:
                 db.add(
                     User(
@@ -69,7 +81,7 @@ def seed() -> None:
                         is_active=True,
                     )
                 )
-                print(f"Created: {seed_user['email']} ({seed_user['role']})")
+                print(f"Created: {seed_user['phone']} / {seed_user['email']} ({seed_user['role']})")
 
         db.commit()
     finally:
