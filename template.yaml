@@ -20,6 +20,15 @@ Parameters:
       - production
       - development
     Description: "Gates dev-only behavior (e.g. the demo OTP bypass) — must stay 'production' for real deployments."
+  RazorpayKeyId:
+    Type: String
+    Default: "rzp_test_ODe90LnhMp9uJZ"
+    Description: "Razorpay key id — test-mode default; pass a live key via --parameter-overrides for production."
+  RazorpayKeySecret:
+    Type: String
+    NoEcho: true
+    Default: "NW8HvE7ae5JhoRcAn41K9mnt"
+    Description: "Razorpay key secret — test-mode default; pass a live secret via --parameter-overrides for production."
 
 Globals:
   Function:
@@ -56,6 +65,8 @@ Resources:
           JWT_SECRET: !Ref JwtSecret
           JWT_EXPIRE_MINUTES: !Ref JwtExpireMinutes
           ENVIRONMENT: !Ref EnvironmentName
+          RAZORPAY_KEY_ID: !Ref RazorpayKeyId
+          RAZORPAY_KEY_SECRET: !Ref RazorpayKeySecret
       Policies:
         - Statement:
             - Effect: Allow

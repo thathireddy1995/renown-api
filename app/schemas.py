@@ -449,6 +449,10 @@ class Order(Base):
     tax: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     coupon_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    payment_method: Mapped[str] = mapped_column(String(20), nullable=False, default="cod")
+    payment_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    razorpay_order_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    razorpay_payment_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

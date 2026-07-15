@@ -37,3 +37,7 @@ OTP_EXPIRY_MINUTES = 5
 OTP_RATE_LIMIT_WINDOW_MINUTES = 10
 OTP_RATE_LIMIT_MAX = 5
 OTP_MAX_ATTEMPTS = 5
+
+# Razorpay sandbox keys (test mode). Override via env vars for production.
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_ODe90LnhMp9uJZ")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "NW8HvE7ae5JhoRcAn41K9mnt")

@@ -70,6 +70,8 @@ class OrderOut(BaseModel):
     shipping: float = 0
     tax: float = 0
     coupon_code: str | None = None
+    payment_method: str = "cod"  # cod | razorpay
+    payment_status: str = "pending"  # pending | paid | failed
     items: list[OrderItemOut] = Field(default_factory=list)
 
 
