@@ -85,6 +85,14 @@ class CustomerBrandOut(BaseModel):
     slug: str
 
 
+class CustomerStoreOut(BaseModel):
+    id: int
+    name: str
+    city: str = ""
+    address: str = ""
+    phone: str = ""
+
+
 class LensTypeOut(BaseModel):
     id: str
     name: str
