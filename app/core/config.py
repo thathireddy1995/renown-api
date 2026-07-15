@@ -27,7 +27,10 @@ JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "720"))
 
 CORS_ORIGIN_REGEX = os.getenv(
     "CORS_ORIGIN_REGEX",
-    r"^https?://localhost(:\d+)?$|^https://.*\.renowneyewear\.com$",
+    # Allow the bare production domain (customer portal) as well as any single
+    # subdomain (admin., staff., www., etc.) — a leading-dot-only regex here
+    # previously rejected the apex domain and broke prod sign-in/API calls.
+    r"^https?://localhost(:\d+)?$|^https://([a-z0-9-]+\.)?renowneyewear\.com$",
 )
 
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()

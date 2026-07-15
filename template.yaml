@@ -29,6 +29,10 @@ Parameters:
     NoEcho: true
     Default: "NW8HvE7ae5JhoRcAn41K9mnt"
     Description: "Razorpay key secret — test-mode default; pass a live secret via --parameter-overrides for production."
+  CorsOriginRegex:
+    Type: String
+    Default: "^https?://localhost(:\\d+)?$|^https://([a-z0-9-]+\\.)?renowneyewear\\.com$"
+    Description: "Regex of allowed CORS origins (admin/staff/customer portals + any subdomain of renowneyewear.com). Override via --parameter-overrides for a different domain."
 
 Globals:
   Function:
@@ -67,6 +71,7 @@ Resources:
           ENVIRONMENT: !Ref EnvironmentName
           RAZORPAY_KEY_ID: !Ref RazorpayKeyId
           RAZORPAY_KEY_SECRET: !Ref RazorpayKeySecret
+          CORS_ORIGIN_REGEX: !Ref CorsOriginRegex
       Policies:
         - Statement:
             - Effect: Allow
