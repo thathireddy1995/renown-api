@@ -17,6 +17,8 @@ class WarehouseOut(BaseModel):
     skus: int = 0
     staff: int = 0
     status: str = "Active"
+    login_mobile: str | None = None
+    login_password: str | None = None
 
 
 class WarehouseCreate(BaseModel):
@@ -28,6 +30,9 @@ class WarehouseCreate(BaseModel):
     capacity: int = 0
     staff: int = 0
     status: str = "Active"
+    # Manager portal login for this warehouse (required on create)
+    login_mobile: str
+    login_password: str
 
 
 class WarehouseUpdate(BaseModel):
@@ -39,6 +44,9 @@ class WarehouseUpdate(BaseModel):
     capacity: int | None = None
     staff: int | None = None
     status: str | None = None
+    # Optional — set later via edit
+    login_mobile: str | None = None
+    login_password: str | None = None
 
 
 class WarehouseListResponse(BaseModel):
@@ -46,6 +54,31 @@ class WarehouseListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class WarehouseLoginOption(BaseModel):
+    id: int
+    code: str
+    name: str
+    city: str = ""
+    label: str = ""
+
+
+class WarehouseLoginOptionList(BaseModel):
+    items: list[WarehouseLoginOption]
+
+
+class StoreLoginOption(BaseModel):
+    id: int
+    code: str
+    name: str
+    city: str = ""
+    warehouse_id: int | None = None
+    label: str = ""
+
+
+class StoreLoginOptionList(BaseModel):
+    items: list[StoreLoginOption]
 
 
 class WhInventoryOut(BaseModel):
@@ -88,6 +121,10 @@ class StoreOut(BaseModel):
     status: str = "Open"
     todayRevenue: float = 0
     todayOrders: int = 0
+    warehouse_id: int | None = None
+    warehouse_name: str | None = None
+    login_mobile: str | None = None
+    login_password: str | None = None
 
 
 class StoreCreate(BaseModel):
@@ -103,6 +140,9 @@ class StoreCreate(BaseModel):
     status: str = "Open"
     today_revenue: float = 0
     today_orders: int = 0
+    warehouse_id: int
+    login_mobile: str
+    login_password: str
 
 
 class StoreUpdate(BaseModel):
@@ -118,6 +158,9 @@ class StoreUpdate(BaseModel):
     status: str | None = None
     today_revenue: float | None = None
     today_orders: int | None = None
+    warehouse_id: int | None = None
+    login_mobile: str | None = None
+    login_password: str | None = None
 
 
 class StoreListResponse(BaseModel):

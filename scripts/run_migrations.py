@@ -22,8 +22,16 @@ from app.core.config import DATABASE_URL
 MIGRATIONS_DIR = pathlib.Path(__file__).resolve().parent.parent / "migrations"
 
 
+def _psycopg2_dsn(url: str) -> str:
+    """Convert SQLAlchemy URLs (postgresql+psycopg://…) to a psycopg2 DSN."""
+    for prefix in ("postgresql+psycopg://", "postgresql+psycopg2://", "postgres+psycopg://"):
+        if url.startswith(prefix):
+            return "postgresql://" + url[len(prefix) :]
+    return url
+
+
 def main() -> None:
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = psycopg2.connect(_psycopg2_dsn(DATABASE_URL))
     conn.autocommit = False
     try:
         with conn.cursor() as cur:

@@ -7,6 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.inventory_status import warehouse_stock_status
+from app.core.security import hash_password
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.dto.location_dto import (
@@ -19,7 +20,7 @@ from app.dto.location_dto import (
     WhInventoryListResponse,
     WhInventoryOut,
 )
-from app.schemas import InventoryAudit, Product, ProductVariant, Warehouse, WarehouseInventory
+from app.schemas import InventoryAudit, Product, ProductVariant, User, Warehouse, WarehouseInventory
 
 router = APIRouter(prefix="/admin/warehouses", tags=["admin-warehouses"], dependencies=[Depends(require_role("admin"))])
 
@@ -36,7 +37,40 @@ def case_dot_color():
     )
 
 
-def _warehouse_out(w: Warehouse, used: int = 0, skus: int = 0) -> WarehouseOut:
+def _manager_for_warehouse(db: Session, warehouse_id: int) -> User | None:
+    return db.scalar(
+        select(User)
+        .where(
+            User.warehouse_id == warehouse_id,
+            User.role == "warehouse_manager",
+        )
+        .order_by(User.id.asc())
+        .limit(1)
+    )
+
+
+def _login_mobiles_map(db: Session, warehouse_ids: list[int]) -> dict[int, str]:
+    if not warehouse_ids:
+        return {}
+    rows = db.execute(
+        select(User.warehouse_id, User.phone)
+        .where(
+            User.warehouse_id.in_(warehouse_ids),
+            User.role == "warehouse_manager",
+            User.phone.isnot(None),
+        )
+        .order_by(User.id.asc())
+    ).all()
+    out: dict[int, str] = {}
+    for wid, phone in rows:
+        if wid is not None and wid not in out and phone:
+            out[int(wid)] = phone
+    return out
+
+
+def _warehouse_out(
+    w: Warehouse, used: int = 0, skus: int = 0, *, login_mobile: str | None = None
+) -> WarehouseOut:
     return WarehouseOut(
         id=f"w-{w.id:02d}" if w.id < 100 else f"w-{w.id}",
         code=w.code,
@@ -49,6 +83,8 @@ def _warehouse_out(w: Warehouse, used: int = 0, skus: int = 0) -> WarehouseOut:
         skus=int(skus or 0),
         staff=w.staff or 0,
         status=w.status or "Active",
+        login_mobile=login_mobile,
+        login_password=w.login_password,
     )
 
 
@@ -91,8 +127,12 @@ def list_warehouses(
     rows = db.execute(
         stmt.order_by(Warehouse.id.asc()).limit(limit).offset(offset)
     ).all()
+    mobiles = _login_mobiles_map(db, [w.id for w, _, _ in rows])
     return WarehouseListResponse(
-        items=[_warehouse_out(w, used, skus) for w, used, skus in rows],
+        items=[
+            _warehouse_out(w, used, skus, login_mobile=mobiles.get(w.id))
+            for w, used, skus in rows
+        ],
         total=total,
         limit=limit,
         offset=offset,
@@ -106,6 +146,17 @@ def create_warehouse(
     existing = db.scalar(select(Warehouse.id).where(Warehouse.code == body.code))
     if existing:
         raise HTTPException(status_code=409, detail="Warehouse code already exists")
+
+    mobile = body.login_mobile.strip()
+    if len(mobile) != 10 or not mobile.isdigit():
+        raise HTTPException(status_code=400, detail="Login mobile must be a 10-digit number")
+    if len(body.login_password) < 4:
+        raise HTTPException(status_code=400, detail="Login password must be at least 4 characters")
+
+    phone_taken = db.scalar(select(User.id).where(User.phone == mobile))
+    if phone_taken:
+        raise HTTPException(status_code=409, detail="Login mobile is already registered")
+
     row = Warehouse(
         code=body.code.strip(),
         name=body.name.strip(),
@@ -115,11 +166,31 @@ def create_warehouse(
         capacity=body.capacity,
         staff=body.staff,
         status=body.status or "Active",
+        login_password=body.login_password,
     )
     db.add(row)
+    db.flush()
+
+    manager_name = (body.manager or "").strip() or f"{row.name} Manager"
+    email = f"wh-{row.code.lower().replace(' ', '-')}@renown.local"
+    email_taken = db.scalar(select(User.id).where(User.email == email))
+    if email_taken:
+        email = f"wh-{row.id}-{row.code.lower()}@renown.local"
+
+    db.add(
+        User(
+            name=manager_name,
+            email=email,
+            phone=mobile,
+            password_hash=hash_password(body.login_password),
+            role="warehouse_manager",
+            warehouse_id=row.id,
+            is_active=True,
+        )
+    )
     db.commit()
     db.refresh(row)
-    return _warehouse_out(row)
+    return _warehouse_out(row, login_mobile=mobile)
 
 
 @router.get("/inventory", response_model=WhInventoryListResponse)
@@ -152,7 +223,10 @@ def get_warehouse(warehouse_id: int, db: Session = Depends(get_db)) -> Warehouse
             func.count(WarehouseInventory.id),
         ).where(WarehouseInventory.warehouse_id == w.id)
     ).one()
-    return _warehouse_out(w, stats[0], stats[1])
+    manager = _manager_for_warehouse(db, w.id)
+    return _warehouse_out(
+        w, stats[0], stats[1], login_mobile=manager.phone if manager else None
+    )
 
 
 @router.patch("/{warehouse_id}", response_model=WarehouseOut)
@@ -163,6 +237,9 @@ def update_warehouse(
     if not w:
         raise HTTPException(status_code=404, detail="Warehouse not found")
     data = body.model_dump(exclude_unset=True)
+    login_mobile = data.pop("login_mobile", None)
+    login_password = data.pop("login_password", None)
+
     if "code" in data and data["code"]:
         clash = db.scalar(
             select(Warehouse.id).where(
@@ -173,6 +250,63 @@ def update_warehouse(
             raise HTTPException(status_code=409, detail="Warehouse code already exists")
     for k, v in data.items():
         setattr(w, k, v)
+
+    if login_mobile is not None or login_password is not None:
+        manager = _manager_for_warehouse(db, warehouse_id)
+        mobile = (login_mobile or "").strip() if login_mobile is not None else None
+
+        if mobile is not None:
+            if len(mobile) != 10 or not mobile.isdigit():
+                raise HTTPException(
+                    status_code=400, detail="Login mobile must be a 10-digit number"
+                )
+            phone_clash = db.scalar(
+                select(User.id).where(
+                    User.phone == mobile,
+                    User.id != (manager.id if manager else -1),
+                )
+            )
+            if phone_clash:
+                raise HTTPException(
+                    status_code=409, detail="Login mobile is already registered"
+                )
+
+        if login_password is not None and login_password != "" and len(login_password) < 4:
+            raise HTTPException(
+                status_code=400, detail="Login password must be at least 4 characters"
+            )
+
+        if manager is None:
+            if not mobile or not login_password:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Both login mobile and password are required to create a manager login",
+                )
+            email = f"wh-{w.code.lower().replace(' ', '-')}@renown.local"
+            if db.scalar(select(User.id).where(User.email == email)):
+                email = f"wh-{w.id}-{w.code.lower()}@renown.local"
+            manager_name = (w.manager or "").strip() or f"{w.name} Manager"
+            db.add(
+                User(
+                    name=manager_name,
+                    email=email,
+                    phone=mobile,
+                    password_hash=hash_password(login_password),
+                    role="warehouse_manager",
+                    warehouse_id=w.id,
+                    is_active=True,
+                )
+            )
+            w.login_password = login_password
+        else:
+            if mobile is not None:
+                manager.phone = mobile
+            if login_password:
+                manager.password_hash = hash_password(login_password)
+                w.login_password = login_password
+            if w.manager:
+                manager.name = w.manager.strip()
+
     db.commit()
     db.refresh(w)
     return get_warehouse(warehouse_id, db)

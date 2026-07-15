@@ -46,6 +46,12 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True, unique=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
+    warehouse_id: Mapped[int | None] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="SET NULL"), nullable=True
+    )
+    store_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stores.id", ondelete="SET NULL"), nullable=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -505,6 +511,8 @@ class Warehouse(Base):
     capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     staff: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="Active")
+    # Admin-visible staff portal password (users.password_hash is still used for login)
+    login_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -528,6 +536,10 @@ class Store(Base):
     manager: Mapped[str | None] = mapped_column(String(120), nullable=True)
     staff: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="Open")
+    warehouse_id: Mapped[int | None] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="SET NULL"), nullable=True
+    )
+    login_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     today_revenue: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), nullable=False, default=0
     )

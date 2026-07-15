@@ -5,6 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.inventory_status import store_stock_status
+from app.core.security import hash_password
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.dto.location_dto import (
@@ -15,13 +16,55 @@ from app.dto.location_dto import (
     StoreOut,
     StoreUpdate,
 )
-from app.routers.admin_warehouses import case_dot_color
-from app.schemas import Product, ProductVariant, Store, StoreInventory
+from app.schemas import Product, ProductVariant, Store, StoreInventory, User, Warehouse
 
 router = APIRouter(prefix="/admin/stores", tags=["admin-stores"], dependencies=[Depends(require_role("admin"))])
 
 
-def _store_out(s: Store, skus: int = 0) -> StoreOut:
+def _manager_for_store(db: Session, store_id: int) -> User | None:
+    return db.scalar(
+        select(User)
+        .where(User.store_id == store_id, User.role == "store_manager")
+        .order_by(User.id.asc())
+        .limit(1)
+    )
+
+
+def _login_mobiles_map(db: Session, store_ids: list[int]) -> dict[int, str]:
+    if not store_ids:
+        return {}
+    rows = db.execute(
+        select(User.store_id, User.phone)
+        .where(
+            User.store_id.in_(store_ids),
+            User.role == "store_manager",
+            User.phone.isnot(None),
+        )
+        .order_by(User.id.asc())
+    ).all()
+    out: dict[int, str] = {}
+    for sid, phone in rows:
+        if sid is not None and sid not in out and phone:
+            out[int(sid)] = phone
+    return out
+
+
+def _warehouse_names_map(db: Session, warehouse_ids: list[int]) -> dict[int, str]:
+    if not warehouse_ids:
+        return {}
+    rows = db.execute(
+        select(Warehouse.id, Warehouse.name).where(Warehouse.id.in_(warehouse_ids))
+    ).all()
+    return {int(wid): name for wid, name in rows}
+
+
+def _store_out(
+    s: Store,
+    skus: int = 0,
+    *,
+    login_mobile: str | None = None,
+    warehouse_name: str | None = None,
+) -> StoreOut:
     return StoreOut(
         id=f"st-{s.id:02d}" if s.id < 100 else f"st-{s.id}",
         code=s.code,
@@ -37,6 +80,10 @@ def _store_out(s: Store, skus: int = 0) -> StoreOut:
         status=s.status or "Open",
         todayRevenue=float(s.today_revenue or 0),
         todayOrders=s.today_orders or 0,
+        warehouse_id=s.warehouse_id,
+        warehouse_name=warehouse_name,
+        login_mobile=login_mobile,
+        login_password=s.login_password,
     )
 
 
@@ -76,8 +123,20 @@ def list_stores(
     rows = db.execute(
         stmt.order_by(Store.id.asc()).limit(limit).offset(offset)
     ).all()
+    mobiles = _login_mobiles_map(db, [s.id for s, _ in rows])
+    wh_names = _warehouse_names_map(
+        db, [s.warehouse_id for s, _ in rows if s.warehouse_id is not None]
+    )
     return StoreListResponse(
-        items=[_store_out(s, skus) for s, skus in rows],
+        items=[
+            _store_out(
+                s,
+                skus,
+                login_mobile=mobiles.get(s.id),
+                warehouse_name=wh_names.get(s.warehouse_id) if s.warehouse_id else None,
+            )
+            for s, skus in rows
+        ],
         total=total,
         limit=limit,
         offset=offset,
@@ -88,6 +147,19 @@ def list_stores(
 def create_store(body: StoreCreate, db: Session = Depends(get_db)) -> StoreOut:
     if db.scalar(select(Store.id).where(Store.code == body.code)):
         raise HTTPException(status_code=409, detail="Store code already exists")
+
+    wh = db.get(Warehouse, body.warehouse_id)
+    if not wh:
+        raise HTTPException(status_code=400, detail="Selected warehouse not found")
+
+    mobile = body.login_mobile.strip()
+    if len(mobile) != 10 or not mobile.isdigit():
+        raise HTTPException(status_code=400, detail="Login mobile must be a 10-digit number")
+    if len(body.login_password) < 4:
+        raise HTTPException(status_code=400, detail="Login password must be at least 4 characters")
+    if db.scalar(select(User.id).where(User.phone == mobile)):
+        raise HTTPException(status_code=409, detail="Login mobile is already registered")
+
     row = Store(
         code=body.code.strip(),
         name=body.name.strip(),
@@ -101,11 +173,32 @@ def create_store(body: StoreCreate, db: Session = Depends(get_db)) -> StoreOut:
         status=body.status or "Open",
         today_revenue=body.today_revenue,
         today_orders=body.today_orders,
+        warehouse_id=body.warehouse_id,
+        login_password=body.login_password,
     )
     db.add(row)
+    db.flush()
+
+    manager_name = (body.manager or "").strip() or f"{row.name} Manager"
+    email = f"st-{row.code.lower().replace(' ', '-')}@renown.local"
+    if db.scalar(select(User.id).where(User.email == email)):
+        email = f"st-{row.id}-{row.code.lower()}@renown.local"
+
+    db.add(
+        User(
+            name=manager_name,
+            email=email,
+            phone=mobile,
+            password_hash=hash_password(body.login_password),
+            role="store_manager",
+            store_id=row.id,
+            warehouse_id=body.warehouse_id,
+            is_active=True,
+        )
+    )
     db.commit()
     db.refresh(row)
-    return _store_out(row)
+    return _store_out(row, login_mobile=mobile, warehouse_name=wh.name)
 
 
 @router.get("/inventory", response_model=StoreInventoryListResponse)
@@ -138,7 +231,17 @@ def get_store(store_id: int, db: Session = Depends(get_db)) -> StoreOut:
         )
         or 0
     )
-    return _store_out(s, skus)
+    manager = _manager_for_store(db, s.id)
+    wh_name = None
+    if s.warehouse_id:
+        wh = db.get(Warehouse, s.warehouse_id)
+        wh_name = wh.name if wh else None
+    return _store_out(
+        s,
+        skus,
+        login_mobile=manager.phone if manager else None,
+        warehouse_name=wh_name,
+    )
 
 
 @router.patch("/{store_id}", response_model=StoreOut)
@@ -149,14 +252,82 @@ def update_store(
     if not s:
         raise HTTPException(status_code=404, detail="Store not found")
     data = body.model_dump(exclude_unset=True)
+    login_mobile = data.pop("login_mobile", None)
+    login_password = data.pop("login_password", None)
+
     if "code" in data and data["code"]:
         clash = db.scalar(
             select(Store.id).where(Store.code == data["code"], Store.id != store_id)
         )
         if clash:
             raise HTTPException(status_code=409, detail="Store code already exists")
+
+    if "warehouse_id" in data and data["warehouse_id"] is not None:
+        if not db.get(Warehouse, data["warehouse_id"]):
+            raise HTTPException(status_code=400, detail="Selected warehouse not found")
+
     for k, v in data.items():
         setattr(s, k, v)
+
+    if login_mobile is not None or login_password is not None:
+        manager = _manager_for_store(db, store_id)
+        mobile = (login_mobile or "").strip() if login_mobile is not None else None
+
+        if mobile is not None:
+            if len(mobile) != 10 or not mobile.isdigit():
+                raise HTTPException(
+                    status_code=400, detail="Login mobile must be a 10-digit number"
+                )
+            clash = db.scalar(
+                select(User.id).where(
+                    User.phone == mobile,
+                    User.id != (manager.id if manager else -1),
+                )
+            )
+            if clash:
+                raise HTTPException(
+                    status_code=409, detail="Login mobile is already registered"
+                )
+
+        if login_password is not None and login_password != "" and len(login_password) < 4:
+            raise HTTPException(
+                status_code=400, detail="Login password must be at least 4 characters"
+            )
+
+        if manager is None:
+            if not mobile or not login_password:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Both login mobile and password are required to create a manager login",
+                )
+            email = f"st-{s.code.lower().replace(' ', '-')}@renown.local"
+            if db.scalar(select(User.id).where(User.email == email)):
+                email = f"st-{s.id}-{s.code.lower()}@renown.local"
+            manager_name = (s.manager or "").strip() or f"{s.name} Manager"
+            db.add(
+                User(
+                    name=manager_name,
+                    email=email,
+                    phone=mobile,
+                    password_hash=hash_password(login_password),
+                    role="store_manager",
+                    store_id=s.id,
+                    warehouse_id=s.warehouse_id,
+                    is_active=True,
+                )
+            )
+            s.login_password = login_password
+        else:
+            if mobile is not None:
+                manager.phone = mobile
+            if login_password:
+                manager.password_hash = hash_password(login_password)
+                s.login_password = login_password
+            if s.manager:
+                manager.name = s.manager.strip()
+            if s.warehouse_id is not None:
+                manager.warehouse_id = s.warehouse_id
+
     db.commit()
     db.refresh(s)
     return get_store(store_id, db)
@@ -200,70 +371,67 @@ def _list_store_inventory(
     search: str | None = None,
 ) -> StoreInventoryListResponse:
     limit, offset = page
-    total_qty = StoreInventory.on_floor + StoreInventory.backroom
-    status_col = store_stock_status(total_qty, StoreInventory.reorder_point).label(
-        "stock_status"
+    status_col = store_stock_status(
+        StoreInventory.on_floor + StoreInventory.backroom,
+        StoreInventory.reorder_point,
     )
-    product_label = func.concat(Product.name, case_dot_color()).label("product_label")
-
     stmt = (
         select(
             StoreInventory,
-            Store.name,
-            ProductVariant.sku,
-            product_label,
-            status_col,
+            ProductVariant,
+            Product,
+            Store,
+            status_col.label("stock_status"),
         )
-        .join(Store, Store.id == StoreInventory.store_id)
         .join(ProductVariant, ProductVariant.id == StoreInventory.variant_id)
         .join(Product, Product.id == ProductVariant.product_id)
-    )
-    count_stmt = (
-        select(func.count())
-        .select_from(StoreInventory)
         .join(Store, Store.id == StoreInventory.store_id)
-        .join(ProductVariant, ProductVariant.id == StoreInventory.variant_id)
-        .join(Product, Product.id == ProductVariant.product_id)
     )
+    count_stmt = select(func.count()).select_from(StoreInventory)
 
     if store_id is not None:
         stmt = stmt.where(StoreInventory.store_id == store_id)
         count_stmt = count_stmt.where(StoreInventory.store_id == store_id)
-
-    if store_name and store_name.strip() and store_name.lower() != "all":
-        stmt = stmt.where(Store.name == store_name.strip())
-        count_stmt = count_stmt.where(Store.name == store_name.strip())
-
-    if status_filter:
-        key = status_filter.strip().title()
-        stmt = stmt.where(status_col == key)
-        count_stmt = count_stmt.where(status_col == key)
-
+    if store_name and store_name.strip() and store_name != "All":
+        stmt = stmt.where(Store.name.ilike(f"%{store_name.strip()}%"))
+        count_stmt = count_stmt.where(
+            StoreInventory.store_id.in_(
+                select(Store.id).where(Store.name.ilike(f"%{store_name.strip()}%"))
+            )
+        )
+    if status_filter and status_filter.strip() and status_filter != "All":
+        stmt = stmt.where(status_col == status_filter.strip())
     if search and search.strip():
         like = f"%{search.strip()}%"
-        filt = or_(ProductVariant.sku.ilike(like), Product.name.ilike(like))
-        stmt = stmt.where(filt)
-        count_stmt = count_stmt.where(filt)
+        stmt = stmt.where(
+            or_(
+                ProductVariant.sku.ilike(like),
+                Product.name.ilike(like),
+                Store.name.ilike(like),
+            )
+        )
 
     total = db.scalar(count_stmt) or 0
     rows = db.execute(
         stmt.order_by(StoreInventory.id.asc()).limit(limit).offset(offset)
     ).all()
 
-    items = [
-        StoreInventoryOut(
-            id=f"si-{row.id}",
-            store=store_nm or "",
-            sku=sku or "",
-            product=product or "",
-            onFloor=row.on_floor,
-            backroom=row.backroom,
-            reserved=row.reserved,
-            reorder=row.reorder_point,
-            status=stock_status,
+    items = []
+    for inv, variant, product, store, stock_status in rows:
+        color = f" · {variant.color}" if variant.color else ""
+        items.append(
+            StoreInventoryOut(
+                id=f"si-{inv.id}",
+                store=store.name,
+                sku=variant.sku,
+                product=f"{product.name}{color}",
+                onFloor=inv.on_floor or 0,
+                backroom=inv.backroom or 0,
+                reserved=inv.reserved or 0,
+                reorder=inv.reorder_point or 0,
+                status=stock_status,
+            )
         )
-        for row, store_nm, sku, product, stock_status in rows
-    ]
     return StoreInventoryListResponse(
         items=items, total=total, limit=limit, offset=offset
     )

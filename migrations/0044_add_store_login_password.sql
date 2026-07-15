@@ -1,0 +1,2 @@
+ALTER TABLE stores
+    ADD COLUMN IF NOT EXISTS login_password VARCHAR(255);
