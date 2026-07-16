@@ -1,7 +1,7 @@
 """Staff auth — /staff/auth."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, verify_password
@@ -48,7 +48,12 @@ def list_login_warehouses(db: Session = Depends(get_db)):
     """Public list of active warehouses for the staff login location dropdown."""
     rows = db.scalars(
         select(Warehouse)
-        .where(func.lower(Warehouse.status) == "active")
+        .where(
+            or_(
+                Warehouse.status.is_(None),
+                func.lower(Warehouse.status).notin_(("inactive", "closed", "disabled")),
+            )
+        )
         .order_by(Warehouse.name)
     ).all()
     items = [
@@ -66,14 +71,22 @@ def list_login_warehouses(db: Session = Depends(get_db)):
 
 @router.get("/stores", response_model=StoreLoginOptionList)
 def list_login_stores(
-    warehouse_id: int | None = Query(None),
+    warehouse_id: int = Query(..., description="Required — only stores under this warehouse"),
     db: Session = Depends(get_db),
 ):
-    """Public list of open stores, optionally filtered by supplying warehouse."""
-    stmt = select(Store).where(func.lower(Store.status).in_(("open", "active")))
-    if warehouse_id is not None:
-        stmt = stmt.where(Store.warehouse_id == warehouse_id)
-    rows = db.scalars(stmt.order_by(Store.name)).all()
+    """Public list of open stores for a warehouse (used at store-manager login)."""
+    stmt = (
+        select(Store)
+        .where(
+            Store.warehouse_id == warehouse_id,
+            or_(
+                Store.status.is_(None),
+                func.lower(Store.status).notin_(("closed", "inactive", "disabled")),
+            ),
+        )
+        .order_by(Store.name)
+    )
+    rows = db.scalars(stmt).all()
     items = [
         StoreLoginOption(
             id=s.id,

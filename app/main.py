@@ -44,6 +44,7 @@ from app.routers import (
     staff_warehouse_audits,
     staff_warehouse_dispatch,
     staff_warehouse_inventory,
+    staff_warehouse_stores,
     staff_warehouse_low_stock,
     staff_warehouse_packing,
     staff_warehouse_picking,
@@ -77,6 +78,7 @@ app.include_router(staff_warehouse_packing.router)
 app.include_router(staff_warehouse_dispatch.router)
 app.include_router(staff_warehouse_transfers.router)
 app.include_router(staff_warehouse_inventory.router)
+app.include_router(staff_warehouse_stores.router)
 app.include_router(staff_store_pos.router)
 app.include_router(staff_store_orders.router)
 app.include_router(staff_store_customers.router)

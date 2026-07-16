@@ -19,6 +19,8 @@ from app.dto.location_dto import (
     WarehouseUpdate,
     WhInventoryListResponse,
     WhInventoryOut,
+    WhInventoryUpdate,
+    WhInventoryUpsert,
 )
 from app.schemas import InventoryAudit, Product, ProductVariant, User, Warehouse, WarehouseInventory
 
@@ -209,6 +211,144 @@ def list_all_warehouse_inventory(
         warehouse_name=warehouse,
         status_filter=status_filter,
         search=search,
+    )
+
+
+def _wh_inv_status(on_hand: int, reorder: int) -> str:
+    if on_hand <= 0:
+        return "Critical"
+    if reorder and on_hand < reorder * 0.5:
+        return "Critical"
+    if reorder and on_hand < reorder:
+        return "Low"
+    return "Healthy"
+
+
+def _wh_inv_out(
+    inv: WarehouseInventory,
+    *,
+    warehouse_name: str,
+    sku: str,
+    product: str,
+) -> WhInventoryOut:
+    on_hand = int(inv.on_hand or 0)
+    reserved = int(inv.reserved or 0)
+    reorder = int(inv.reorder_point or 0)
+    return WhInventoryOut(
+        id=f"inv-{inv.id}",
+        sku=sku or "",
+        product=product or "",
+        warehouse=warehouse_name or "",
+        bin=inv.bin_location or "",
+        onHand=on_hand,
+        reserved=reserved,
+        reorder=reorder,
+        status=_wh_inv_status(on_hand, reorder),
+        warehouse_id=int(inv.warehouse_id),
+        variant_id=int(inv.variant_id),
+    )
+
+
+def _resolve_variant(
+    db: Session, *, variant_id: int | None, sku: str | None
+) -> ProductVariant:
+    if variant_id is not None:
+        variant = db.get(ProductVariant, variant_id)
+        if not variant:
+            raise HTTPException(status_code=404, detail="Variant not found")
+        return variant
+    if sku and sku.strip():
+        variant = db.scalar(
+            select(ProductVariant).where(ProductVariant.sku.ilike(sku.strip()))
+        )
+        if not variant:
+            raise HTTPException(status_code=404, detail="SKU not found")
+        return variant
+    raise HTTPException(status_code=422, detail="Provide sku or variant_id")
+
+
+@router.post("/inventory", response_model=WhInventoryOut, status_code=status.HTTP_201_CREATED)
+def upsert_warehouse_inventory(
+    body: WhInventoryUpsert, db: Session = Depends(get_db)
+) -> WhInventoryOut:
+    warehouse = db.get(Warehouse, body.warehouse_id)
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    variant = _resolve_variant(db, variant_id=body.variant_id, sku=body.sku)
+    inv = db.scalar(
+        select(WarehouseInventory).where(
+            WarehouseInventory.warehouse_id == warehouse.id,
+            WarehouseInventory.variant_id == variant.id,
+        )
+    )
+    if inv is None:
+        inv = WarehouseInventory(
+            warehouse_id=warehouse.id,
+            variant_id=variant.id,
+            on_hand=body.on_hand,
+            reserved=body.reserved,
+            reorder_point=body.reorder,
+            bin_location=(body.bin or "").strip() or None,
+        )
+        db.add(inv)
+    else:
+        inv.on_hand = body.on_hand
+        inv.reserved = body.reserved
+        inv.reorder_point = body.reorder
+        if body.bin is not None:
+            inv.bin_location = body.bin.strip() or None
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(inv)
+    product = db.get(Product, variant.product_id)
+    label = product.name if product else ""
+    if variant.color:
+        label = f"{label} · {variant.color}" if label else variant.color
+    return _wh_inv_out(inv, warehouse_name=warehouse.name or "", sku=variant.sku or "", product=label)
+
+
+@router.patch("/inventory/{inventory_id}", response_model=WhInventoryOut)
+def update_warehouse_inventory(
+    inventory_id: str, body: WhInventoryUpdate, db: Session = Depends(get_db)
+) -> WhInventoryOut:
+    raw = inventory_id
+    if raw.startswith("inv-"):
+        raw = raw[4:]
+    try:
+        iid = int(raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Inventory row not found") from exc
+    inv = db.get(WarehouseInventory, iid)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Inventory row not found")
+    if body.on_hand is not None:
+        inv.on_hand = body.on_hand
+    if body.reserved is not None:
+        inv.reserved = body.reserved
+    if body.reorder is not None:
+        inv.reorder_point = body.reorder
+    if body.bin is not None:
+        inv.bin_location = body.bin.strip() or None
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(inv)
+    warehouse = db.get(Warehouse, inv.warehouse_id)
+    variant = db.get(ProductVariant, inv.variant_id)
+    product = db.get(Product, variant.product_id) if variant else None
+    label = product.name if product else ""
+    if variant and variant.color:
+        label = f"{label} · {variant.color}" if label else variant.color
+    return _wh_inv_out(
+        inv,
+        warehouse_name=warehouse.name if warehouse else "",
+        sku=variant.sku if variant else "",
+        product=label,
     )
 
 
@@ -410,6 +550,8 @@ def _list_wh_inventory(
             reserved=row.reserved,
             reorder=row.reorder_point,
             status=stock_status,
+            warehouse_id=int(row.warehouse_id),
+            variant_id=int(row.variant_id),
         )
         for row, wh_name, sku, product, stock_status in rows
     ]

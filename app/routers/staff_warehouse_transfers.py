@@ -13,6 +13,7 @@ from app.core.stock_transfers import (
     staff_transfer_row,
     transfer_eager_options,
 )
+from app.core.deps import TokenPrincipal
 from app.database import get_db
 from app.deps import get_current_warehouse_staff, pagination, require_role
 from app.dto.staff_dto import (
@@ -36,8 +37,15 @@ def _out(row: dict) -> StaffStockTransferOut:
     )
 
 
-def _default_warehouse(db: Session) -> Warehouse | None:
-    return db.scalar(select(Warehouse).order_by(Warehouse.id.asc()).limit(1))
+def _jwt_warehouse(db: Session, principal: TokenPrincipal) -> Warehouse:
+    if principal.warehouse_id is not None:
+        wh = db.get(Warehouse, principal.warehouse_id)
+        if wh:
+            return wh
+    wh = db.scalar(select(Warehouse).order_by(Warehouse.id.asc()).limit(1))
+    if not wh:
+        raise HTTPException(status_code=400, detail="No warehouse configured")
+    return wh
 
 
 def _resolve_warehouse_by_name(db: Session, name: str) -> Warehouse | None:
@@ -48,10 +56,26 @@ def _resolve_warehouse_by_name(db: Session, name: str) -> Warehouse | None:
     )
 
 
-def _resolve_store_by_name(db: Session, name: str) -> Store | None:
+def _resolve_store_by_name(db: Session, name: str, warehouse_id: int) -> Store | None:
     if not name.strip():
         return None
-    return db.scalar(select(Store).where(Store.name.ilike(name.strip())).limit(1))
+    return db.scalar(
+        select(Store)
+        .where(
+            Store.warehouse_id == warehouse_id,
+            Store.name.ilike(name.strip()),
+        )
+        .limit(1)
+    )
+
+
+def _assert_owned_store(db: Session, warehouse_id: int, store_id: int) -> Store:
+    store = db.get(Store, store_id)
+    if not store or store.warehouse_id != warehouse_id:
+        raise HTTPException(
+            status_code=404, detail="Store not found for this warehouse"
+        )
+    return store
 
 
 def _resolve_transfer(db: Session, transfer_ref: str) -> StockTransfer | None:
@@ -67,14 +91,15 @@ def _resolve_transfer(db: Session, transfer_ref: str) -> StockTransfer | None:
 @router.get("", response_model=StaffStockTransferListResponse)
 def list_transfers(
     db: Session = Depends(get_db),
+    principal: TokenPrincipal = Depends(require_role("warehouse_manager")),
     _: User = Depends(get_current_warehouse_staff),
     page: tuple[int, int] = Depends(pagination),
     search: str | None = Query(None, alias="q"),
-    warehouse_id: int | None = None,
 ) -> StaffStockTransferListResponse:
     limit, offset = page
+    wid = _jwt_warehouse(db, principal).id
     stmt, count_stmt = list_stock_transfers_query(
-        search=search, from_warehouse_id=warehouse_id
+        search=search, from_warehouse_id=wid
     )
     total = db.scalar(count_stmt) or 0
     rows = db.scalars(
@@ -92,45 +117,43 @@ def list_transfers(
 def create_transfer(
     body: StaffStockTransferCreate,
     db: Session = Depends(get_db),
+    principal: TokenPrincipal = Depends(require_role("warehouse_manager")),
     _: User = Depends(get_current_warehouse_staff),
 ) -> StaffStockTransferOut:
-    from_id = body.from_warehouse_id
-    if from_id is None and body.from_label:
-        wh = _resolve_warehouse_by_name(db, body.from_label)
-        if wh:
-            from_id = wh.id
-    if from_id is None:
-        wh = _default_warehouse(db)
-        if not wh:
-            raise HTTPException(status_code=400, detail="No warehouse configured")
-        from_id = wh.id
-    elif not db.get(Warehouse, from_id):
-        raise HTTPException(status_code=404, detail="Source warehouse not found")
+    # Source warehouse is always the manager's JWT warehouse (cannot spoof).
+    from_id = _jwt_warehouse(db, principal).id
 
     to_wh_id = body.to_warehouse_id
     to_store_id = body.to_store_id
     dest_type = (body.destination_type or "").strip().lower()
 
+    if to_store_id is not None:
+        _assert_owned_store(db, from_id, to_store_id)
+
     if not to_wh_id and not to_store_id and body.to_label:
         if dest_type in ("store", "store_replen", "retail"):
-            store = _resolve_store_by_name(db, body.to_label)
+            store = _resolve_store_by_name(db, body.to_label, from_id)
             if store:
                 to_store_id = store.id
             else:
-                wh = _resolve_warehouse_by_name(db, body.to_label)
-                if wh:
-                    to_wh_id = wh.id
+                raise HTTPException(
+                    status_code=404,
+                    detail="Store not found for this warehouse",
+                )
         else:
             wh = _resolve_warehouse_by_name(db, body.to_label)
             if wh:
                 to_wh_id = wh.id
             else:
-                store = _resolve_store_by_name(db, body.to_label)
+                store = _resolve_store_by_name(db, body.to_label, from_id)
                 if store:
                     to_store_id = store.id
 
     if not to_wh_id and not to_store_id:
         raise HTTPException(status_code=422, detail="Destination required")
+
+    if to_store_id is not None:
+        _assert_owned_store(db, from_id, to_store_id)
 
     for it in body.items:
         if not db.get(ProductVariant, it.variant_id):

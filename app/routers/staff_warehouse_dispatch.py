@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.deps import TokenPrincipal
 from app.database import get_db
 from app.deps import get_current_warehouse_staff, pagination, require_role
 from app.dto.staff_dto import (
@@ -32,8 +33,24 @@ TYPE_LABEL = {
 }
 
 
-def _default_warehouse(db: Session) -> Warehouse | None:
-    return db.scalar(select(Warehouse).order_by(Warehouse.id.asc()).limit(1))
+def _jwt_warehouse(db: Session, principal: TokenPrincipal) -> Warehouse:
+    if principal.warehouse_id is not None:
+        wh = db.get(Warehouse, principal.warehouse_id)
+        if wh:
+            return wh
+    wh = db.scalar(select(Warehouse).order_by(Warehouse.id.asc()).limit(1))
+    if not wh:
+        raise HTTPException(status_code=400, detail="No warehouse configured")
+    return wh
+
+
+def _assert_owned_store(db: Session, warehouse_id: int, store_id: int) -> Store:
+    store = db.get(Store, store_id)
+    if not store or store.warehouse_id != warehouse_id:
+        raise HTTPException(
+            status_code=404, detail="Store not found for this warehouse"
+        )
+    return store
 
 
 def _dispatch_out(d: DispatchOrder, items_override: int | None = None) -> StaffDispatchOut:
@@ -100,13 +117,23 @@ def _decrement_inventory(
 @router.get("", response_model=StaffDispatchListResponse)
 def list_dispatches(
     db: Session = Depends(get_db),
+    principal: TokenPrincipal = Depends(require_role("warehouse_manager")),
     _: User = Depends(get_current_warehouse_staff),
     page: tuple[int, int] = Depends(pagination),
     search: str | None = Query(None, alias="q"),
 ) -> StaffDispatchListResponse:
     limit, offset = page
-    stmt = select(DispatchOrder).options(selectinload(DispatchOrder.items))
-    count_stmt = select(func.count()).select_from(DispatchOrder)
+    wid = _jwt_warehouse(db, principal).id
+    stmt = (
+        select(DispatchOrder)
+        .options(selectinload(DispatchOrder.items))
+        .where(DispatchOrder.warehouse_id == wid)
+    )
+    count_stmt = (
+        select(func.count())
+        .select_from(DispatchOrder)
+        .where(DispatchOrder.warehouse_id == wid)
+    )
 
     if search and search.strip():
         like = f"%{search.strip()}%"
@@ -135,16 +162,10 @@ def list_dispatches(
 def create_dispatch(
     body: StaffDispatchCreate,
     db: Session = Depends(get_db),
+    principal: TokenPrincipal = Depends(require_role("warehouse_manager")),
     _: User = Depends(get_current_warehouse_staff),
 ) -> StaffDispatchOut:
-    warehouse_id = body.warehouse_id
-    if warehouse_id is None:
-        wh = _default_warehouse(db)
-        if not wh:
-            raise HTTPException(status_code=400, detail="No warehouse configured")
-        warehouse_id = wh.id
-    elif not db.get(Warehouse, warehouse_id):
-        raise HTTPException(status_code=404, detail="Warehouse not found")
+    warehouse_id = _jwt_warehouse(db, principal).id
 
     dest_type = body.destination_type
     if dest_type not in ("store_replen", "d2c"):
@@ -157,11 +178,27 @@ def create_dispatch(
         else:
             raise HTTPException(status_code=422, detail="Invalid destination_type")
 
+    destination_id = body.destination_id
     label = body.destination_label
-    if not label and body.destination_id and dest_type == "store_replen":
-        store = db.get(Store, body.destination_id)
-        if store:
+    if dest_type == "store_replen":
+        if destination_id is not None:
+            store = _assert_owned_store(db, warehouse_id, destination_id)
+            label = label or store.name
+        elif label:
+            store = db.scalar(
+                select(Store).where(
+                    Store.warehouse_id == warehouse_id,
+                    Store.name.ilike(label.strip()),
+                ).limit(1)
+            )
+            if not store:
+                raise HTTPException(
+                    status_code=404, detail="Store not found for this warehouse"
+                )
+            destination_id = store.id
             label = store.name
+        else:
+            raise HTTPException(status_code=422, detail="Select a store destination")
 
     for it in body.items:
         if not db.get(ProductVariant, it.variant_id):
@@ -177,7 +214,7 @@ def create_dispatch(
         do_number=do_number,
         warehouse_id=warehouse_id,
         destination_type=dest_type,
-        destination_id=body.destination_id,
+        destination_id=destination_id,
         destination_label=label or "",
         carrier=body.carrier,
         awb=body.awb,

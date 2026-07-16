@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import cast, Date, case, func, select
 from sqlalchemy.orm import Session
 
@@ -30,6 +30,8 @@ from app.schemas import (
     ProductVariant,
     PurchaseOrder,
     StockTransfer,
+    Store,
+    StoreInventory,
     Supplier,
     Warehouse,
     WarehouseInventory,
@@ -55,15 +57,138 @@ def _wh_id(db: Session, principal: TokenPrincipal) -> int | None:
     return wh.id if wh else None
 
 
+def _store_count(db: Session, wid: int | None) -> int:
+    if wid is None:
+        return 0
+    return int(
+        db.scalar(select(func.count()).select_from(Store).where(Store.warehouse_id == wid))
+        or 0
+    )
+
+
+def _resolve_store_id(db: Session, wid: int | None, store_id: int | None) -> int | None:
+    if store_id is None:
+        return None
+    if wid is None:
+        raise HTTPException(status_code=400, detail="No warehouse configured")
+    store = db.get(Store, store_id)
+    if not store or store.warehouse_id != wid:
+        raise HTTPException(status_code=404, detail="Store not found for this warehouse")
+    return store.id
+
+
 @reports_router.get("", response_model=StaffWarehouseReportsResponse)
 def warehouse_reports(
     db: Session = Depends(get_db),
     principal: TokenPrincipal = Depends(require_role("warehouse_manager")),
+    store_id: int | None = Query(None),
 ) -> StaffWarehouseReportsResponse:
     wid = _wh_id(db, principal)
+    sid = _resolve_store_id(db, wid, store_id)
     now = utcnow()
     today = start_of_day(now)
     since = today - timedelta(days=42)
+
+    if sid is not None:
+        store_skus = int(
+            db.scalar(
+                select(func.count()).select_from(StoreInventory).where(
+                    StoreInventory.store_id == sid
+                )
+            )
+            or 0
+        )
+        store_qty = int(
+            db.scalar(
+                select(
+                    func.coalesce(
+                        func.sum(StoreInventory.on_floor + StoreInventory.backroom), 0
+                    )
+                ).where(StoreInventory.store_id == sid)
+            )
+            or 0
+        )
+        low_store = int(
+            db.scalar(
+                select(func.count())
+                .select_from(StoreInventory)
+                .where(
+                    StoreInventory.store_id == sid,
+                    (StoreInventory.on_floor + StoreInventory.backroom)
+                    <= StoreInventory.reorder_point,
+                )
+            )
+            or 0
+        )
+        disp_q = select(
+            func.count(DispatchOrder.id),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            DispatchOrder.status.in_(
+                                ["Delivered", "Done", "In Transit", "Shipped"]
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ),
+        ).where(
+            DispatchOrder.created_at >= since,
+            DispatchOrder.destination_id == sid,
+        )
+        if wid is not None:
+            disp_q = disp_q.where(DispatchOrder.warehouse_id == wid)
+        disp_total_n, disp_ok_n = (int(x or 0) for x in db.execute(disp_q).one())
+        on_time = (disp_ok_n / disp_total_n * 100) if disp_total_n else 100.0
+        xfer_n = int(
+            db.scalar(
+                select(func.count())
+                .select_from(StockTransfer)
+                .where(
+                    StockTransfer.to_store_id == sid,
+                    StockTransfer.created_at >= since,
+                )
+            )
+            or 0
+        )
+        week_expr = func.date_trunc("week", DispatchOrder.created_at)
+        disp_trend_q = (
+            select(week_expr.label("w"), func.coalesce(func.sum(DispatchOrderItem.qty), 0))
+            .select_from(DispatchOrderItem)
+            .join(DispatchOrder, DispatchOrder.id == DispatchOrderItem.dispatch_order_id)
+            .where(
+                DispatchOrder.created_at >= since,
+                DispatchOrder.destination_id == sid,
+            )
+            .group_by(week_expr)
+            .order_by(week_expr.asc())
+            .limit(6)
+        )
+        if wid is not None:
+            disp_trend_q = disp_trend_q.where(DispatchOrder.warehouse_id == wid)
+        disp_rows = list(db.execute(disp_trend_q).all())
+        disp_vals = [float(r[1] or 0) for r in disp_rows]
+        while len(disp_vals) < 6:
+            disp_vals.insert(0, 0.0)
+        return StaffWarehouseReportsResponse(
+            kpis=[
+                DashboardKpi(label="Store SKUs", value=f"{store_skus:,}", delta=f"{store_qty:,} units"),
+                DashboardKpi(label="On-time dispatch", value=pct(on_time), delta=f"{disp_total_n} orders"),
+                DashboardKpi(label="Low stock SKUs", value=str(low_store), delta=f"{low_store} open"),
+                DashboardKpi(label="Inbound transfers", value=str(xfer_n), delta="last 6 weeks"),
+            ],
+            accuracyTrend=[
+                WeekPoint(d=f"W{i + 1}", v=round(max(90.0, 100.0 - low_store * 0.5), 1))
+                for i in range(6)
+            ],
+            dispatchedTrend=[
+                WeekPoint(d=f"W{i + 1}", v=v) for i, v in enumerate(disp_vals[-6:])
+            ],
+        )
 
     fill_q = (
         select(
@@ -129,12 +254,17 @@ def warehouse_reports(
             or 0
         )
     utilised = min(100.0, on_hand / cap * 100)
+    stores_n = _store_count(db, wid)
 
     kpis = [
         DashboardKpi(label="Fill rate", value=pct(fill_rate), delta="+0.4%"),
         DashboardKpi(label="On-time dispatch", value=pct(on_time), delta="+1.1%"),
         DashboardKpi(label="Inventory accuracy", value=pct(accuracy), delta="+0.3%"),
-        DashboardKpi(label="Utilised capacity", value=pct(utilised, 0), delta="+4%"),
+        DashboardKpi(
+            label="Linked stores",
+            value=str(stores_n),
+            delta=pct(utilised, 0) + " capacity",
+        ),
     ]
 
     week_expr = func.date_trunc("week", DispatchOrder.created_at)
@@ -245,6 +375,7 @@ def warehouse_dashboard(
     if wid is not None:
         low_q = low_q.where(WarehouseInventory.warehouse_id == wid)
     low_t = int(db.scalar(low_q) or 0)
+    stores_n = _store_count(db, wid)
 
     kpis = [
         DashboardKpi(
@@ -263,9 +394,9 @@ def warehouse_dashboard(
             delta=delta_pct(float(recv_t), float(recv_y)),
         ),
         DashboardKpi(
-            label="Low stock alerts",
-            value=str(low_t),
-            delta=f"{low_t} open",
+            label="Linked stores",
+            value=str(stores_n),
+            delta=f"{low_t} low-stock SKUs",
         ),
     ]
 

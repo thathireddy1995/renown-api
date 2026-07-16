@@ -95,6 +95,25 @@ class WhInventoryOut(BaseModel):
     reserved: int = 0
     reorder: int = 0
     status: str
+    warehouse_id: int | None = None
+    variant_id: int | None = None
+
+
+class WhInventoryUpsert(BaseModel):
+    warehouse_id: int
+    sku: str | None = None
+    variant_id: int | None = None
+    on_hand: int = 0
+    reserved: int = 0
+    reorder: int = 0
+    bin: str | None = None
+
+
+class WhInventoryUpdate(BaseModel):
+    on_hand: int | None = None
+    reserved: int | None = None
+    reorder: int | None = None
+    bin: str | None = None
 
 
 class WhInventoryListResponse(BaseModel):
