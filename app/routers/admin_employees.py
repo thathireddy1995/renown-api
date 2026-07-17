@@ -10,6 +10,7 @@ from app.core.employees import (
     employee_eager,
     parse_status,
 )
+from app.core.security import hash_password
 from app.database import get_db
 from app.deps import pagination
 from app.dto.employee_dto import (
@@ -18,7 +19,15 @@ from app.dto.employee_dto import (
     AdminEmployeeOut,
     AdminEmployeeUpdate,
 )
-from app.schemas import Employee, Store, Warehouse
+from app.schemas import Employee, Store, User, Warehouse
+
+MANAGER_ROLES = frozenset({"store_manager", "warehouse_manager"})
+ROLE_ALIASES = {
+    "store manager": "store_manager",
+    "store_manager": "store_manager",
+    "warehouse manager": "warehouse_manager",
+    "warehouse_manager": "warehouse_manager",
+}
 
 router = APIRouter(
     prefix="/admin/employees",
@@ -122,17 +131,50 @@ def list_employees(
     )
 
 
+def _normalize_manager_role(raw: str) -> str:
+    key = (raw or "").strip().lower()
+    role = ROLE_ALIASES.get(key)
+    if role not in MANAGER_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail="Role must be store_manager or warehouse_manager",
+        )
+    return role
+
+
+def _staff_type_for_role(role: str, requested_type: str | None) -> str:
+    expected = "store" if role == "store_manager" else "warehouse"
+    if requested_type and requested_type not in {expected, ""}:
+        # Prefer role as source of truth for portal access.
+        return expected
+    return expected
+
+
 @router.post("", response_model=AdminEmployeeOut, status_code=status.HTTP_201_CREATED)
 def create_employee(
     body: AdminEmployeeCreate,
     db: Session = Depends(get_db),
 ) -> AdminEmployeeOut:
+    role = _normalize_manager_role(body.role)
+    emp_type = _staff_type_for_role(role, body.type)
+
+    phone = "".join(ch for ch in (body.phone or "") if ch.isdigit())
+    if len(phone) != 10:
+        raise HTTPException(status_code=400, detail="A valid 10-digit phone is required")
+    if not body.password or len(body.password) < 6:
+        raise HTTPException(
+            status_code=400, detail="Password must be at least 6 characters"
+        )
+
+    if db.scalar(select(User.id).where(User.phone == phone)):
+        raise HTTPException(status_code=400, detail="Phone already registered")
+
     store_id, warehouse_id = _resolve_location(
-        db, body.type, body.location, body.store_id, body.warehouse_id
+        db, emp_type, body.location, body.store_id, body.warehouse_id
     )
-    if body.type == "store" and not store_id:
+    if emp_type == "store" and not store_id:
         raise HTTPException(status_code=400, detail="store_id or location required")
-    if body.type == "warehouse" and not warehouse_id:
+    if emp_type == "warehouse" and not warehouse_id:
         raise HTTPException(status_code=400, detail="warehouse_id or location required")
 
     code = body.employee_code
@@ -143,19 +185,32 @@ def create_employee(
     if db.scalar(select(Employee.id).where(Employee.employee_code == code)):
         raise HTTPException(status_code=400, detail="employee_code already exists")
 
+    email = f"{role}.{phone}@staff.optihub.local"
+    if db.scalar(select(User.id).where(User.email == email)):
+        email = f"{role}.{phone}.{code.lower()}@staff.optihub.local"
+
     st = parse_status(body.status) or "active"
     row = Employee(
         employee_code=code,
         name=body.name,
-        job_role=body.role[:40],
-        store_id=store_id if body.type == "store" else None,
-        warehouse_id=warehouse_id if body.type == "warehouse" else None,
-        phone=body.phone,
+        job_role=role,
+        store_id=store_id if emp_type == "store" else None,
+        warehouse_id=warehouse_id if emp_type == "warehouse" else None,
+        phone=phone,
         shift=(body.shift or "Day")[:20],
         status=st,
         mtd_sales=body.mtd_sales,
     )
+    login_user = User(
+        name=body.name.strip(),
+        email=email,
+        phone=phone,
+        password_hash=hash_password(body.password),
+        role=role,
+        is_active=st == "active",
+    )
     db.add(row)
+    db.add(login_user)
     try:
         db.commit()
     except Exception:
@@ -202,7 +257,7 @@ def update_employee(
     if "name" in data and data["name"] is not None:
         row.name = data["name"]
     if "role" in data and data["role"] is not None:
-        row.job_role = data["role"][:40]
+        row.job_role = _normalize_manager_role(data["role"])
     if "shift" in data and data["shift"] is not None:
         row.shift = data["shift"][:20]
     if "phone" in data:

@@ -3,6 +3,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -327,6 +328,47 @@ def login(payload: CustomerLoginRequest, db: Session = Depends(get_db)) -> Custo
         )
 
     return _token_response(customer)
+
+
+@router.get("/google/mobile-redirect", response_class=HTMLResponse)
+def google_mobile_redirect() -> HTMLResponse:
+    """Bridge Google implicit OAuth (#id_token) back into the Android app scheme."""
+    return HTMLResponse(
+        content="""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Signing in…</title>
+  <style>
+    body { font-family: system-ui, sans-serif; text-align: center; padding: 48px 16px; color: #1a1a1a; }
+  </style>
+</head>
+<body>
+  <p>Completing Google sign-in…</p>
+  <script>
+    (function () {
+      var hash = window.location.hash ? window.location.hash.replace(/^#/, "") : "";
+      var params = new URLSearchParams(hash);
+      var query = new URLSearchParams(window.location.search);
+      var idToken = params.get("id_token") || query.get("id_token");
+      var error = params.get("error") || query.get("error");
+      var scheme = "com.renown.renown_customer";
+      if (error) {
+        window.location.replace(scheme + "://oauth?error=" + encodeURIComponent(error));
+        return;
+      }
+      if (!idToken) {
+        window.location.replace(scheme + "://oauth?error=" + encodeURIComponent("missing_token"));
+        return;
+      }
+      window.location.replace(scheme + "://oauth?id_token=" + encodeURIComponent(idToken));
+    })();
+  </script>
+</body>
+</html>""",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.post("/google", response_model=CustomerTokenResponse)

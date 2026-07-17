@@ -23,7 +23,7 @@ class AdminEmployeeListResponse(BaseModel):
 class AdminEmployeeCreate(BaseModel):
     employee_code: str | None = None
     name: str
-    role: str
+    role: str  # store_manager | warehouse_manager
     type: str = "store"
     location: str | None = None
     store_id: int | None = None
@@ -31,6 +31,7 @@ class AdminEmployeeCreate(BaseModel):
     shift: str = "Day"
     status: str = "On duty"
     phone: str | None = None
+    password: str | None = None
     mtd_sales: float = 0
 
 
