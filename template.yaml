@@ -22,12 +22,12 @@ Parameters:
     Description: "Gates dev-only behavior (e.g. the demo OTP bypass) — must stay 'production' for real deployments."
   RazorpayKeyId:
     Type: String
-    Default: "rzp_test_ODe90LnhMp9uJZ"
+    Default: "rzp_test_TFQQhSY0gwUMhs"
     Description: "Razorpay key id — test-mode default; pass a live key via --parameter-overrides for production."
   RazorpayKeySecret:
     Type: String
     NoEcho: true
-    Default: "NW8HvE7ae5JhoRcAn41K9mnt"
+    Default: "EGGkPibPOmeLQN6fRTUpK7Qi"
     Description: "Razorpay key secret — test-mode default; pass a live secret via --parameter-overrides for production."
   CorsOriginRegex:
     Type: String
@@ -35,12 +35,12 @@ Parameters:
     Description: "Regex of allowed CORS origins (admin/staff/customer portals + any subdomain of renowneyewear.com). Override via --parameter-overrides for a different domain."
   ShiprocketEmail:
     Type: String
-    Default: ""
+    Default: "renownapi@gmail.com"
     Description: "Shiprocket API user email (Settings → API)."
   ShiprocketPassword:
     Type: String
     NoEcho: true
-    Default: ""
+    Default: "bT*LOZ@i&hzssy&1Ii^v2SE7kLSk#sa$"
     Description: "Shiprocket API user password — pass via --parameter-overrides, never commit."
 
 Globals:
@@ -67,7 +67,7 @@ Resources:
   FastApiFunction:
     Type: AWS::Serverless::Function
     Properties:
-      Runtime: python3.13
+      Runtime: python3.12
       Architectures:
         - x86_64
       Handler: app.main.handler
