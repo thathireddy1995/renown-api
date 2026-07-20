@@ -459,6 +459,11 @@ class Order(Base):
     payment_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     razorpay_order_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     razorpay_payment_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    awb_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    courier_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    shiprocket_order_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    shiprocket_shipment_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tracking_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

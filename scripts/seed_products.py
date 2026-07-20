@@ -26,23 +26,16 @@ IMG = (
     lambda photo_id: f"https://images.unsplash.com/{photo_id}?auto=format&fit=crop&w=900&q=70"
 )
 
+# Verified eyewear-only Unsplash photo ids.
 IMG_POOL = [
     "photo-1574258495973-f010dfbb5371",
     "photo-1511499767150-a48a237f0083",
-    "photo-1509695507497-903c140c43b0",
     "photo-1577803645773-f96470509666",
     "photo-1591076482161-42ce6da69f67",
     "photo-1508296695146-257a814070b4",
-    "photo-1526178613552-2b45c6c302f0",
-    "photo-1602699320437-c07f39c86a83",
     "photo-1473496169904-658ba7c44d8a",
     "photo-1572635196237-14b3f281503f",
-    "photo-1620006317311-6f0f88b74e04",
-    "photo-1556306535-0f09a537f0a3",
-    "photo-1614715838608-dd527c4f4b39",
-    "photo-1633621533308-8760ad239cfa",
-    "photo-1608539733292-6d75e9e4bfa2",
-    "photo-1512201078372-9c6b2a0d528a",
+    "photo-1556306535-38febf6782e7",
 ]
 
 ADMIN_PRODUCTS = [

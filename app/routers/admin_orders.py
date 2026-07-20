@@ -15,6 +15,7 @@ from app.dto.admin_dto import (
     AdminOrderItemOut,
     AdminOrderListResponse,
     AdminOrderOut,
+    AdminOrderShipmentUpdate,
     AdminOrderStatusUpdate,
 )
 from app.schemas import Customer, Order, OrderItem
@@ -173,12 +174,7 @@ def list_orders(
     )
 
 
-@router.get("/{order_ref}", response_model=AdminOrderDetailOut)
-def get_order(order_ref: str, db: Session = Depends(get_db)) -> AdminOrderDetailOut:
-    order = _resolve_order(db, order_ref)
-    if not order:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-
+def _detail_out(order: Order) -> AdminOrderDetailOut:
     customer = order.customer
     line_items = [
         AdminOrderItemOut(
@@ -205,8 +201,51 @@ def get_order(order_ref: str, db: Session = Depends(get_db)) -> AdminOrderDetail
         shipping=float(order.shipping_fee or 0),
         tax=float(order.tax or 0),
         coupon_code=order.coupon_code,
+        awb_code=order.awb_code,
+        courier_name=order.courier_name,
+        shiprocket_order_id=order.shiprocket_order_id,
+        shiprocket_shipment_id=order.shiprocket_shipment_id,
+        tracking_url=order.tracking_url,
         line_items=line_items,
     )
+
+
+@router.get("/{order_ref}", response_model=AdminOrderDetailOut)
+def get_order(order_ref: str, db: Session = Depends(get_db)) -> AdminOrderDetailOut:
+    order = _resolve_order(db, order_ref)
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    return _detail_out(order)
+
+
+@router.patch("/{order_ref}/shipment", response_model=AdminOrderDetailOut)
+def update_order_shipment(
+    order_ref: str,
+    body: AdminOrderShipmentUpdate,
+    db: Session = Depends(get_db),
+) -> AdminOrderDetailOut:
+    """Attach Shiprocket AWB so /customer/orders/{id}/tracking can poll courier status."""
+    order = _resolve_order(db, order_ref)
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+    order.awb_code = body.awb_code.strip()
+    if body.courier_name is not None:
+        order.courier_name = body.courier_name.strip() or None
+    if body.shiprocket_order_id is not None:
+        order.shiprocket_order_id = body.shiprocket_order_id.strip() or None
+    if body.shiprocket_shipment_id is not None:
+        order.shiprocket_shipment_id = body.shiprocket_shipment_id.strip() or None
+    if body.tracking_url is not None:
+        order.tracking_url = body.tracking_url.strip() or None
+    if body.mark_shipped and (order.status or "").lower() in ("placed", "verified", "packed"):
+        order.status = "shipped"
+    db.commit()
+
+    refreshed = _resolve_order(db, order_ref)
+    if not refreshed:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    return _detail_out(refreshed)
 
 
 @router.patch("/{order_ref}/status", response_model=AdminOrderDetailOut)
@@ -233,31 +272,4 @@ def update_order_status(
     refreshed = _resolve_order(db, order_ref)
     if not refreshed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-    customer = refreshed.customer
-    line_items = [
-        AdminOrderItemOut(
-            productId=public_product_id(i.product) if i.product else str(i.product_id),
-            name=i.name_snapshot or (i.product.name if i.product else ""),
-            qty=i.qty,
-            price=float(i.price_snapshot or 0),
-        )
-        for i in (refreshed.items or [])
-    ]
-    base = _order_list_row(
-        refreshed,
-        customer.name if customer else None,
-        len(refreshed.items or []),
-    )
-    return AdminOrderDetailOut(
-        **base.model_dump(),
-        db_id=refreshed.id,
-        customer_id=refreshed.customer_id,
-        customer_email=customer.email if customer else None,
-        customer_phone=customer.phone if customer else None,
-        subtotal=float(refreshed.subtotal or 0),
-        discount=float(refreshed.discount or 0),
-        shipping=float(refreshed.shipping_fee or 0),
-        tax=float(refreshed.tax or 0),
-        coupon_code=refreshed.coupon_code,
-        line_items=line_items,
-    )
+    return _detail_out(refreshed)

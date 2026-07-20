@@ -72,7 +72,31 @@ class OrderOut(BaseModel):
     coupon_code: str | None = None
     payment_method: str = "cod"  # cod | razorpay
     payment_status: str = "pending"  # pending | paid | failed
+    awb_code: str | None = None
+    courier_name: str | None = None
+    tracking_url: str | None = None
     items: list[OrderItemOut] = Field(default_factory=list)
+
+
+class TrackingActivityOut(BaseModel):
+    date: str = ""
+    activity: str = ""
+    location: str = ""
+
+
+class OrderTrackingOut(BaseModel):
+    order_id: str
+    status: str
+    awb_code: str | None = None
+    courier_name: str | None = None
+    tracking_url: str | None = None
+    current_status: str | None = None
+    edd: str | None = None
+    origin: str | None = None
+    destination: str | None = None
+    activities: list[TrackingActivityOut] = Field(default_factory=list)
+    shiprocket: bool = False
+    message: str | None = None
 
 
 class OrderCreateRequest(BaseModel):

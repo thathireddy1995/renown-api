@@ -12,11 +12,19 @@ from app.core.order_service import (
 from app.core.product_resolve import public_product_id
 from app.database import get_db
 from app.deps import get_current_customer, pagination
+from app.core.shiprocket import (
+    ShiprocketError,
+    configured as shiprocket_configured,
+    normalize_tracking,
+    track_by_awb,
+)
 from app.dto.order_dto import (
     OrderCreateRequest,
     OrderItemOut,
     OrderListResponse,
     OrderOut,
+    OrderTrackingOut,
+    TrackingActivityOut,
 )
 from app.schemas import Customer, Order, OrderItem
 
@@ -59,6 +67,9 @@ def _order_out(order: Order) -> OrderOut:
         coupon_code=order.coupon_code,
         payment_method=order.payment_method,
         payment_status=order.payment_status,
+        awb_code=order.awb_code,
+        courier_name=order.courier_name,
+        tracking_url=order.tracking_url,
         items=items,
     )
 
@@ -113,6 +124,72 @@ def get_order(
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
     return _order_out(order)
+
+
+@router.get("/{order_number}/tracking", response_model=OrderTrackingOut)
+def track_order(
+    order_number: str,
+    db: Session = Depends(get_db),
+    customer: Customer = Depends(get_current_customer),
+) -> OrderTrackingOut:
+    """Order timeline + live Shiprocket events when an AWB is attached."""
+    order = db.scalar(
+        select(Order).where(
+            Order.order_number == order_number,
+            Order.customer_id == customer.id,
+        )
+    )
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+
+    base = OrderTrackingOut(
+        order_id=order.order_number,
+        status=_status_label(order.status),
+        awb_code=order.awb_code,
+        courier_name=order.courier_name,
+        tracking_url=order.tracking_url,
+        shiprocket=False,
+    )
+
+    if not order.awb_code:
+        base.message = "Shipment not handed to courier yet."
+        return base
+
+    if not shiprocket_configured():
+        base.message = "Tracking service is not configured."
+        return base
+
+    try:
+        raw = track_by_awb(order.awb_code)
+        info = normalize_tracking(raw)
+    except ShiprocketError as err:
+        base.message = str(err)
+        return base
+
+    # Keep Renown order status in sync with courier when it advances.
+    mapped = info.get("mapped_status") or ""
+    if mapped and mapped != (order.status or "").lower():
+        order.status = mapped
+        if info.get("courier") and not order.courier_name:
+            order.courier_name = info["courier"][:120]
+        if info.get("track_url"):
+            order.tracking_url = info["track_url"]
+        db.commit()
+
+    return OrderTrackingOut(
+        order_id=order.order_number,
+        status=_status_label(order.status),
+        awb_code=order.awb_code or info.get("awb") or None,
+        courier_name=order.courier_name or info.get("courier") or None,
+        tracking_url=order.tracking_url or info.get("track_url") or None,
+        current_status=info.get("current_status") or None,
+        edd=info.get("edd") or None,
+        origin=info.get("origin") or None,
+        destination=info.get("destination") or None,
+        activities=[TrackingActivityOut(**a) for a in info.get("activities") or []],
+        shiprocket=True,
+        message=None,
+    )
 
 
 @router.post("/", response_model=OrderOut, status_code=status.HTTP_201_CREATED)

@@ -33,6 +33,15 @@ Parameters:
     Type: String
     Default: "^https?://localhost(:\\d+)?$|^https://([a-z0-9-]+\\.)?renowneyewear\\.com$"
     Description: "Regex of allowed CORS origins (admin/staff/customer portals + any subdomain of renowneyewear.com). Override via --parameter-overrides for a different domain."
+  ShiprocketEmail:
+    Type: String
+    Default: ""
+    Description: "Shiprocket API user email (Settings → API)."
+  ShiprocketPassword:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: "Shiprocket API user password — pass via --parameter-overrides, never commit."
 
 Globals:
   Function:
@@ -72,6 +81,8 @@ Resources:
           RAZORPAY_KEY_ID: !Ref RazorpayKeyId
           RAZORPAY_KEY_SECRET: !Ref RazorpayKeySecret
           CORS_ORIGIN_REGEX: !Ref CorsOriginRegex
+          SHIPROCKET_EMAIL: !Ref ShiprocketEmail
+          SHIPROCKET_PASSWORD: !Ref ShiprocketPassword
       Policies:
         - Statement:
             - Effect: Allow

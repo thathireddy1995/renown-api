@@ -10,16 +10,35 @@ from app.schemas import Brand, Category, Store
 
 router = APIRouter(prefix="/customer", tags=["customer-catalog"])
 
-# Stable Unsplash images keyed by category slug for storefront cards.
+# Verified Unsplash eyewear photos only (checked content + HTTP 200).
+_U = "https://images.unsplash.com"
+EYEGLASSES = f"{_U}/photo-1574258495973-f010dfbb5371?auto=format&fit=crop&w=900&q=70"
+SUNGLASSES = f"{_U}/photo-1511499767150-a48a237f0083?auto=format&fit=crop&w=900&q=70"
+READING = f"{_U}/photo-1591076482161-42ce6da69f67?auto=format&fit=crop&w=900&q=70"
+WAYFARER = f"{_U}/photo-1572635196237-14b3f281503f?auto=format&fit=crop&w=900&q=70"
+CAT_EYE = f"{_U}/photo-1508296695146-257a814070b4?auto=format&fit=crop&w=900&q=70"
+BEACH_SUN = f"{_U}/photo-1473496169904-658ba7c44d8a?auto=format&fit=crop&w=900&q=70"
+LIFESTYLE_SUN = f"{_U}/photo-1577803645773-f96470509666?auto=format&fit=crop&w=900&q=70"
+CASE_SUN = f"{_U}/photo-1556306535-38febf6782e7?auto=format&fit=crop&w=900&q=70"
+
+# Stable images keyed by category slug for storefront cards.
 CATEGORY_IMAGES = {
-    "eyeglasses": "https://images.unsplash.com/photo-1574258495973-f010dfbb5371?auto=format&fit=crop&w=900&q=70",
-    "sunglasses": "https://images.unsplash.com/photo-1511499767150-a48a237f0083?auto=format&fit=crop&w=900&q=70",
-    "contact-lenses": "https://images.unsplash.com/photo-1583324113626-70df0f4deaab?auto=format&fit=crop&w=900&q=70",
-    "reading-glasses": "https://images.unsplash.com/photo-1591076482161-42ce6da69f67?auto=format&fit=crop&w=900&q=70",
-    "blue-light": "https://images.unsplash.com/photo-1577803645773-f96470509666?auto=format&fit=crop&w=900&q=70",
-    "sports": "https://images.unsplash.com/photo-1526178613552-2b45c6c302f0?auto=format&fit=crop&w=900&q=70",
-    "kids": "https://images.unsplash.com/photo-1512253022256-19f3d9c8b7ee?auto=format&fit=crop&w=900&q=70",
-    "accessories": "https://images.unsplash.com/photo-1508296695146-257a814070b4?auto=format&fit=crop&w=900&q=70",
+    "eyeglasses": EYEGLASSES,
+    "sunglasses": SUNGLASSES,
+    "prescription-sunglasses": BEACH_SUN,
+    "reading-glasses": READING,
+    "computer-glasses": EYEGLASSES,
+    "blue-light": LIFESTYLE_SUN,
+    "contact-lenses": READING,  # clear optical lenses (no virus / non-eyewear art)
+    "lens-solutions": CASE_SUN,
+    "accessories": CAT_EYE,
+    "kids": EYEGLASSES,
+    "kids-collection": EYEGLASSES,
+    "sports": WAYFARER,
+    "sports-eyewear": WAYFARER,
+    "sunframes": SUNGLASSES,
+    "designer-frames": CAT_EYE,
+    "progressive-lenses": READING,
 }
 
 
@@ -35,7 +54,7 @@ def list_categories(db: Session = Depends(get_db)) -> list[CustomerCategoryOut]:
             id=r.id,
             name=r.name,
             slug=r.slug,
-            image=CATEGORY_IMAGES.get(r.slug),
+            image=CATEGORY_IMAGES.get(r.slug) or EYEGLASSES,
         )
         for r in rows
     ]

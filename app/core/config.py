@@ -44,3 +44,7 @@ OTP_MAX_ATTEMPTS = 5
 # Razorpay sandbox keys (test mode). Override via env vars for production.
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_ODe90LnhMp9uJZ")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "NW8HvE7ae5JhoRcAn41K9mnt")
+
+# Shiprocket API user (Settings → API). Never commit real values to git.
+SHIPROCKET_EMAIL = os.getenv("SHIPROCKET_EMAIL", "")
+SHIPROCKET_PASSWORD = os.getenv("SHIPROCKET_PASSWORD", "")

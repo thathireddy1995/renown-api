@@ -101,8 +101,13 @@ def list_login_stores(
     return StoreLoginOptionList(items=items)
 
 
+def _location_inactive(status: str | None) -> bool:
+    return (status or "").lower() in ("inactive", "closed", "disabled")
+
+
 @router.post("/login", response_model=TokenResponse)
 def staff_login(body: StaffLoginRequest, db: Session = Depends(get_db)):
+    """Phone + password only — warehouse/store are taken from the staff account."""
     user = db.scalar(select(User).where(User.phone == body.phone))
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
@@ -113,60 +118,38 @@ def staff_login(body: StaffLoginRequest, db: Session = Depends(get_db)):
 
     warehouse: Warehouse | None = None
     store: Store | None = None
+    warehouse_id: int | None = None
+    store_id: int | None = None
 
     if user.role == "warehouse_manager":
-        if body.warehouse_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Please select a warehouse location",
-            )
-        if user.warehouse_id is None or user.warehouse_id != body.warehouse_id:
+        if user.warehouse_id is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="These credentials are not valid for the selected warehouse",
+                detail="Warehouse manager is not linked to a warehouse",
             )
-        warehouse = db.get(Warehouse, body.warehouse_id)
-        if not warehouse or (warehouse.status or "").lower() != "active":
+        # Optional body.warehouse_id is ignored for login UX; always use account mapping.
+        warehouse = db.get(Warehouse, user.warehouse_id)
+        if not warehouse or _location_inactive(warehouse.status):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
         warehouse_id = warehouse.id
-        store_id = None
 
     elif user.role == "store_manager":
-        if body.warehouse_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Please select a warehouse",
-            )
-        if body.store_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Please select a store location",
-            )
-        store = db.get(Store, body.store_id)
-        if not store or (store.status or "").lower() not in ("open", "active"):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Store not found")
-        if store.warehouse_id is not None and store.warehouse_id != body.warehouse_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Selected store does not belong to that warehouse",
-            )
         if user.store_id is None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Store manager is not linked to a store",
             )
-        if user.store_id != body.store_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="These credentials are not valid for the selected store",
-            )
-        warehouse = db.get(Warehouse, body.warehouse_id)
-        warehouse_id = body.warehouse_id
+        store = db.get(Store, user.store_id)
+        if not store or _location_inactive(store.status):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Store not found")
         store_id = store.id
+        warehouse_id = store.warehouse_id
+        if warehouse_id is not None:
+            warehouse = db.get(Warehouse, warehouse_id)
 
     else:
-        warehouse_id = body.warehouse_id or user.warehouse_id
-        store_id = body.store_id or user.store_id
+        warehouse_id = user.warehouse_id
+        store_id = user.store_id
         if warehouse_id:
             warehouse = db.get(Warehouse, warehouse_id)
         if store_id:

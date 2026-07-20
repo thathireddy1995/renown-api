@@ -33,6 +33,11 @@ class AdminOrderDetailOut(AdminOrderOut):
     shipping: float = 0
     tax: float = 0
     coupon_code: str | None = None
+    awb_code: str | None = None
+    courier_name: str | None = None
+    shiprocket_order_id: str | None = None
+    shiprocket_shipment_id: str | None = None
+    tracking_url: str | None = None
     line_items: list[AdminOrderItemOut] = Field(default_factory=list)
 
 
@@ -45,6 +50,17 @@ class AdminOrderListResponse(BaseModel):
 
 class AdminOrderStatusUpdate(BaseModel):
     status: str
+
+
+class AdminOrderShipmentUpdate(BaseModel):
+    """Attach Shiprocket AWB / courier so customer tracking can poll Shiprocket."""
+
+    awb_code: str = Field(min_length=3, max_length=80)
+    courier_name: str | None = Field(default=None, max_length=120)
+    shiprocket_order_id: str | None = Field(default=None, max_length=64)
+    shiprocket_shipment_id: str | None = Field(default=None, max_length=64)
+    tracking_url: str | None = None
+    mark_shipped: bool = True
 
 
 class AdminCustomerOut(BaseModel):
