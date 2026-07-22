@@ -46,7 +46,7 @@ def list_variants(
 
     total = db.scalar(count_stmt) or 0
     rows = db.scalars(
-        stmt.order_by(ProductVariant.id.asc()).limit(limit).offset(offset)
+        stmt.order_by(ProductVariant.id.desc()).limit(limit).offset(offset)
     ).all()
 
     return VariantListResponse(

@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.catalog_lookups import brand_id_for, category_id_for
@@ -91,7 +92,7 @@ def list_products(
             selectinload(Product.brand),
             selectinload(Product.category),
         )
-        .order_by(Product.id.asc())
+        .order_by(Product.id.desc())
         .limit(limit)
         .offset(offset)
     ).all()
@@ -155,7 +156,20 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
             ProductImage(product_id=product.id, url=img.url, sort_order=img.sort_order)
         )
 
+    seen_skus: set[str] = set()
     for v in payload.variants:
+        sku_key = (v.sku or "").strip().lower()
+        if not sku_key:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Each variant needs a SKU.",
+            )
+        if sku_key in seen_skus:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Duplicate variant SKU in request: {v.sku}",
+            )
+        seen_skus.add(sku_key)
         db.add(
             ProductVariant(
                 product_id=product.id,
@@ -170,6 +184,18 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
 
     try:
         db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="SKU already exists. Use a different base SKU.",
+        )
+    except DataError as err:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"A value is too long for the database (e.g. frame type / size). {err.orig}",
+        ) from err
     except Exception:
         db.rollback()
         raise

@@ -248,9 +248,9 @@ def list_colors(
 
 @router.post("/colors", response_model=ColorOut, status_code=status.HTTP_201_CREATED)
 def create_color(payload: ColorCreate, db: Session = Depends(get_db)) -> ColorOut:
-    if db.scalar(select(Color).where(Color.name == payload.name)):
+    if db.scalar(select(Color).where(func.lower(Color.name) == payload.name.strip().lower())):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Color exists.")
-    row = Color(name=payload.name, hex=payload.hex)
+    row = Color(name=payload.name.strip(), hex=payload.hex)
     db.add(row)
     try:
         db.commit()
@@ -326,9 +326,18 @@ def list_sizes(
 
 @router.post("/sizes", response_model=SizeOut, status_code=status.HTTP_201_CREATED)
 def create_size(payload: SizeCreate, db: Session = Depends(get_db)) -> SizeOut:
-    if db.scalar(select(Size).where((Size.code == payload.code) | (Size.name == payload.name))):
+    if db.scalar(
+        select(Size).where(
+            (func.lower(Size.code) == payload.code.strip().lower())
+            | (func.lower(Size.name) == payload.name.strip().lower())
+        )
+    ):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Size exists.")
-    row = Size(name=payload.name, code=payload.code, measurement=payload.measurement)
+    row = Size(
+        name=payload.name.strip(),
+        code=payload.code.strip(),
+        measurement=payload.measurement,
+    )
     db.add(row)
     try:
         db.commit()

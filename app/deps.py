@@ -32,7 +32,7 @@ __all__ = [
 
 
 def pagination(
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> tuple[int, int]:
     return limit, offset
