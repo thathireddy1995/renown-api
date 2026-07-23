@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class CreatePaymentOrderRequest(BaseModel):
     address_id: int | None = None
     delivery: str = "ship"  # ship | pickup
+    pickup_store_id: int | None = None
     coupon_code: str | None = None
 
 
@@ -21,5 +22,6 @@ class VerifyPaymentRequest(BaseModel):
     razorpay_signature: str
     address_id: int | None = None
     delivery: str = "ship"
+    pickup_store_id: int | None = None
     coupon_code: str | None = None
     notes: str | None = None

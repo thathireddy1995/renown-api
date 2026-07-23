@@ -12,15 +12,32 @@ def _money(value: Decimal | float | int | None) -> float | None:
     return float(value)
 
 
+def _clean_label(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text or text.lower() in ("__deleted__", "deleted"):
+        return None
+    return text
+
+
+def live_variants(variants: list[ProductVariant] | None) -> list[ProductVariant]:
+    return [
+        v
+        for v in (variants or [])
+        if (v.color or "") != "__deleted__" and (v.size or "") != "__deleted__"
+    ]
+
+
 def variant_out(variant: ProductVariant, product_name: str = "") -> ProductVariantOut:
     return ProductVariantOut(
         id=variant.id,
         product_id=variant.product_id,
         product=product_name or (variant.product.name if variant.product else ""),
         sku=variant.sku,
-        color=variant.color,
-        color_hex=variant.color_hex,
-        size=variant.size,
+        color=_clean_label(variant.color),
+        color_hex=variant.color_hex if _clean_label(variant.color) else None,
+        size=_clean_label(variant.size),
         price=variant.price,
         stock=variant.stock,
         created_at=variant.created_at,
@@ -32,9 +49,10 @@ def product_out(product: Product, *, public_id: str | None = None) -> ProductOut
     """Build a UI-shaped ProductOut. public_id defaults to slug so customer
     ProductCard links (/products/$id) keep working without UI rewrites."""
     images = [img.url for img in (product.images or [])]
-    variants = [variant_out(v, product.name) for v in (product.variants or [])]
-    stock = sum(v.stock for v in (product.variants or []))
-    first = (product.variants or [None])[0]
+    variants_live = live_variants(product.variants)
+    variants = [variant_out(v, product.name) for v in variants_live]
+    stock = sum(v.stock for v in variants_live)
+    first = variants_live[0] if variants_live else None
     brand = product.brand.name if product.brand else ""
     category = product.category.name if product.category else ""
     price = _money(product.price) or 0.0
@@ -44,6 +62,14 @@ def product_out(product: Product, *, public_id: str | None = None) -> ProductOut
         pct = int(round((1 - price / compare) * 100))
         if pct > 0:
             offer = f"{pct}% OFF"
+
+    color = ""
+    color_hex = ""
+    size = ""
+    if first is not None:
+        color = _clean_label(first.color) or ""
+        color_hex = first.color_hex or ""
+        size = _clean_label(first.size) or ""
 
     pid = public_id or product.slug
     return ProductOut(
@@ -65,7 +91,7 @@ def product_out(product: Product, *, public_id: str | None = None) -> ProductOut
         material=product.material,
         rim_type=product.rim_type,
         rimType=product.rim_type,
-        warranty=product.warranty or "2-year against defects",
+        warranty=product.warranty or "",
         is_new=product.is_new,
         isNew=product.is_new,
         is_bestseller=product.is_bestseller,
@@ -79,12 +105,12 @@ def product_out(product: Product, *, public_id: str | None = None) -> ProductOut
         variants=variants,
         stock=stock,
         inStock=stock > 0,
-        color=(first.color if first else "") or "",
-        colorHex=(first.color_hex if first else "") or "",
-        size=(first.size if first else "") or "",
+        color=color,
+        colorHex=color_hex,
+        size=size,
         lensType="",
         weight="",
-        rating=4.5,
+        rating=0,
         reviews=0,
         tags=[],
         offer=offer,

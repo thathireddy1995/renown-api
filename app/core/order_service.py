@@ -11,7 +11,17 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.schemas import Address, CartItem, Customer, Order, OrderItem
+from app.schemas import (
+    Address,
+    CartItem,
+    Customer,
+    Order,
+    OrderItem,
+    ProductVariant,
+    Store,
+    StoreOrder,
+    StoreOrderItem,
+)
 
 
 def next_order_number(db: Session) -> str:
@@ -26,16 +36,15 @@ def next_order_number(db: Session) -> str:
 def compute_pricing(
     subtotal: Decimal, delivery: str, coupon_code: str | None
 ) -> tuple[Decimal, Decimal, Decimal, Decimal, str | None]:
-    """Mirror cart.tsx / checkout.tsx rules."""
+    """Cart / checkout pricing (INR). Coupons require a promotions API — no demo codes."""
     code = (coupon_code or "").strip().upper() or None
     discount = Decimal("0")
-    if code == "RENOWN15":
-        discount = (subtotal * Decimal("0.15")).quantize(Decimal("0.01"))
 
     if delivery == "pickup":
         shipping = Decimal("0")
     else:
-        shipping = Decimal("0") if subtotal > Decimal("75") or subtotal == 0 else Decimal("8")
+        # Free standard shipping over ₹5,999 (matches storefront copy).
+        shipping = Decimal("0") if subtotal >= Decimal("5999") or subtotal == 0 else Decimal("99")
 
     tax = (subtotal * Decimal("0.08")).quantize(Decimal("0.01"))
     total = subtotal + shipping + tax - discount
@@ -99,6 +108,96 @@ def resolve_shipping_address(
     return address_id
 
 
+def resolve_pickup_store(
+    db: Session, delivery: str, pickup_store_id: int | None
+) -> int | None:
+    """Validate the chosen store for pickup; returns None for ship orders."""
+    if delivery != "pickup":
+        return None
+    if pickup_store_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="pickup_store_id is required for store pickup.",
+        )
+    store = db.get(Store, pickup_store_id)
+    if not store:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid pickup store.",
+        )
+    return store.id
+
+
+def _resolve_line_variant_id(db: Session, row: CartItem) -> int:
+    if row.variant_id:
+        return row.variant_id
+    variant_id = db.scalar(
+        select(ProductVariant.id)
+        .where(
+            ProductVariant.product_id == row.product_id,
+            ProductVariant.color != "__deleted__",
+            ProductVariant.size != "__deleted__",
+        )
+        .order_by(ProductVariant.id.asc())
+        .limit(1)
+    )
+    if variant_id is None:
+        variant_id = db.scalar(
+            select(ProductVariant.id)
+            .where(ProductVariant.product_id == row.product_id)
+            .order_by(ProductVariant.id.asc())
+            .limit(1)
+        )
+    if variant_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Product {row.product.name if row.product else row.product_id} has no variants for store pickup.",
+        )
+    return variant_id
+
+
+def _create_pickup_store_order(
+    db: Session,
+    *,
+    customer: Customer,
+    store_id: int,
+    order_number: str,
+    line_rows: list[tuple[CartItem, Decimal]],
+    subtotal: Decimal,
+    tax: Decimal,
+    total: Decimal,
+    payment_method: str,
+) -> None:
+    """Mirror a click-and-collect ecommerce order into store_orders for staff."""
+    pay = "online" if payment_method == "razorpay" else "cash"
+    store_order = StoreOrder(
+        order_number=order_number,
+        store_id=store_id,
+        customer_name=customer.name or customer.email or customer.phone or "Customer",
+        channel="click_collect",
+        payment_method=pay,
+        associate_name=None,
+        subtotal=subtotal,
+        tax=tax,
+        total=total,
+        status="Preparing",
+    )
+    db.add(store_order)
+    db.flush()
+
+    db.add_all(
+        [
+            StoreOrderItem(
+                store_order_id=store_order.id,
+                variant_id=_resolve_line_variant_id(db, row),
+                qty=row.qty,
+                price_snapshot=unit,
+            )
+            for row, unit in line_rows
+        ]
+    )
+
+
 def create_order_record(
     db: Session,
     customer: Customer,
@@ -112,14 +211,23 @@ def create_order_record(
     payment_status: str,
     razorpay_order_id: str | None = None,
     razorpay_payment_id: str | None = None,
+    pickup_store_id: int | None = None,
 ) -> Order:
-    """Write the Order + OrderItems and clear the cart in one transaction."""
+    """Write the Order + OrderItems and clear the cart in one transaction.
+
+    Store pickup also creates a matching StoreOrder (channel=click_collect)
+    so the order appears on the staff store Orders screen.
+    """
     discount, shipping, tax, total, coupon = compute_pricing(subtotal, delivery or "ship", coupon_code)
+    store_id = resolve_pickup_store(db, delivery or "ship", pickup_store_id)
+    mode = "pickup" if store_id is not None else (delivery or "ship")
 
     order = Order(
         order_number=next_order_number(db),
         customer_id=customer.id,
         address_id=address_id,
+        delivery=mode,
+        pickup_store_id=store_id,
         status="placed",
         subtotal=subtotal,
         discount=discount,
@@ -135,19 +243,38 @@ def create_order_record(
     db.add(order)
     db.flush()
 
-    db.add_all(
-        [
+    order_items: list[OrderItem] = []
+    for row, unit in line_rows:
+        variant_id = row.variant_id
+        if variant_id is None:
+            try:
+                variant_id = _resolve_line_variant_id(db, row)
+            except HTTPException:
+                variant_id = None
+        order_items.append(
             OrderItem(
                 order_id=order.id,
                 product_id=row.product_id,
-                variant_id=row.variant_id,
+                variant_id=variant_id,
                 name_snapshot=row.product.name,
                 price_snapshot=unit,
                 qty=row.qty,
             )
-            for row, unit in line_rows
-        ]
-    )
+        )
+    db.add_all(order_items)
+
+    if store_id is not None:
+        _create_pickup_store_order(
+            db,
+            customer=customer,
+            store_id=store_id,
+            order_number=order.order_number,
+            line_rows=line_rows,
+            subtotal=subtotal,
+            tax=tax,
+            total=total,
+            payment_method=payment_method,
+        )
 
     db.execute(
         delete(CartItem).where(
@@ -164,7 +291,11 @@ def create_order_record(
     reloaded = db.scalar(
         select(Order)
         .where(Order.id == order.id)
-        .options(selectinload(Order.items).selectinload(OrderItem.product))
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.product),
+            selectinload(Order.address),
+            selectinload(Order.pickup_store),
+        )
     )
     assert reloaded is not None
     return reloaded

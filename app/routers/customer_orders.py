@@ -24,9 +24,11 @@ from app.dto.order_dto import (
     OrderListResponse,
     OrderOut,
     OrderTrackingOut,
+    PickupStoreOut,
     TrackingActivityOut,
 )
-from app.schemas import Customer, Order, OrderItem
+from app.schemas import Customer, Order, OrderItem, Product, ProductVariant, Store, StoreOrder
+from app.routers.customer_addresses import _out as _address_out
 
 router = APIRouter(prefix="/customer/orders", tags=["customer-orders"])
 
@@ -40,21 +42,149 @@ STATUS_LABEL = {
     "cancelled": "Cancelled",
 }
 
-
 def _status_label(raw: str) -> str:
     return STATUS_LABEL.get((raw or "").lower(), raw or "Order Placed")
 
 
-def _order_out(order: Order) -> OrderOut:
-    items = [
-        OrderItemOut(
-            productId=public_product_id(i.product) if i.product else str(i.product_id),
-            name=i.name_snapshot or (i.product.name if i.product else ""),
-            qty=i.qty,
-            price=float(i.price_snapshot or 0),
-        )
-        for i in (order.items or [])
+def _clean_label(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text or text.lower() in ("__deleted__", "deleted"):
+        return None
+    return text
+
+
+def _live_variants(variants: list[ProductVariant] | None) -> list[ProductVariant]:
+    return [
+        v
+        for v in (variants or [])
+        if (v.color or "") != "__deleted__" and (v.size or "") != "__deleted__"
     ]
+
+
+def _order_items_eager():
+    return (
+        selectinload(Order.address),
+        selectinload(Order.pickup_store),
+        selectinload(Order.items)
+        .selectinload(OrderItem.product)
+        .selectinload(Product.brand),
+        selectinload(Order.items)
+        .selectinload(OrderItem.product)
+        .selectinload(Product.category),
+        selectinload(Order.items)
+        .selectinload(OrderItem.product)
+        .selectinload(Product.images),
+        selectinload(Order.items)
+        .selectinload(OrderItem.product)
+        .selectinload(Product.variants)
+        .selectinload(ProductVariant.color_ref),
+        selectinload(Order.items)
+        .selectinload(OrderItem.product)
+        .selectinload(Product.variants)
+        .selectinload(ProductVariant.size_ref),
+        selectinload(Order.items)
+        .selectinload(OrderItem.variant)
+        .selectinload(ProductVariant.color_ref),
+        selectinload(Order.items)
+        .selectinload(OrderItem.variant)
+        .selectinload(ProductVariant.size_ref),
+    )
+
+
+def _resolve_variant(item: OrderItem) -> ProductVariant | None:
+    if item.variant is not None and (item.variant.color or "") != "__deleted__":
+        return item.variant
+    product = item.product
+    if product:
+        live = _live_variants(product.variants)
+        if live:
+            return live[0]
+        if product.variants:
+            return product.variants[0]
+    return item.variant
+
+
+def _order_item_out(item: OrderItem) -> OrderItemOut:
+    product = item.product
+    variant = _resolve_variant(item)
+    color = None
+    color_hex = None
+    size = None
+    variant_sku = None
+    if variant is not None:
+        color = _clean_label(
+            (variant.color_ref.name if variant.color_ref else None) or variant.color
+        )
+        color_hex = (
+            (variant.color_ref.hex if variant.color_ref else None) or variant.color_hex
+        )
+        size = _clean_label(
+            (variant.size_ref.name if variant.size_ref else None) or variant.size
+        )
+        variant_sku = variant.sku
+    image = None
+    if product and product.images:
+        image = product.images[0].url
+    compare = float(product.compare_at_price) if product and product.compare_at_price is not None else None
+    return OrderItemOut(
+        productId=public_product_id(product) if product else str(item.product_id),
+        name=item.name_snapshot or (product.name if product else ""),
+        qty=item.qty,
+        price=float(item.price_snapshot or 0),
+        compare_at=compare,
+        brand=product.brand.name if product and product.brand else None,
+        category=product.category.name if product and product.category else None,
+        sku=product.sku if product else None,
+        variant_sku=variant_sku,
+        color=color,
+        color_hex=color_hex,
+        size=size,
+        frame_type=product.rim_type if product else None,
+        shape=product.shape if product else None,
+        material=product.material if product else None,
+        gender=product.gender if product else None,
+        warranty=product.warranty if product else None,
+        description=product.description if product else None,
+        image=image,
+    )
+
+
+def _pickup_out(order: Order, db: Session | None = None) -> PickupStoreOut | None:
+    store = order.pickup_store
+    if store is None and db is not None:
+        store_id = getattr(order, "pickup_store_id", None)
+        if store_id:
+            store = db.get(Store, store_id)
+        if store is None:
+            so = db.scalar(
+                select(StoreOrder)
+                .where(StoreOrder.order_number == order.order_number)
+                .options(selectinload(StoreOrder.store))
+            )
+            if so and so.store:
+                store = so.store
+            elif so:
+                store = db.get(Store, so.store_id)
+    if store is None:
+        return None
+    return PickupStoreOut(
+        id=store.id,
+        name=store.name,
+        city=store.city or "",
+        address=store.address or "",
+        phone=store.phone or "",
+    )
+
+
+def _order_out(order: Order, db: Session | None = None) -> OrderOut:
+    items = [_order_item_out(i) for i in (order.items or [])]
+    delivery = (getattr(order, "delivery", None) or "ship").lower()
+    pickup = _pickup_out(order, db)
+    if pickup and delivery != "pickup":
+        delivery = "pickup"
+    address = _address_out(order.address) if order.address else None
     return OrderOut(
         id=order.order_number,
         date=order.created_at.strftime("%Y-%m-%d") if order.created_at else "",
@@ -67,6 +197,9 @@ def _order_out(order: Order) -> OrderOut:
         coupon_code=order.coupon_code,
         payment_method=order.payment_method,
         payment_status=order.payment_status,
+        delivery=delivery,
+        address=address,
+        pickup_store=pickup,
         awb_code=order.awb_code,
         courier_name=order.courier_name,
         tracking_url=order.tracking_url,
@@ -92,15 +225,13 @@ def list_orders(
     rows = db.scalars(
         select(Order)
         .where(Order.customer_id == customer.id)
-        .options(
-            selectinload(Order.items).selectinload(OrderItem.product),
-        )
+        .options(*_order_items_eager())
         .order_by(Order.id.desc())
         .limit(limit)
         .offset(offset)
     ).all()
     return OrderListResponse(
-        items=[_order_out(r) for r in rows],
+        items=[_order_out(r, db) for r in rows],
         total=total,
         limit=limit,
         offset=offset,
@@ -119,11 +250,11 @@ def get_order(
             Order.order_number == order_number,
             Order.customer_id == customer.id,
         )
-        .options(selectinload(Order.items).selectinload(OrderItem.product))
+        .options(*_order_items_eager())
     )
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
-    return _order_out(order)
+    return _order_out(order, db)
 
 
 @router.get("/{order_number}/tracking", response_model=OrderTrackingOut)
@@ -202,17 +333,19 @@ def create_order(
     /customer/payments (see customer_payments.py) — an Order row there is
     only written *after* Razorpay confirms the payment."""
     line_rows, subtotal = load_cart_lines(db, customer)
-    address_id = resolve_shipping_address(db, customer, payload.address_id, payload.delivery or "ship")
+    delivery = payload.delivery or "ship"
+    address_id = resolve_shipping_address(db, customer, payload.address_id, delivery)
 
     order = create_order_record(
         db,
         customer,
         address_id=address_id,
-        delivery=payload.delivery or "ship",
+        delivery=delivery,
+        pickup_store_id=payload.pickup_store_id,
         coupon_code=payload.coupon_code,
         line_rows=line_rows,
         subtotal=subtotal,
         payment_method="cod",
         payment_status="pending",
     )
-    return _order_out(order)
+    return _order_out(order, db)

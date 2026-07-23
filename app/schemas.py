@@ -448,6 +448,10 @@ class Order(Base):
     address_id: Mapped[int | None] = mapped_column(
         ForeignKey("addresses.id", ondelete="SET NULL"), nullable=True
     )
+    delivery: Mapped[str] = mapped_column(String(20), nullable=False, default="ship")
+    pickup_store_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stores.id", ondelete="SET NULL"), nullable=True
+    )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="placed")
     subtotal: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     discount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
@@ -477,6 +481,7 @@ class Order(Base):
         order_by="OrderItem.id",
     )
     address: Mapped["Address | None"] = relationship()
+    pickup_store: Mapped["Store | None"] = relationship(foreign_keys=[pickup_store_id])
     customer: Mapped["Customer"] = relationship()
 
 
@@ -501,6 +506,7 @@ class OrderItem(Base):
 
     order: Mapped["Order"] = relationship(back_populates="items")
     product: Mapped["Product"] = relationship()
+    variant: Mapped["ProductVariant | None"] = relationship()
 
 
 class Warehouse(Base):

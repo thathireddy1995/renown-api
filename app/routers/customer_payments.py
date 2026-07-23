@@ -17,6 +17,7 @@ from app.core.order_service import (
     compute_pricing,
     create_order_record,
     load_cart_lines,
+    resolve_pickup_store,
     resolve_shipping_address,
 )
 from app.core.payments import client as razorpay_client
@@ -44,10 +45,12 @@ def create_payment_order(
     """Price the current cart and open a Razorpay order for that amount.
     No local Order row is written yet — that only happens in /verify."""
     _line_rows, subtotal = load_cart_lines(db, customer)
-    resolve_shipping_address(db, customer, payload.address_id, payload.delivery or "ship")
+    delivery = payload.delivery or "ship"
+    resolve_shipping_address(db, customer, payload.address_id, delivery)
+    resolve_pickup_store(db, delivery, payload.pickup_store_id)
 
     _discount, _shipping, _tax, total, _coupon = compute_pricing(
-        subtotal, payload.delivery or "ship", payload.coupon_code
+        subtotal, delivery, payload.coupon_code
     )
     amount_paise = int((total * 100).to_integral_value())
     if amount_paise <= 0:
@@ -106,13 +109,15 @@ def verify_payment(
         )
 
     line_rows, subtotal = load_cart_lines(db, customer)
-    address_id = resolve_shipping_address(db, customer, payload.address_id, payload.delivery or "ship")
+    delivery = payload.delivery or "ship"
+    address_id = resolve_shipping_address(db, customer, payload.address_id, delivery)
 
     order = create_order_record(
         db,
         customer,
         address_id=address_id,
-        delivery=payload.delivery or "ship",
+        delivery=delivery,
+        pickup_store_id=payload.pickup_store_id,
         coupon_code=payload.coupon_code,
         line_rows=line_rows,
         subtotal=subtotal,
@@ -121,4 +126,4 @@ def verify_payment(
         razorpay_order_id=payload.razorpay_order_id,
         razorpay_payment_id=payload.razorpay_payment_id,
     )
-    return _order_out(order)
+    return _order_out(order, db)

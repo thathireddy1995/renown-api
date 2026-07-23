@@ -56,6 +56,29 @@ class OrderItemOut(BaseModel):
     name: str
     qty: int
     price: float
+    compare_at: float | None = None
+    brand: str | None = None
+    category: str | None = None
+    sku: str | None = None
+    variant_sku: str | None = None
+    color: str | None = None
+    color_hex: str | None = None
+    size: str | None = None
+    frame_type: str | None = None
+    shape: str | None = None
+    material: str | None = None
+    gender: str | None = None
+    warranty: str | None = None
+    description: str | None = None
+    image: str | None = None
+
+
+class PickupStoreOut(BaseModel):
+    id: int
+    name: str
+    city: str = ""
+    address: str = ""
+    phone: str = ""
 
 
 class OrderOut(BaseModel):
@@ -72,6 +95,9 @@ class OrderOut(BaseModel):
     coupon_code: str | None = None
     payment_method: str = "cod"  # cod | razorpay
     payment_status: str = "pending"  # pending | paid | failed
+    delivery: str = "ship"  # ship | pickup
+    address: AddressOut | None = None
+    pickup_store: PickupStoreOut | None = None
     awb_code: str | None = None
     courier_name: str | None = None
     tracking_url: str | None = None
@@ -102,6 +128,7 @@ class OrderTrackingOut(BaseModel):
 class OrderCreateRequest(BaseModel):
     address_id: int | None = None
     delivery: str = "ship"  # ship | pickup
+    pickup_store_id: int | None = None
     coupon_code: str | None = None
     notes: str | None = None
 
