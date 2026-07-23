@@ -31,6 +31,16 @@ class RegisterCompleteRequest(BaseModel):
     password: str
 
 
+class ForgotPasswordRequestOtp(BaseModel):
+    phone: str
+
+
+class ForgotPasswordCompleteRequest(BaseModel):
+    phone: str
+    code: str
+    password: str
+
+
 class CustomerOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

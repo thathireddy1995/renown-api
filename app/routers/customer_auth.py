@@ -21,6 +21,8 @@ from app.dto.customer_auth_dto import (
     CustomerLoginRequest,
     CustomerOut,
     CustomerTokenResponse,
+    ForgotPasswordCompleteRequest,
+    ForgotPasswordRequestOtp,
     GoogleAuthRequest,
     OtpRequest,
     OtpRequestResponse,
@@ -303,6 +305,85 @@ def register_complete(
         db.add(customer)
         db.flush()
 
+    db.commit()
+    db.refresh(customer)
+    return _token_response(customer)
+
+
+@router.post("/forgot-password/request-otp", response_model=OtpRequestResponse)
+def forgot_password_request_otp(
+    payload: ForgotPasswordRequestOtp, db: Session = Depends(get_db)
+) -> OtpRequestResponse:
+    """Step 1 of password reset: send OTP to a registered mobile number."""
+    phone = _normalize_phone(payload.phone)
+    customer = db.scalar(select(Customer).where(Customer.phone == phone))
+    if not customer or not customer.password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No account found with this mobile number. Please register first.",
+        )
+    if not customer.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is inactive.",
+        )
+
+    now = _now()
+    if _recent_otp_count(db, phone, now) >= OTP_RATE_LIMIT_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many OTP requests. Try again later.",
+        )
+
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    otp = OtpCode(
+        phone=phone,
+        code=code,
+        purpose="reset_password",
+        expires_at=now + timedelta(minutes=OTP_EXPIRY_MINUTES),
+        attempt_count=0,
+    )
+    db.add(otp)
+    db.commit()
+
+    if not IS_PRODUCTION:
+        logger.info("Reset-password OTP for phone ending %s: %s", phone[-4:], code)
+
+    return OtpRequestResponse(
+        message="OTP sent.",
+        expires_in_seconds=OTP_EXPIRY_MINUTES * 60,
+    )
+
+
+@router.post("/forgot-password/complete", response_model=CustomerTokenResponse)
+def forgot_password_complete(
+    payload: ForgotPasswordCompleteRequest, db: Session = Depends(get_db)
+) -> CustomerTokenResponse:
+    """Step 2 of password reset: verify OTP and set a new password."""
+    phone = _normalize_phone(payload.phone)
+    code = payload.code.strip()
+    if len(payload.password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 6 characters.",
+        )
+
+    now = _now()
+    _consume_valid_otp(db, phone, "reset_password", code, now)
+
+    customer = db.scalar(select(Customer).where(Customer.phone == phone))
+    if not customer or not customer.password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No account found with this mobile number. Please register first.",
+        )
+    if not customer.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is inactive.",
+        )
+
+    customer.password_hash = hash_password(payload.password)
     db.commit()
     db.refresh(customer)
     return _token_response(customer)

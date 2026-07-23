@@ -46,7 +46,8 @@ def compute_pricing(
         # Free standard shipping over ₹5,999 (matches storefront copy).
         shipping = Decimal("0") if subtotal >= Decimal("5999") or subtotal == 0 else Decimal("99")
 
-    tax = (subtotal * Decimal("0.08")).quantize(Decimal("0.01"))
+    # Tax disabled for now — all products are zero-rated.
+    tax = Decimal("0")
     total = subtotal + shipping + tax - discount
     if total < 0:
         total = Decimal("0")
