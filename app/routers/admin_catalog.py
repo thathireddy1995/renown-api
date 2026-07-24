@@ -65,6 +65,10 @@ def list_products(
     if status_filter:
         stmt = stmt.where(Product.status == status_filter)
         count_stmt = count_stmt.where(Product.status == status_filter)
+    else:
+        # Soft-deleted products stay in DB for order history but leave the catalog UI.
+        stmt = stmt.where(Product.status != "deleted")
+        count_stmt = count_stmt.where(Product.status != "deleted")
 
     resolved_brand = brand_id if brand_id is not None else brand_id_for(db, brand)
     if resolved_brand is not None:
@@ -257,12 +261,37 @@ def update_product(
 
 @router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_product(product_id: int, db: Session = Depends(get_db)) -> None:
+    """Hard-delete when safe; otherwise soft-delete (status=deleted).
+
+    Products referenced by order_items / inventory cannot be removed without
+    breaking history — those become status=deleted and leave catalog lists.
+    """
     product = db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
-    db.delete(product)
+
+    try:
+        db.delete(product)
+        db.commit()
+        return
+    except IntegrityError:
+        db.rollback()
+
+    product = db.get(Product, product_id)
+    if not product:
+        return
+
+    suffix = f"-del-{product.id}"
+    product.status = "deleted"
+    if not (product.sku or "").endswith(suffix):
+        product.sku = f"{(product.sku or 'sku')[: max(1, 40 - len(suffix))]}{suffix}"[:40]
+    if not (product.slug or "").endswith(suffix):
+        product.slug = f"{(product.slug or 'item')[: max(1, 220 - len(suffix))]}{suffix}"[:220]
     try:
         db.commit()
-    except Exception:
+    except IntegrityError:
         db.rollback()
-        raise
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete this product because it is still referenced by orders or inventory.",
+        )
