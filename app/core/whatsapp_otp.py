@@ -10,21 +10,41 @@ from typing import Any
 
 import requests
 
-from app.core.config import (
-    MSG91_AUTH_KEY,
-    MSG91_WA_INTEGRATED_NUMBER,
-    MSG91_WA_NAMESPACE,
-    MSG91_WA_TEMPLATE_LANG,
-    MSG91_WA_TEMPLATE_NAME,
-)
+from app.core import config as app_config
 
 logger = logging.getLogger(__name__)
 
 SEND_URL = "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/"
 
+# Hardcoded fallbacks (move to secrets later). Empty env must not break OTP.
+_AUTH_KEY = "554114Avcg6BwNFF6a65c35aP1"
+_WA_NUMBER = "919642512952"
+_WA_TEMPLATE = "verify_user_v1"
+_WA_LANG = "en_US"
+
 
 class WhatsAppOtpError(Exception):
     """Raised when MSG91 rejects or fails to accept an OTP send."""
+
+
+def _auth_key() -> str:
+    return (app_config.MSG91_AUTH_KEY or _AUTH_KEY).strip()
+
+
+def _wa_number() -> str:
+    return (app_config.MSG91_WA_INTEGRATED_NUMBER or _WA_NUMBER).strip()
+
+
+def _wa_template() -> str:
+    return (app_config.MSG91_WA_TEMPLATE_NAME or _WA_TEMPLATE).strip()
+
+
+def _wa_lang() -> str:
+    return (app_config.MSG91_WA_TEMPLATE_LANG or _WA_LANG).strip()
+
+
+def _wa_namespace() -> str:
+    return (app_config.MSG91_WA_NAMESPACE or "").strip()
 
 
 def to_whatsapp_mobile(phone_10: str) -> str:
@@ -42,11 +62,17 @@ def send_whatsapp_otp(phone_10: str, code: str) -> dict[str, Any]:
     Send `code` to `phone_10` using the configured WhatsApp auth template.
     Template body: "{OTP} is your verification code."
     """
-    if not MSG91_AUTH_KEY:
+    auth_key = _auth_key()
+    integrated_number = _wa_number()
+    template_name = _wa_template()
+    template_lang = _wa_lang()
+    namespace = _wa_namespace()
+
+    if not auth_key:
         raise WhatsAppOtpError("WhatsApp OTP is not configured (missing MSG91_AUTH_KEY).")
-    if not MSG91_WA_INTEGRATED_NUMBER:
+    if not integrated_number:
         raise WhatsAppOtpError("WhatsApp OTP is not configured (missing sender number).")
-    if not MSG91_WA_TEMPLATE_NAME:
+    if not template_name:
         raise WhatsAppOtpError("WhatsApp OTP is not configured (missing template name).")
 
     mobile = to_whatsapp_mobile(phone_10)
@@ -55,15 +81,15 @@ def send_whatsapp_otp(phone_10: str, code: str) -> dict[str, Any]:
         "button_1": {"subtype": "url", "type": "text", "value": code},
     }
     template: dict[str, Any] = {
-        "name": MSG91_WA_TEMPLATE_NAME,
-        "language": {"code": MSG91_WA_TEMPLATE_LANG, "policy": "deterministic"},
+        "name": template_name,
+        "language": {"code": template_lang, "policy": "deterministic"},
         "to_and_components": [{"to": [mobile], "components": components}],
     }
-    if MSG91_WA_NAMESPACE:
-        template["namespace"] = MSG91_WA_NAMESPACE
+    if namespace:
+        template["namespace"] = namespace
 
     payload = {
-        "integrated_number": MSG91_WA_INTEGRATED_NUMBER,
+        "integrated_number": integrated_number,
         "content_type": "template",
         "payload": {
             "messaging_product": "whatsapp",
@@ -72,7 +98,7 @@ def send_whatsapp_otp(phone_10: str, code: str) -> dict[str, Any]:
         },
     }
     headers = {
-        "authkey": MSG91_AUTH_KEY,
+        "authkey": auth_key,
         "Content-Type": "application/json",
         "accept": "application/json",
     }
@@ -88,15 +114,8 @@ def send_whatsapp_otp(phone_10: str, code: str) -> dict[str, Any]:
     except ValueError:
         data = {"raw": resp.text}
 
-    ok = resp.ok and not data.get("hasError") and str(data.get("status", "")).lower() in {
-        "success",
-        "",
-    }
-    # MSG91 often returns status=success with http 200; treat other 2xx without hasError as ok.
-    if resp.ok and not data.get("hasError"):
-        ok = True
-
-    if not ok:
+    # MSG91 often returns status=success with http 200.
+    if not (resp.ok and not data.get("hasError")):
         logger.error(
             "MSG91 WhatsApp OTP failed for …%s status=%s body=%s",
             mobile[-4:],
@@ -107,5 +126,9 @@ def send_whatsapp_otp(phone_10: str, code: str) -> dict[str, Any]:
             "Failed to send OTP via WhatsApp. Please check the number and try again."
         )
 
-    logger.info("WhatsApp OTP accepted by MSG91 for …%s request_id=%s", mobile[-4:], data.get("request_id"))
+    logger.info(
+        "WhatsApp OTP accepted by MSG91 for …%s request_id=%s",
+        mobile[-4:],
+        data.get("request_id"),
+    )
     return data
