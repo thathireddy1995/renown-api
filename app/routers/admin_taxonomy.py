@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.taxonomy_utils import (
@@ -33,9 +34,12 @@ router = APIRouter(prefix="/admin/taxonomy", tags=["admin-taxonomy"], dependenci
 
 
 def _product_counts_by_category(db: Session) -> dict[int, int]:
+    # Soft-deleted products (status="deleted") stay in the table for order/inventory
+    # history but are hidden from the catalog — don't count them here either, or
+    # this count won't match what the Products list actually shows.
     rows = db.execute(
         select(Product.category_id, func.count())
-        .where(Product.category_id.is_not(None))
+        .where(Product.category_id.is_not(None), Product.status != "deleted")
         .group_by(Product.category_id)
     ).all()
     return {int(cid): int(n) for cid, n in rows if cid is not None}
@@ -44,7 +48,7 @@ def _product_counts_by_category(db: Session) -> dict[int, int]:
 def _product_counts_by_brand(db: Session) -> dict[int, int]:
     rows = db.execute(
         select(Product.brand_id, func.count())
-        .where(Product.brand_id.is_not(None))
+        .where(Product.brand_id.is_not(None), Product.status != "deleted")
         .group_by(Product.brand_id)
     ).all()
     return {int(bid): int(n) for bid, n in rows if bid is not None}
@@ -138,9 +142,34 @@ def delete_category(item_id: int, db: Session = Depends(get_db)) -> None:
     row = db.get(Category, item_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found.")
+
+    active_products = db.scalar(
+        select(func.count())
+        .select_from(Product)
+        .where(Product.category_id == item_id, Product.status != "deleted")
+    )
+    if active_products:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete a category that still has products assigned to it.",
+        )
+
+    # Soft-deleted products keep their category_id for history, which would
+    # otherwise block this delete with a FK violation — detach them first.
+    db.execute(
+        Product.__table__.update()
+        .where(Product.category_id == item_id)
+        .values(category_id=None)
+    )
     db.delete(row)
     try:
         db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete a category that still has products assigned to it.",
+        ) from None
     except Exception:
         db.rollback()
         raise
@@ -208,9 +237,34 @@ def delete_brand(item_id: int, db: Session = Depends(get_db)) -> None:
     row = db.get(Brand, item_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Brand not found.")
+
+    active_products = db.scalar(
+        select(func.count())
+        .select_from(Product)
+        .where(Product.brand_id == item_id, Product.status != "deleted")
+    )
+    if active_products:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete a brand that still has products assigned to it.",
+        )
+
+    # Soft-deleted products keep their brand_id for history, which would
+    # otherwise block this delete with a FK violation — detach them first.
+    db.execute(
+        Product.__table__.update()
+        .where(Product.brand_id == item_id)
+        .values(brand_id=None)
+    )
     db.delete(row)
     try:
         db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete a brand that still has products assigned to it.",
+        ) from None
     except Exception:
         db.rollback()
         raise
@@ -283,6 +337,12 @@ def delete_collection(item_id: int, db: Session = Depends(get_db)) -> None:
     db.delete(row)
     try:
         db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete a collection that still has products assigned to it.",
+        ) from None
     except Exception:
         db.rollback()
         raise

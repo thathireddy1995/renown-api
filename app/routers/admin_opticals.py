@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.taxonomy_utils import public_id
@@ -25,15 +26,22 @@ from app.dto.taxonomy_dto import (
     SizeOut,
     SizeUpdate,
 )
-from app.schemas import Color, FrameType, LensType, ProductVariant, Size
+from app.schemas import Color, FrameType, LensType, Product, ProductVariant, Size
 
 router = APIRouter(prefix="/admin/opticals", tags=["admin-opticals"], dependencies=[Depends(require_role("admin"))])
 
 
 def _color_counts(db: Session) -> dict[int, int]:
+    # Exclude variants on soft-deleted products (status="deleted", kept for order
+    # history) and variants marked "__deleted__" — neither should count as "in use".
     rows = db.execute(
         select(ProductVariant.color_id, func.count())
-        .where(ProductVariant.color_id.is_not(None))
+        .join(Product, Product.id == ProductVariant.product_id)
+        .where(
+            ProductVariant.color_id.is_not(None),
+            ProductVariant.color != "__deleted__",
+            Product.status != "deleted",
+        )
         .group_by(ProductVariant.color_id)
     ).all()
     return {int(cid): int(n) for cid, n in rows if cid is not None}
@@ -42,7 +50,12 @@ def _color_counts(db: Session) -> dict[int, int]:
 def _size_counts(db: Session) -> dict[int, int]:
     rows = db.execute(
         select(ProductVariant.size_id, func.count())
-        .where(ProductVariant.size_id.is_not(None))
+        .join(Product, Product.id == ProductVariant.product_id)
+        .where(
+            ProductVariant.size_id.is_not(None),
+            ProductVariant.size != "__deleted__",
+            Product.status != "deleted",
+        )
         .group_by(ProductVariant.size_id)
     ).all()
     return {int(sid): int(n) for sid, n in rows if sid is not None}
@@ -291,6 +304,12 @@ def delete_color(item_id: int, db: Session = Depends(get_db)) -> None:
     db.delete(row)
     try:
         db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete a color that is still used by product variants.",
+        ) from None
     except Exception:
         db.rollback()
         raise
@@ -385,6 +404,12 @@ def delete_size(item_id: int, db: Session = Depends(get_db)) -> None:
     db.delete(row)
     try:
         db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete a size that is still used by product variants.",
+        ) from None
     except Exception:
         db.rollback()
         raise
