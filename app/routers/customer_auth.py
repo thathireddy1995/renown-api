@@ -16,6 +16,7 @@ from app.core.config import (
     OTP_RATE_LIMIT_WINDOW_MINUTES,
 )
 from app.core.security import create_access_token, hash_password, verify_password
+from app.core.whatsapp_otp import WhatsAppOtpError, send_whatsapp_otp
 from app.database import get_db
 from app.dto.customer_auth_dto import (
     CustomerLoginRequest,
@@ -76,6 +77,45 @@ def _recent_otp_count(db: Session, phone: str, now: datetime) -> int:
     ) or 0
 
 
+def _issue_and_send_otp(db: Session, phone: str, purpose: str, now: datetime) -> OtpRequestResponse:
+    """Create OTP row, send via WhatsApp (register / reset_password only), commit after MSG91 accepts."""
+    if purpose not in {"register", "reset_password"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="WhatsApp OTP is only used for registration and forgot password.",
+        )
+
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    otp = OtpCode(
+        phone=phone,
+        code=code,
+        purpose=purpose,
+        expires_at=now + timedelta(minutes=OTP_EXPIRY_MINUTES),
+        attempt_count=0,
+    )
+    db.add(otp)
+    db.flush()
+
+    try:
+        send_whatsapp_otp(phone, code)
+    except WhatsAppOtpError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc) or "Failed to send OTP via WhatsApp. Please try again.",
+        ) from exc
+
+    db.commit()
+
+    if not IS_PRODUCTION:
+        logger.info("%s OTP for phone ending %s: %s", purpose, phone[-4:], code)
+
+    return OtpRequestResponse(
+        message="OTP sent to WhatsApp.",
+        expires_in_seconds=OTP_EXPIRY_MINUTES * 60,
+    )
+
+
 def _consume_valid_otp(db: Session, phone: str, purpose: str, code: str, now: datetime) -> None:
     """Raise 401 unless `code` matches the latest unconsumed OTP for phone/purpose."""
     otp = db.scalar(
@@ -91,6 +131,25 @@ def _consume_valid_otp(db: Session, phone: str, purpose: str, code: str, now: da
     )
 
     demo_ok = (not IS_PRODUCTION) and code == DEMO_OTP_CODE
+
+    if not otp and not demo_ok:
+        # Distinguish never-sent / already used / expired for clearer UX.
+        latest = db.scalar(
+            select(OtpCode)
+            .where(OtpCode.phone == phone, OtpCode.purpose == purpose)
+            .order_by(OtpCode.created_at.desc())
+            .limit(1)
+        )
+        if latest and latest.expires_at <= now:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="OTP expired. Please request a new code.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No active OTP found. Please request a new code.",
+        )
+
     code_ok = bool(otp) and otp.code == code and otp.attempt_count < OTP_MAX_ATTEMPTS
 
     if not demo_ok and not code_ok:
@@ -104,7 +163,7 @@ def _consume_valid_otp(db: Session, phone: str, purpose: str, code: str, now: da
                 )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired OTP.",
+            detail="Incorrect OTP. Please check the code and try again.",
         )
 
     if otp and (code_ok or demo_ok):
@@ -114,22 +173,11 @@ def _consume_valid_otp(db: Session, phone: str, purpose: str, code: str, now: da
 
 @router.post("/otp/request", response_model=OtpRequestResponse)
 def request_otp(payload: OtpRequest, db: Session = Depends(get_db)) -> OtpRequestResponse:
+    """Legacy login-OTP endpoint — not used by customer-renown (sign-in is password-only)."""
     phone = _normalize_phone(payload.phone)
     now = _now()
-    window_start = now - timedelta(minutes=OTP_RATE_LIMIT_WINDOW_MINUTES)
 
-    # Single indexed count — no per-row loop (api_rules §3).
-    recent_count = db.scalar(
-        select(func.count())
-        .select_from(OtpCode)
-        .where(
-            OtpCode.phone == phone,
-            OtpCode.created_at >= window_start,
-            OtpCode.expires_at > now,
-        )
-    ) or 0
-
-    if recent_count >= OTP_RATE_LIMIT_MAX:
+    if _recent_otp_count(db, phone, now) >= OTP_RATE_LIMIT_MAX:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many OTP requests. Try again later.",
@@ -146,9 +194,8 @@ def request_otp(payload: OtpRequest, db: Session = Depends(get_db)) -> OtpReques
     db.add(otp)
     db.commit()
 
-    # SMS is out of scope for phase 1 — log server-side for local/dev testing.
     if not IS_PRODUCTION:
-        logger.info("OTP for phone ending %s: %s", phone[-4:], code)
+        logger.info("Login OTP (unused by storefront) for …%s: %s", phone[-4:], code)
 
     return OtpRequestResponse(
         message="OTP sent.",
@@ -158,42 +205,12 @@ def request_otp(payload: OtpRequest, db: Session = Depends(get_db)) -> OtpReques
 
 @router.post("/otp/verify", response_model=CustomerTokenResponse)
 def verify_otp(payload: OtpVerifyRequest, db: Session = Depends(get_db)) -> CustomerTokenResponse:
+    """Legacy login-OTP verify — not used by customer-renown (sign-in is password-only)."""
     phone = _normalize_phone(payload.phone)
     code = payload.code.strip()
     now = _now()
 
-    # Latest unconsumed, unexpired code — one indexed query.
-    otp = db.scalar(
-        select(OtpCode)
-        .where(
-            OtpCode.phone == phone,
-            OtpCode.consumed_at.is_(None),
-            OtpCode.expires_at > now,
-        )
-        .order_by(OtpCode.created_at.desc())
-        .limit(1)
-    )
-
-    demo_ok = (not IS_PRODUCTION) and code == DEMO_OTP_CODE
-    code_ok = bool(otp) and otp.code == code and otp.attempt_count < OTP_MAX_ATTEMPTS
-
-    if not demo_ok and not code_ok:
-        if otp:
-            otp.attempt_count += 1
-            db.commit()
-            if otp.attempt_count >= OTP_MAX_ATTEMPTS:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="OTP locked after too many attempts. Request a new code.",
-                )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired OTP.",
-        )
-
-    if otp and (code_ok or demo_ok):
-        otp.consumed_at = now
-        db.flush()
+    _consume_valid_otp(db, phone, "login", code, now)
 
     customer = db.scalar(select(Customer).where(Customer.phone == phone))
     if not customer:
@@ -220,7 +237,7 @@ def verify_otp(payload: OtpVerifyRequest, db: Session = Depends(get_db)) -> Cust
 def register_request_otp(
     payload: RegisterRequestOtp, db: Session = Depends(get_db)
 ) -> OtpRequestResponse:
-    """Step 1 of registration: collect name + mobile, send an OTP to verify it."""
+    """Step 1 of registration: collect name + mobile, send WhatsApp OTP."""
     phone = _normalize_phone(payload.phone)
     if not payload.name.strip():
         raise HTTPException(
@@ -242,24 +259,7 @@ def register_request_otp(
             detail="Too many OTP requests. Try again later.",
         )
 
-    code = f"{secrets.randbelow(1_000_000):06d}"
-    otp = OtpCode(
-        phone=phone,
-        code=code,
-        purpose="register",
-        expires_at=now + timedelta(minutes=OTP_EXPIRY_MINUTES),
-        attempt_count=0,
-    )
-    db.add(otp)
-    db.commit()
-
-    if not IS_PRODUCTION:
-        logger.info("Register OTP for phone ending %s: %s", phone[-4:], code)
-
-    return OtpRequestResponse(
-        message="OTP sent.",
-        expires_in_seconds=OTP_EXPIRY_MINUTES * 60,
-    )
+    return _issue_and_send_otp(db, phone, "register", now)
 
 
 @router.post("/register/complete", response_model=CustomerTokenResponse)
@@ -279,6 +279,11 @@ def register_complete(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password must be at least 6 characters.",
+        )
+    if not code.isdigit() or len(code) != 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter the 6-digit OTP sent on WhatsApp.",
         )
 
     now = _now()
@@ -335,24 +340,7 @@ def forgot_password_request_otp(
             detail="Too many OTP requests. Try again later.",
         )
 
-    code = f"{secrets.randbelow(1_000_000):06d}"
-    otp = OtpCode(
-        phone=phone,
-        code=code,
-        purpose="reset_password",
-        expires_at=now + timedelta(minutes=OTP_EXPIRY_MINUTES),
-        attempt_count=0,
-    )
-    db.add(otp)
-    db.commit()
-
-    if not IS_PRODUCTION:
-        logger.info("Reset-password OTP for phone ending %s: %s", phone[-4:], code)
-
-    return OtpRequestResponse(
-        message="OTP sent.",
-        expires_in_seconds=OTP_EXPIRY_MINUTES * 60,
-    )
+    return _issue_and_send_otp(db, phone, "reset_password", now)
 
 
 @router.post("/forgot-password/complete", response_model=CustomerTokenResponse)
@@ -366,6 +354,11 @@ def forgot_password_complete(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password must be at least 6 characters.",
+        )
+    if not code.isdigit() or len(code) != 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Enter the 6-digit OTP sent on WhatsApp.",
         )
 
     now = _now()

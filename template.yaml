@@ -42,6 +42,23 @@ Parameters:
     NoEcho: true
     Default: "bT*LOZ@i&hzssy&1Ii^v2SE7kLSk#sa$"
     Description: "Shiprocket API user password — pass via --parameter-overrides, never commit."
+  Msg91AuthKey:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: "MSG91 auth key for WhatsApp OTP — pass via --parameter-overrides."
+  Msg91WaNumber:
+    Type: String
+    Default: "919642512952"
+    Description: "MSG91 WhatsApp integrated sender number (country code, no +)."
+  Msg91WaTemplate:
+    Type: String
+    Default: "verify_user_v1"
+    Description: "MSG91 WhatsApp Authentication template name."
+  Msg91WaLang:
+    Type: String
+    Default: "en_US"
+    Description: "MSG91 WhatsApp template language code."
 
 Globals:
   Function:
@@ -83,6 +100,10 @@ Resources:
           CORS_ORIGIN_REGEX: !Ref CorsOriginRegex
           SHIPROCKET_EMAIL: !Ref ShiprocketEmail
           SHIPROCKET_PASSWORD: !Ref ShiprocketPassword
+          MSG91_AUTH_KEY: !Ref Msg91AuthKey
+          MSG91_WA_NUMBER: !Ref Msg91WaNumber
+          MSG91_WA_TEMPLATE: !Ref Msg91WaTemplate
+          MSG91_WA_LANG: !Ref Msg91WaLang
       Policies:
         - Statement:
             - Effect: Allow
