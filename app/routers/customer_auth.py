@@ -116,7 +116,15 @@ def _issue_and_send_otp(db: Session, phone: str, purpose: str, now: datetime) ->
     )
 
 
-def _consume_valid_otp(db: Session, phone: str, purpose: str, code: str, now: datetime) -> None:
+def _consume_valid_otp(
+    db: Session,
+    phone: str,
+    purpose: str,
+    code: str,
+    now: datetime,
+    *,
+    consume: bool = True,
+) -> None:
     """Raise 401 unless `code` matches the latest unconsumed OTP for phone/purpose."""
     otp = db.scalar(
         select(OtpCode)
@@ -166,7 +174,7 @@ def _consume_valid_otp(db: Session, phone: str, purpose: str, code: str, now: da
             detail="Incorrect OTP. Please check the code and try again.",
         )
 
-    if otp and (code_ok or demo_ok):
+    if consume and otp and (code_ok or demo_ok):
         otp.consumed_at = now
         db.flush()
 
@@ -231,6 +239,23 @@ def verify_otp(payload: OtpVerifyRequest, db: Session = Depends(get_db)) -> Cust
     db.commit()
     db.refresh(customer)
     return _token_response(customer)
+
+
+@router.post("/otp/check")
+def check_otp(
+    payload: OtpVerifyRequest,
+    purpose: str,
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    """Validate an active registration or password-reset OTP without consuming it."""
+    if purpose not in {"register", "reset_password"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported OTP purpose.",
+        )
+    phone = _normalize_phone(payload.phone)
+    _consume_valid_otp(db, phone, purpose, payload.code.strip(), _now(), consume=False)
+    return {"valid": True}
 
 
 @router.post("/register/request-otp", response_model=OtpRequestResponse)
