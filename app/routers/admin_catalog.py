@@ -33,6 +33,23 @@ def _load_product(db: Session, product_id: int) -> Product | None:
     )
 
 
+def _unique_product_slug(db: Session, base_slug: str, exclude_id: int | None = None) -> str:
+    """Products may legitimately share a name (different SKU/variant line),
+    so don't reject on slug collision — just append -2, -3, ... until unique.
+    """
+    slug = base_slug[:220]
+    suffix_n = 2
+    while True:
+        stmt = select(Product.id).where(Product.slug == slug)
+        if exclude_id is not None:
+            stmt = stmt.where(Product.id != exclude_id)
+        if not db.scalar(stmt):
+            return slug
+        suffix = f"-{suffix_n}"
+        slug = f"{base_slug[: 220 - len(suffix)]}{suffix}"
+        suffix_n += 1
+
+
 def _resolve_brand_category(
     db: Session,
     brand: str | None,
@@ -119,15 +136,13 @@ def get_product(product_id: int, db: Session = Depends(get_db)) -> ProductOut:
 
 @router.post("/products", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
 def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> ProductOut:
-    slug = payload.slug or slugify(payload.name)
-    existing = db.scalar(
-        select(Product).where(or_(Product.slug == slug, Product.sku == payload.sku))
-    )
+    existing = db.scalar(select(Product).where(Product.sku == payload.sku))
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="A product with this slug or SKU already exists.",
+            detail="SKU already exists. Use a different base SKU.",
         )
+    slug = _unique_product_slug(db, payload.slug or slugify(payload.name))
 
     brand_id, category_id = _resolve_brand_category(
         db, payload.brand, payload.brand_id, payload.category, payload.category_id
@@ -287,6 +302,12 @@ def delete_product(product_id: int, db: Session = Depends(get_db)) -> None:
         product.sku = f"{(product.sku or 'sku')[: max(1, 40 - len(suffix))]}{suffix}"[:40]
     if not (product.slug or "").endswith(suffix):
         product.slug = f"{(product.slug or 'item')[: max(1, 220 - len(suffix))]}{suffix}"[:220]
+    # Variants keep their rows (order/inventory history references them) but
+    # their SKUs must be freed up too, or re-adding the same product later
+    # collides with the "deleted" product's still-live variant SKUs.
+    for variant in product.variants:
+        if not (variant.sku or "").endswith(suffix):
+            variant.sku = f"{(variant.sku or 'sku')[: max(1, 40 - len(suffix))]}{suffix}"[:40]
     try:
         db.commit()
     except IntegrityError:

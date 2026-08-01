@@ -57,11 +57,16 @@ def product_out(product: Product, *, public_id: str | None = None) -> ProductOut
     category = product.category.name if product.category else ""
     price = _money(product.price) or 0.0
     compare = _money(product.compare_at_price)
+    # MRP mirrors compare_at_price (falls back to selling price when unset);
+    # discount is always derived from these two so the admin edit form and
+    # the customer "offer" badge can never drift out of sync.
+    mrp = compare if compare and compare > 0 else price
+    discount_pct = 0
     offer = None
-    if compare and compare > price:
-        pct = int(round((1 - price / compare) * 100))
-        if pct > 0:
-            offer = f"{pct}% OFF"
+    if mrp and price > 0 and price < mrp:
+        discount_pct = int(round((1 - price / mrp) * 100))
+        if discount_pct > 0:
+            offer = f"{discount_pct}% OFF"
 
     color = ""
     color_hex = ""
@@ -82,6 +87,11 @@ def product_out(product: Product, *, public_id: str | None = None) -> ProductOut
         price=price,
         compare_at_price=compare,
         compareAt=compare,
+        mrp=mrp,
+        sellingPrice=price,
+        selling_price=price,
+        discount_percentage=discount_pct,
+        discountPercentage=discount_pct,
         brand=brand,
         brand_id=product.brand_id,
         category=category,

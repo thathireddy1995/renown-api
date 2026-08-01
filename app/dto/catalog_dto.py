@@ -68,6 +68,11 @@ class ProductOut(BaseModel):
     price: float
     compare_at_price: float | None = None
     compareAt: float | None = None
+    mrp: float | None = None
+    sellingPrice: float | None = None
+    selling_price: float | None = None
+    discount_percentage: int = 0
+    discountPercentage: int = 0
     brand: str = ""
     brand_id: int | None = None
     category: str = ""

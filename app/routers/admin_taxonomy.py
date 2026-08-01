@@ -197,12 +197,17 @@ def list_brands(
 @router.post("/brands", response_model=TaxonomyOut, status_code=status.HTTP_201_CREATED)
 def create_brand(payload: TaxonomyCreate, db: Session = Depends(get_db)) -> TaxonomyOut:
     slug = ensure_slug(payload.name, payload.slug)
-    if db.scalar(select(Brand).where(Brand.slug == slug)):
+    # Slug only needs to be unique per brand name — different brands (e.g. two
+    # different labels both wanting a "sunglasses" slug) may share one.
+    if db.scalar(select(Brand).where(Brand.name == payload.name, Brand.slug == slug)):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already exists.")
     row = Brand(name=payload.name, slug=slug, status=status_store(payload.status))
     db.add(row)
     try:
         db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already exists.") from None
     except Exception:
         db.rollback()
         raise
@@ -220,10 +225,19 @@ def update_brand(item_id: int, payload: TaxonomyUpdate, db: Session = Depends(ge
         data["status"] = status_store(data["status"])
     if "slug" in data and data["slug"]:
         data["slug"] = ensure_slug(data.get("name") or row.name, data["slug"])
+    new_name = data.get("name", row.name)
+    new_slug = data.get("slug", row.slug)
+    if (new_name, new_slug) != (row.name, row.slug) and db.scalar(
+        select(Brand).where(Brand.id != item_id, Brand.name == new_name, Brand.slug == new_slug)
+    ):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already exists.")
     for k, v in data.items():
         setattr(row, k, v)
     try:
         db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already exists.") from None
     except Exception:
         db.rollback()
         raise

@@ -13,6 +13,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -216,11 +217,16 @@ class Category(Base):
 
 class Brand(Base):
     __tablename__ = "brands"
-    __table_args__ = (Index("ix_brands_status", "status"),)
+    __table_args__ = (
+        Index("ix_brands_status", "status"),
+        # Slug only needs to be unique per brand name — different brands may
+        # legitimately share a slug (e.g. two brands both using "sunglasses").
+        UniqueConstraint("name", "slug", name="ux_brands_name_slug"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    slug: Mapped[str] = mapped_column(String(140), nullable=False, unique=True)
+    slug: Mapped[str] = mapped_column(String(140), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
