@@ -45,8 +45,8 @@ Parameters:
   Msg91AuthKey:
     Type: String
     NoEcho: true
-    Default: ""
-    Description: "MSG91 auth key for WhatsApp OTP — pass via --parameter-overrides."
+    Default: "554114Avcg6BwNFF6a65c35aP1"
+    Description: "MSG91 auth key for WhatsApp OTP — move to secrets later."
   Msg91WaNumber:
     Type: String
     Default: "919642512952"

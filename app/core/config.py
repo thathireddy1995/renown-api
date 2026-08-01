@@ -42,12 +42,13 @@ OTP_RATE_LIMIT_MAX = 5
 OTP_MAX_ATTEMPTS = 5
 
 # MSG91 WhatsApp Authentication OTP (meta-apis/login_code.py).
-# Override via env / Lambda parameter-overrides — do not rely on defaults in prod.
-MSG91_AUTH_KEY = os.getenv("MSG91_AUTH_KEY", "")
-MSG91_WA_INTEGRATED_NUMBER = os.getenv("MSG91_WA_NUMBER", "919642512952")
-MSG91_WA_TEMPLATE_NAME = os.getenv("MSG91_WA_TEMPLATE", "verify_user_v1")
-MSG91_WA_TEMPLATE_LANG = os.getenv("MSG91_WA_LANG", "en_US")
-MSG91_WA_NAMESPACE = os.getenv("MSG91_WA_NAMESPACE", "").strip()
+# Hardcoded for now — move to secrets / env later.
+# Use `or` so empty Lambda env vars don't wipe the defaults.
+MSG91_AUTH_KEY = os.getenv("MSG91_AUTH_KEY") or "554114Avcg6BwNFF6a65c35aP1"
+MSG91_WA_INTEGRATED_NUMBER = os.getenv("MSG91_WA_NUMBER") or "919642512952"
+MSG91_WA_TEMPLATE_NAME = os.getenv("MSG91_WA_TEMPLATE") or "verify_user_v1"
+MSG91_WA_TEMPLATE_LANG = os.getenv("MSG91_WA_LANG") or "en_US"
+MSG91_WA_NAMESPACE = (os.getenv("MSG91_WA_NAMESPACE") or "").strip()
 
 # Razorpay sandbox keys (test mode). Override via env vars for production.
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_TFQQhSY0gwUMhs")
