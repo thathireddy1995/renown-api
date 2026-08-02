@@ -16,6 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -173,6 +174,10 @@ class ProductVariant(Base):
     size_id: Mapped[int | None] = mapped_column(ForeignKey("sizes.id"), nullable=True)
     price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     stock: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Per-color/size photos (e.g. a green frame shows green photos). Empty
+    # list means "no dedicated photos" — the storefront falls back to the
+    # product's shared image gallery.
+    images: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

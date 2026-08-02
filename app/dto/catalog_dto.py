@@ -29,6 +29,7 @@ class ProductVariantOut(BaseModel):
     size: str | None = None
     price: Decimal | None = None
     stock: int = 0
+    images: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -41,6 +42,7 @@ class ProductVariantCreate(BaseModel):
     size: str | None = None
     price: Decimal | None = None
     stock: int = 0
+    images: list[str] = Field(default_factory=list)
 
 
 class ProductVariantUpdate(BaseModel):
@@ -51,6 +53,7 @@ class ProductVariantUpdate(BaseModel):
     size: str | None = None
     price: Decimal | None = None
     stock: int | None = None
+    images: list[str] | None = None
 
 
 class ProductOut(BaseModel):

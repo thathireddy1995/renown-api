@@ -198,6 +198,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
                 size=v.size,
                 price=v.price if v.price is not None else payload.price,
                 stock=v.stock,
+                images=v.images,
             )
         )
 

@@ -85,6 +85,7 @@ def create_variant(
         size=payload.size,
         price=payload.price if payload.price is not None else product.price,
         stock=payload.stock,
+        images=payload.images,
     )
     db.add(variant)
     try:

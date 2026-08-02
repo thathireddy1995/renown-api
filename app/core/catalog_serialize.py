@@ -40,6 +40,7 @@ def variant_out(variant: ProductVariant, product_name: str = "") -> ProductVaria
         size=_clean_label(variant.size),
         price=variant.price,
         stock=variant.stock,
+        images=list(variant.images or []),
         created_at=variant.created_at,
         updated_at=variant.updated_at,
     )
