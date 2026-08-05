@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.catalog_lookups import brand_id_for, category_id_for
 from app.core.catalog_serialize import product_out
+from app.core.review_aggregates import review_aggregates_for
 from app.database import get_db
 from app.deps import pagination
 from app.dto.catalog_dto import ProductListResponse, ProductOut
@@ -85,9 +86,17 @@ def list_products(
         .limit(limit)
         .offset(offset)
     ).all()
+    aggregates = review_aggregates_for(db, [p.id for p in rows])
 
     return ProductListResponse(
-        items=[product_out(p) for p in rows],
+        items=[
+            product_out(
+                p,
+                rating=aggregates.get(p.id, (0.0, 0))[0],
+                reviews=aggregates.get(p.id, (0.0, 0))[1],
+            )
+            for p in rows
+        ],
         total=total,
         limit=limit,
         offset=offset,
@@ -109,4 +118,5 @@ def get_product(slug: str, db: Session = Depends(get_db)) -> ProductOut:
         )
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
-    return product_out(product)
+    avg, count = review_aggregates_for(db, [product.id]).get(product.id, (0.0, 0))
+    return product_out(product, rating=avg, reviews=count)

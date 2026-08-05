@@ -46,7 +46,13 @@ def variant_out(variant: ProductVariant, product_name: str = "") -> ProductVaria
     )
 
 
-def product_out(product: Product, *, public_id: str | None = None) -> ProductOut:
+def product_out(
+    product: Product,
+    *,
+    public_id: str | None = None,
+    rating: float = 0,
+    reviews: int = 0,
+) -> ProductOut:
     """Build a UI-shaped ProductOut. public_id defaults to slug so customer
     ProductCard links (/products/$id) keep working without UI rewrites."""
     images = [img.url for img in (product.images or [])]
@@ -121,8 +127,8 @@ def product_out(product: Product, *, public_id: str | None = None) -> ProductOut
         size=size,
         lensType="",
         weight="",
-        rating=0,
-        reviews=0,
+        rating=float(rating or 0),
+        reviews=int(reviews or 0),
         tags=[],
         offer=offer,
         originalPrice=compare,

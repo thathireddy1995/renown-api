@@ -204,6 +204,57 @@ class ProductImage(Base):
     product: Mapped["Product"] = relationship(back_populates="images")
 
 
+class ProductReview(Base):
+    __tablename__ = "product_reviews"
+    __table_args__ = (
+        Index("ix_product_reviews_product_id", "product_id"),
+        Index("ix_product_reviews_customer_id", "customer_id"),
+        Index("ix_product_reviews_product_status", "product_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"), nullable=False
+    )
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id", ondelete="CASCADE"), nullable=False
+    )
+    order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
+    )
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="approved")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    customer: Mapped["Customer"] = relationship()
+    images: Mapped[list["ProductReviewImage"]] = relationship(
+        back_populates="review",
+        cascade="all, delete-orphan",
+        order_by="ProductReviewImage.sort_order",
+    )
+
+
+class ProductReviewImage(Base):
+    __tablename__ = "product_review_images"
+    __table_args__ = (Index("ix_product_review_images_review_id", "review_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    review_id: Mapped[int] = mapped_column(
+        ForeignKey("product_reviews.id", ondelete="CASCADE"), nullable=False
+    )
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    review: Mapped["ProductReview"] = relationship(back_populates="images")
+
+
 class Category(Base):
     __tablename__ = "categories"
     __table_args__ = (Index("ix_categories_status", "status"),)

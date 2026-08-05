@@ -104,7 +104,7 @@ class ProductOut(BaseModel):
     size: str = ""
     lensType: str = ""
     weight: str = ""
-    rating: float = 4.5
+    rating: float = 0
     reviews: int = 0
     tags: list[str] = Field(default_factory=list)
     offer: str | None = None

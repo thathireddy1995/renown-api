@@ -30,6 +30,7 @@ from app.routers import (
     customer_orders,
     customer_payments,
     customer_products,
+    customer_reviews,
     customer_wishlist,
     staff_auth,
     staff_store_appointments,
@@ -113,6 +114,7 @@ app.include_router(admin_transfer_requests.router)
 app.include_router(admin_stock_allocation.router)
 app.include_router(admin_store_orders.router)
 app.include_router(customer_products.router)
+app.include_router(customer_reviews.router)
 app.include_router(customer_catalog.router)
 app.include_router(customer_cart.router)
 app.include_router(customer_wishlist.router)
