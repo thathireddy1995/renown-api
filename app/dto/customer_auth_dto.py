@@ -8,6 +8,8 @@ class OtpRequest(BaseModel):
 class OtpVerifyRequest(BaseModel):
     phone: str
     code: str
+    # Optional display name for first-time passwordless sign-in.
+    name: str | None = None
 
 
 class GoogleAuthRequest(BaseModel):
@@ -59,3 +61,5 @@ class CustomerTokenResponse(BaseModel):
 class OtpRequestResponse(BaseModel):
     message: str
     expires_in_seconds: int
+    is_existing_customer: bool = False
+    customer_name: str | None = None

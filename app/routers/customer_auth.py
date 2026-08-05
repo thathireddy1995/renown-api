@@ -8,7 +8,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import (
-    DEMO_OTP_CODE,
     IS_PRODUCTION,
     OTP_EXPIRY_MINUTES,
     OTP_MAX_ATTEMPTS,
@@ -78,11 +77,11 @@ def _recent_otp_count(db: Session, phone: str, now: datetime) -> int:
 
 
 def _issue_and_send_otp(db: Session, phone: str, purpose: str, now: datetime) -> OtpRequestResponse:
-    """Create OTP row, send via WhatsApp (register / reset_password only), commit after MSG91 accepts."""
-    if purpose not in {"register", "reset_password"}:
+    """Create OTP row, send via WhatsApp, commit after MSG91 accepts."""
+    if purpose not in {"login", "register", "reset_password"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="WhatsApp OTP is only used for registration and forgot password.",
+            detail="Unsupported OTP purpose.",
         )
 
     code = f"{secrets.randbelow(1_000_000):06d}"
@@ -125,7 +124,7 @@ def _consume_valid_otp(
     *,
     consume: bool = True,
 ) -> None:
-    """Raise 401 unless `code` matches the latest unconsumed OTP for phone/purpose."""
+    """Raise 401 unless `code` matches the latest unconsumed WhatsApp OTP for phone/purpose."""
     otp = db.scalar(
         select(OtpCode)
         .where(
@@ -138,10 +137,7 @@ def _consume_valid_otp(
         .limit(1)
     )
 
-    demo_ok = (not IS_PRODUCTION) and code == DEMO_OTP_CODE
-
-    if not otp and not demo_ok:
-        # Distinguish never-sent / already used / expired for clearer UX.
+    if not otp:
         latest = db.scalar(
             select(OtpCode)
             .where(OtpCode.phone == phone, OtpCode.purpose == purpose)
@@ -158,30 +154,46 @@ def _consume_valid_otp(
             detail="No active OTP found. Please request a new code.",
         )
 
-    code_ok = bool(otp) and otp.code == code and otp.attempt_count < OTP_MAX_ATTEMPTS
+    code_ok = otp.code == code and otp.attempt_count < OTP_MAX_ATTEMPTS
 
-    if not demo_ok and not code_ok:
-        if otp:
-            otp.attempt_count += 1
-            db.commit()
-            if otp.attempt_count >= OTP_MAX_ATTEMPTS:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="OTP locked after too many attempts. Request a new code.",
-                )
+    if not code_ok:
+        otp.attempt_count += 1
+        db.commit()
+        if otp.attempt_count >= OTP_MAX_ATTEMPTS:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="OTP locked after too many attempts. Request a new code.",
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect OTP. Please check the code and try again.",
         )
 
-    if consume and otp and (code_ok or demo_ok):
+    if consume:
         otp.consumed_at = now
         db.flush()
 
 
+def _otp_request_with_customer(
+    db: Session,
+    phone: str,
+    purpose: str,
+    now: datetime,
+) -> OtpRequestResponse:
+    """Send WhatsApp OTP and report whether this phone already has a customer."""
+    response = _issue_and_send_otp(db, phone, purpose, now)
+    customer = db.scalar(select(Customer).where(Customer.phone == phone))
+    return OtpRequestResponse(
+        message=response.message,
+        expires_in_seconds=response.expires_in_seconds,
+        is_existing_customer=customer is not None,
+        customer_name=(customer.name.strip() if customer and customer.name else None),
+    )
+
+
 @router.post("/otp/request", response_model=OtpRequestResponse)
 def request_otp(payload: OtpRequest, db: Session = Depends(get_db)) -> OtpRequestResponse:
-    """Legacy login-OTP endpoint — not used by customer-renown (sign-in is password-only)."""
+    """Passwordless login: send a WhatsApp OTP via MSG91. Verify creates/logs in the customer."""
     phone = _normalize_phone(payload.phone)
     now = _now()
 
@@ -191,40 +203,29 @@ def request_otp(payload: OtpRequest, db: Session = Depends(get_db)) -> OtpReques
             detail="Too many OTP requests. Try again later.",
         )
 
-    code = f"{secrets.randbelow(1_000_000):06d}"
-    otp = OtpCode(
-        phone=phone,
-        code=code,
-        purpose="login",
-        expires_at=now + timedelta(minutes=OTP_EXPIRY_MINUTES),
-        attempt_count=0,
-    )
-    db.add(otp)
-    db.commit()
-
-    if not IS_PRODUCTION:
-        logger.info("Login OTP (unused by storefront) for …%s: %s", phone[-4:], code)
-
-    return OtpRequestResponse(
-        message="OTP sent.",
-        expires_in_seconds=OTP_EXPIRY_MINUTES * 60,
-    )
+    return _otp_request_with_customer(db, phone, "login", now)
 
 
 @router.post("/otp/verify", response_model=CustomerTokenResponse)
 def verify_otp(payload: OtpVerifyRequest, db: Session = Depends(get_db)) -> CustomerTokenResponse:
-    """Legacy login-OTP verify — not used by customer-renown (sign-in is password-only)."""
+    """Passwordless login: verify WhatsApp OTP, auto-create customer if new, return JWT session."""
     phone = _normalize_phone(payload.phone)
     code = payload.code.strip()
+    name = (payload.name or "").strip() or None
     now = _now()
 
     _consume_valid_otp(db, phone, "login", code, now)
 
     customer = db.scalar(select(Customer).where(Customer.phone == phone))
     if not customer:
+        if not name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Full name is required for first-time sign-in.",
+            )
         customer = Customer(
             phone=phone,
-            name=None,
+            name=name,
             email=None,
             is_active=True,
         )
@@ -235,6 +236,8 @@ def verify_otp(payload: OtpVerifyRequest, db: Session = Depends(get_db)) -> Cust
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account is inactive.",
         )
+    elif name and not customer.name:
+        customer.name = name
 
     db.commit()
     db.refresh(customer)

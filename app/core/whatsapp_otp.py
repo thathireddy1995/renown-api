@@ -1,6 +1,6 @@
 """Send OTP via MSG91 WhatsApp Authentication template.
 
-Mirrors meta-apis/login_code.py — used by customer registration / password reset.
+Mirrors meta-apis/login_code.py — used by passwordless login, registration, and password reset.
 """
 
 from __future__ import annotations
