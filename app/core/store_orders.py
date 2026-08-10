@@ -43,6 +43,31 @@ STAFF_STATUS = {
     "refund pending": "Cancelled",
 }
 
+STAFF_STATUS_CLICK_COLLECT = {
+    "pending": "Pending",
+    "preparing": "Preparing",
+    "ready": "Ready for pickup",
+    "collected": "Collected",
+    "missed": "Missed",
+    "void": "Cancelled",
+    "cancelled": "Cancelled",
+}
+
+CLICK_COLLECT_TRANSITIONS = {
+    "pending": {"preparing", "cancelled"},
+    "preparing": {"ready", "cancelled"},
+    "ready": {"collected", "missed"},
+}
+
+CLICK_COLLECT_CANONICAL = {
+    "pending": "Pending",
+    "preparing": "Preparing",
+    "ready": "Ready",
+    "collected": "Collected",
+    "missed": "Missed",
+    "cancelled": "Cancelled",
+}
+
 
 def store_order_eager():
     return (
@@ -136,13 +161,17 @@ def admin_order_row(o: StoreOrder) -> dict:
 
 def staff_order_row(o: StoreOrder) -> dict:
     key = (o.status or "").lower()
+    if o.channel == "click_collect":
+        status_label = STAFF_STATUS_CLICK_COLLECT.get(key, o.status)
+    else:
+        status_label = STAFF_STATUS.get(key, o.status)
     return {
         "id": o.order_number,
         "customer": o.customer_name or "Walk-in",
         "items": len(o.items or []),
         "channel": CHANNEL_STAFF_LABEL.get(o.channel, o.channel),
         "total": format_inr_en(float(o.total or 0)),
-        "status": STAFF_STATUS.get(key, o.status),
+        "status": status_label,
         "date": _relative(o.created_at),
     }
 

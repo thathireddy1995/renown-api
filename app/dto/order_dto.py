@@ -101,6 +101,7 @@ class OrderOut(BaseModel):
     awb_code: str | None = None
     courier_name: str | None = None
     tracking_url: str | None = None
+    verify_token: str | None = None
     items: list[OrderItemOut] = Field(default_factory=list)
 
 

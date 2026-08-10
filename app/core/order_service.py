@@ -5,6 +5,7 @@ can never drift between the COD flow and the Razorpay flow.
 """
 
 import secrets
+import uuid
 from decimal import Decimal
 
 from fastapi import HTTPException, status
@@ -240,6 +241,7 @@ def create_order_record(
         payment_status=payment_status,
         razorpay_order_id=razorpay_order_id,
         razorpay_payment_id=razorpay_payment_id,
+        verify_token=str(uuid.uuid4()),
     )
     db.add(order)
     db.flush()

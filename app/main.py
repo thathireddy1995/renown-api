@@ -32,6 +32,7 @@ from app.routers import (
     customer_products,
     customer_reviews,
     customer_wishlist,
+    public_invoice,
     staff_auth,
     staff_store_appointments,
     staff_store_customers,
@@ -122,6 +123,7 @@ app.include_router(customer_compare.router)
 app.include_router(customer_addresses.router)
 app.include_router(customer_orders.router)
 app.include_router(customer_payments.router)
+app.include_router(public_invoice.router)
 
 
 @app.get("/health")

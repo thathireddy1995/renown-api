@@ -81,6 +81,10 @@ class StaffStoreOrderListResponse(BaseModel):
     offset: int
 
 
+class StaffStoreOrderStatusPatch(BaseModel):
+    status: str
+
+
 class StoreAnalyticsKpis(BaseModel):
     revenueToday: float = 0
     ordersToday: int = 0

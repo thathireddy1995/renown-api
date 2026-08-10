@@ -203,6 +203,7 @@ def _order_out(order: Order, db: Session | None = None) -> OrderOut:
         awb_code=order.awb_code,
         courier_name=order.courier_name,
         tracking_url=order.tracking_url,
+        verify_token=order.verify_token,
         items=items,
     )
 
