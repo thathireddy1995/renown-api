@@ -43,13 +43,18 @@ MAX_FILES_PER_PRESIGN = 25
 def _s3():
     # when_required avoids signing checksum headers that browsers cannot send
     # on a presigned PUT, which otherwise fails with SignatureDoesNotMatch.
+    # Force the regional endpoint. Botocore can otherwise use the legacy global
+    # s3.amazonaws.com endpoint while signing for ap-south-2; S3 rejects that
+    # combination with IllegalLocationConstraintException.
     return boto3.client(
         "s3",
         region_name=S3_PUBLIC_REGION,
+        endpoint_url=f"https://s3.{S3_PUBLIC_REGION}.amazonaws.com",
         config=BotoConfig(
             signature_version="s3v4",
             request_checksum_calculation="when_required",
             response_checksum_validation="when_required",
+            s3={"addressing_style": "virtual"},
         ),
     )
 
