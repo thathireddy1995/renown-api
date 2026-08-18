@@ -17,6 +17,27 @@ class ProductImageCreate(BaseModel):
     sort_order: int = 0
 
 
+class ImagePresignFile(BaseModel):
+    filename: str = Field(default="image.jpg", max_length=200)
+    content_type: str = Field(default="image/jpeg", max_length=80)
+
+
+class ImagePresignRequest(BaseModel):
+    files: list[ImagePresignFile] = Field(min_length=1, max_length=25)
+
+
+class ImagePresignItem(BaseModel):
+    key: str
+    put_url: str
+    public_url: str
+    content_type: str
+
+
+class ImagePresignResponse(BaseModel):
+    bucket: str
+    uploads: list[ImagePresignItem]
+
+
 class ProductVariantOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -71,9 +92,12 @@ class ProductOut(BaseModel):
     price: float
     compare_at_price: float | None = None
     compareAt: float | None = None
+    # Three-tier pricing
+    buying_price: float | None = None
+    buyingPrice: float | None = None
     mrp: float | None = None
-    sellingPrice: float | None = None
     selling_price: float | None = None
+    sellingPrice: float | None = None
     discount_percentage: int = 0
     discountPercentage: int = 0
     brand: str = ""
@@ -120,6 +144,10 @@ class ProductCreate(BaseModel):
     description: str | None = None
     price: Decimal
     compare_at_price: Decimal | None = None
+    # Three-tier pricing (new)
+    buying_price: Decimal | None = None
+    mrp: Decimal | None = None
+    selling_price: Decimal | None = None
     brand: str | None = None
     brand_id: int | None = None
     category: str | None = None
@@ -144,6 +172,10 @@ class ProductUpdate(BaseModel):
     description: str | None = None
     price: Decimal | None = None
     compare_at_price: Decimal | None = None
+    # Three-tier pricing (new)
+    buying_price: Decimal | None = None
+    mrp: Decimal | None = None
+    selling_price: Decimal | None = None
     brand: str | None = None
     brand_id: int | None = None
     category: str | None = None

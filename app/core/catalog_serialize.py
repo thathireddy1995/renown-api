@@ -62,16 +62,18 @@ def product_out(
     first = variants_live[0] if variants_live else None
     brand = product.brand.name if product.brand else ""
     category = product.category.name if product.category else ""
-    price = _money(product.price) or 0.0
-    compare = _money(product.compare_at_price)
-    # MRP mirrors compare_at_price (falls back to selling price when unset);
-    # discount is always derived from these two so the admin edit form and
-    # the customer "offer" badge can never drift out of sync.
-    mrp = compare if compare and compare > 0 else price
+
+    # Three-tier pricing: buying_price, mrp, selling_price
+    buying_price = _money(product.buying_price)
+    mrp = _money(product.mrp or product.compare_at_price) or _money(product.price) or 0.0
+    selling_price = _money(product.selling_price or product.price) or 0.0
+    price = selling_price  # For backward compatibility
+
+    # Discount is computed from MRP vs Selling Price (before offers)
     discount_pct = 0
     offer = None
-    if mrp and price > 0 and price < mrp:
-        discount_pct = int(round((1 - price / mrp) * 100))
+    if mrp and selling_price > 0 and selling_price < mrp:
+        discount_pct = int(round((1 - selling_price / mrp) * 100))
         if discount_pct > 0:
             offer = f"{discount_pct}% OFF"
 
@@ -92,11 +94,13 @@ def product_out(
         sku=product.sku,
         description=product.description,
         price=price,
-        compare_at_price=compare,
-        compareAt=compare,
+        compare_at_price=mrp,
+        compareAt=mrp,
+        buying_price=buying_price,
+        buyingPrice=buying_price,
         mrp=mrp,
-        sellingPrice=price,
-        selling_price=price,
+        sellingPrice=selling_price,
+        selling_price=selling_price,
         discount_percentage=discount_pct,
         discountPercentage=discount_pct,
         brand=brand,

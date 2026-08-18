@@ -56,3 +56,12 @@ RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "EGGkPibPOmeLQN6fRTUpK7Qi
 # Shiprocket API user (Settings → API). Never commit real values to git.
 SHIPROCKET_EMAIL = os.getenv("SHIPROCKET_EMAIL", "")
 SHIPROCKET_PASSWORD = os.getenv("SHIPROCKET_PASSWORD", "")
+
+# Public product images — files live in S3; Postgres only stores the https URL.
+S3_PUBLIC_BUCKET = os.getenv("S3_PUBLIC_BUCKET", "renown-public")
+S3_PUBLIC_REGION = os.getenv("S3_PUBLIC_REGION", "ap-south-2")
+S3_PUBLIC_BASE_URL = (
+    os.getenv("S3_PUBLIC_BASE_URL")
+    or f"https://{S3_PUBLIC_BUCKET}.s3.{S3_PUBLIC_REGION}.amazonaws.com"
+)
+S3_PRESIGN_EXPIRES_SECONDS = int(os.getenv("S3_PRESIGN_EXPIRES_SECONDS", "600"))

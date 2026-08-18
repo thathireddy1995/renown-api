@@ -9,7 +9,12 @@ from app.core.catalog_lookups import brand_id_for, category_id_for
 from app.core.catalog_serialize import product_out, slugify
 from app.database import get_db
 from app.deps import pagination, require_role
+from app.core.config import S3_PUBLIC_BUCKET
+from app.core.s3_images import presign_puts
 from app.dto.catalog_dto import (
+    ImagePresignItem,
+    ImagePresignRequest,
+    ImagePresignResponse,
     ProductCreate,
     ProductListResponse,
     ProductOut,
@@ -273,6 +278,47 @@ def update_product(
     product = _load_product(db, product_id)
     assert product is not None
     return product_out(product, public_id=str(product.id))
+
+
+@router.post(
+    "/products/images/presign",
+    response_model=ImagePresignResponse,
+)
+def presign_pending_product_images(
+    payload: ImagePresignRequest,
+) -> ImagePresignResponse:
+    """Presign images before a new product exists; its DB row stores the returned URLs."""
+    uploads = presign_puts(
+        "pending",
+        [(item.filename, item.content_type) for item in payload.files],
+    )
+    return ImagePresignResponse(
+        bucket=S3_PUBLIC_BUCKET,
+        uploads=[ImagePresignItem(**item) for item in uploads],
+    )
+
+
+@router.post(
+    "/products/{product_id}/images/presign",
+    response_model=ImagePresignResponse,
+)
+def presign_product_images(
+    product_id: int,
+    payload: ImagePresignRequest,
+    db: Session = Depends(get_db),
+) -> ImagePresignResponse:
+    """Return short-lived S3 PUT URLs. Browser uploads bytes; DB only stores https URLs."""
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
+    uploads = presign_puts(
+        product_id,
+        [(item.filename, item.content_type) for item in payload.files],
+    )
+    return ImagePresignResponse(
+        bucket=S3_PUBLIC_BUCKET,
+        uploads=[ImagePresignItem(**item) for item in uploads],
+    )
 
 
 @router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)

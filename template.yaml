@@ -59,6 +59,14 @@ Parameters:
     Type: String
     Default: "en_US"
     Description: "MSG91 WhatsApp template language code."
+  PublicImageBucket:
+    Type: String
+    Default: "renown-public"
+    Description: "Public S3 bucket for catalog product images."
+  PublicImageRegion:
+    Type: String
+    Default: "ap-south-2"
+    Description: "Region of the public image bucket."
 
 Globals:
   Function:
@@ -104,13 +112,18 @@ Resources:
           MSG91_WA_NUMBER: !Ref Msg91WaNumber
           MSG91_WA_TEMPLATE: !Ref Msg91WaTemplate
           MSG91_WA_LANG: !Ref Msg91WaLang
+          S3_PUBLIC_BUCKET: !Ref PublicImageBucket
+          S3_PUBLIC_REGION: !Ref PublicImageRegion
+          S3_PUBLIC_BASE_URL: !Sub "https://${PublicImageBucket}.s3.${PublicImageRegion}.amazonaws.com"
       Policies:
         - Statement:
             - Effect: Allow
               Action:
                 - s3:PutObject
                 - s3:GetObject
-              Resource: !Sub "arn:aws:s3:::renown-api/*"
+              Resource:
+                - !Sub "arn:aws:s3:::renown-api/*"
+                - !Sub "arn:aws:s3:::${PublicImageBucket}/catalog/*"
       Events:
         ApiRoot:
           Type: HttpApi

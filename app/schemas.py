@@ -118,6 +118,10 @@ class Product(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     compare_at_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    # Three-tier pricing (new structure)
+    buying_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    mrp: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    selling_price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     brand_id: Mapped[int | None] = mapped_column(
         ForeignKey("brands.id"), nullable=True
     )
@@ -1291,3 +1295,74 @@ class InventoryAuditItem(Base):
 
     audit: Mapped["InventoryAudit"] = relationship(back_populates="items")
     variant: Mapped["ProductVariant"] = relationship()
+
+
+class Offer(Base):
+    __tablename__ = "offers"
+    __table_args__ = (
+        CheckConstraint(
+            "discount_type IN ('FLAT', 'PERCENTAGE')",
+            name="offers_discount_type_check",
+        ),
+        CheckConstraint(
+            "apply_on IN ('PRODUCT', 'BRAND', 'CATEGORY', 'GENDER')",
+            name="offers_apply_on_check",
+        ),
+        CheckConstraint(
+            "status IN ('scheduled', 'active', 'expired', 'inactive', 'deleted')",
+            name="offers_status_check",
+        ),
+        Index("ix_offers_status", "status"),
+        Index("ix_offers_apply_on", "apply_on"),
+        Index("ix_offers_product_id", "product_id"),
+        Index("ix_offers_brand_id", "brand_id"),
+        Index("ix_offers_category_id", "category_id"),
+        Index("ix_offers_gender", "gender"),
+        Index("ix_offers_priority", "priority"),
+        Index("ix_offers_dates", "start_date", "end_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    slug: Mapped[str] = mapped_column(String(220), nullable=False, unique=True)
+
+    # Discount configuration
+    discount_type: Mapped[str] = mapped_column(String(20), nullable=False)  # 'FLAT' or 'PERCENTAGE'
+    discount_value: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    maximum_discount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+
+    # Apply offer on configuration
+    apply_on: Mapped[str] = mapped_column(String(20), nullable=False)  # 'PRODUCT', 'BRAND', 'CATEGORY', 'GENDER'
+    product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"), nullable=True
+    )
+    brand_id: Mapped[int | None] = mapped_column(
+        ForeignKey("brands.id", ondelete="CASCADE"), nullable=True
+    )
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categories.id", ondelete="CASCADE"), nullable=True
+    )
+    gender: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 'MALE', 'FEMALE', 'UNISEX'
+
+    # Scheduling
+    start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    # Priority for multi-offer scenarios
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Status: auto-determined except when manually deactivated
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled")
+
+    # Audit fields
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    product: Mapped["Product | None"] = relationship()
+    brand: Mapped["Brand | None"] = relationship()
+    category: Mapped["Category | None"] = relationship()
