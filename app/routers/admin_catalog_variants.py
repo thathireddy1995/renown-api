@@ -83,7 +83,11 @@ def create_variant(
         color=payload.color,
         color_hex=payload.color_hex,
         size=payload.size,
-        price=payload.price if payload.price is not None else product.price,
+        price=(
+            payload.price
+            if payload.price is not None
+            else product.selling_price or product.price
+        ),
         stock=payload.stock,
         images=payload.images,
     )

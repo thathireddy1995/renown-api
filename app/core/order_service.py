@@ -12,6 +12,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.offer_pricing import price_for_offer, winning_offers_for
 from app.schemas import (
     Address,
     CartItem,
@@ -75,14 +76,23 @@ def load_cart_lines(
 
     subtotal = Decimal("0")
     line_rows: list[tuple[CartItem, Decimal]] = []
+    products = [row.product for row in cart_rows if row.product is not None]
+    winning_offers = winning_offers_for(db, products)
     for row in cart_rows:
         if not row.product:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cart contains an invalid product.",
             )
-        unit = row.variant.price if row.variant and row.variant.price is not None else row.product.price
+        unit = (
+            row.variant.price
+            if row.variant and row.variant.price is not None
+            else row.product.selling_price or row.product.price
+        )
         unit = Decimal(str(unit))
+        winner = winning_offers.get(row.product.id)
+        if winner is not None:
+            unit = price_for_offer(winner, row.product, base_price=unit).final_price
         subtotal += unit * row.qty
         line_rows.append((row, unit))
     return line_rows, subtotal

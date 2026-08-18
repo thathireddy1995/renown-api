@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CORS + public-read for catalog images on s3://renown-public
-# Does not create the bucket. Only catalog/* is publicly readable.
+# CORS + public-read for catalog and homepage images on s3://renown-public
+# Does not create the bucket. Only catalog/* and homepage/* are publicly readable.
 
 BUCKET="${PUBLIC_IMAGE_BUCKET:-renown-public}"
 REGION="${AWS_DEFAULT_REGION:-ap-south-2}"
@@ -21,7 +21,7 @@ aws s3api put-bucket-cors \
   --region "$REGION" \
   --cors-configuration "file://$CORS_FILE"
 
-echo "Allowing a public GetObject policy on catalog/* only (ACLs stay blocked)..."
+echo "Allowing a public GetObject policy on catalog/* and homepage/* (ACLs stay blocked)..."
 aws s3api put-public-access-block \
   --bucket "$BUCKET" \
   --region "$REGION" \
@@ -37,10 +37,18 @@ aws s3api put-bucket-policy --bucket "$BUCKET" --region "$REGION" --policy "$(ca
       "Principal": "*",
       "Action": "s3:GetObject",
       "Resource": "arn:aws:s3:::${BUCKET}/catalog/*"
+    },
+    {
+      "Sid": "PublicReadHomepageImages",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::${BUCKET}/homepage/*"
     }
   ]
 }
 EOF
 )"
 
-echo "Done. Objects will be at https://${BUCKET}.s3.${REGION}.amazonaws.com/catalog/products/{id}/{uuid}.ext"
+echo "Done. Product images: https://${BUCKET}.s3.${REGION}.amazonaws.com/catalog/products/{id}/{uuid}.ext"
+echo "Banner images: https://${BUCKET}.s3.${REGION}.amazonaws.com/homepage/banners/{uuid}.ext"

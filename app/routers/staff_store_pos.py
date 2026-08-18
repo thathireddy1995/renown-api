@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.offer_pricing import price_for_offer, winning_offers_for
 from app.database import get_db
 from app.deps import require_role, TokenPrincipal
 from app.dto.store_order_dto import (
@@ -207,6 +208,8 @@ def pos_checkout(
 
     line_prices: list[tuple[int, int, Decimal]] = []
     subtotal = Decimal("0")
+    products = list({variant.product.id: variant.product for variant in variants.values()}.values())
+    winning_offers = winning_offers_for(db, products)
     for vid, qty in qty_by_variant.items():
         inv = inv_rows.get(vid)
         on_hand = int(inv.on_hand or 0) if inv else 0
@@ -216,7 +219,16 @@ def pos_checkout(
                 detail=f"Insufficient stock for {variants[vid].sku}",
             )
         variant = variants[vid]
-        price = Decimal(str(variant.price if variant.price is not None else variant.product.price))
+        price = Decimal(
+            str(
+                variant.price
+                if variant.price is not None
+                else variant.product.selling_price or variant.product.price
+            )
+        )
+        winner = winning_offers.get(variant.product.id)
+        if winner is not None:
+            price = price_for_offer(winner, variant.product, base_price=price).final_price
         subtotal += price * qty
         line_prices.append((vid, qty, price))
 

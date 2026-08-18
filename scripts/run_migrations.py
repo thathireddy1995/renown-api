@@ -122,17 +122,23 @@ def main() -> None:
             )
             conn.commit()
 
-            # Try to query with 'name' column (new schema), fallback to 'filename' (old)
-            try:
-                cur.execute("SELECT name FROM schema_migrations")
-                already_applied = {row[0] for row in cur.fetchall()}
-            except psycopg2.Error:
-                conn.rollback()
-                try:
-                    cur.execute("SELECT filename FROM schema_migrations")
-                    already_applied = {row[0] for row in cur.fetchall()}
-                except psycopg2.Error:
-                    already_applied = set()
+            cur.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = 'schema_migrations'
+                  AND column_name IN ('name', 'filename')
+                """
+            )
+            columns = {row[0] for row in cur.fetchall()}
+            migration_column = "name" if "name" in columns else "filename"
+            if migration_column not in columns:
+                raise RuntimeError(
+                    "schema_migrations must contain a name or filename column"
+                )
+            cur.execute(f"SELECT {migration_column} FROM schema_migrations")
+            already_applied = {row[0] for row in cur.fetchall()}
 
         files = sorted(MIGRATIONS_DIR.glob("*.sql"), key=lambda p: p.name)
         files = filter_migrations(files, from_num, to_num)
@@ -145,14 +151,10 @@ def main() -> None:
             sql = f.read_text()
             with conn.cursor() as cur:
                 cur.execute(sql)
-                try:
-                    cur.execute("INSERT INTO schema_migrations (name) VALUES (%s)", (f.name,))
-                except psycopg2.Error:
-                    conn.rollback()
-                    try:
-                        cur.execute("INSERT INTO schema_migrations (filename) VALUES (%s)", (f.name,))
-                    except psycopg2.Error:
-                        pass  # Table might not exist yet or have different schema
+                cur.execute(
+                    f"INSERT INTO schema_migrations ({migration_column}) VALUES (%s)",
+                    (f.name,),
+                )
             conn.commit()
             applied_now.append(f.name)
             print(f"✅ applied: {f.name}")

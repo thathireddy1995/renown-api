@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ProductImageOut(BaseModel):
@@ -98,6 +98,16 @@ class ProductOut(BaseModel):
     mrp: float | None = None
     selling_price: float | None = None
     sellingPrice: float | None = None
+    base_selling_price: float | None = None
+    baseSellingPrice: float | None = None
+    offer_price: float | None = None
+    offerPrice: float | None = None
+    offer_discount: float = 0
+    offerDiscount: float = 0
+    applied_offer_id: int | None = None
+    appliedOfferId: int | None = None
+    applied_offer_name: str | None = None
+    appliedOfferName: str | None = None
     discount_percentage: int = 0
     discountPercentage: int = 0
     brand: str = ""
@@ -142,10 +152,9 @@ class ProductCreate(BaseModel):
     slug: str | None = Field(default=None, max_length=220)
     sku: str = Field(max_length=40)
     description: str | None = None
-    price: Decimal
+    price: Decimal | None = None
     compare_at_price: Decimal | None = None
-    # Three-tier pricing (new)
-    buying_price: Decimal | None = None
+    buying_price: Decimal = Decimal("0")
     mrp: Decimal | None = None
     selling_price: Decimal | None = None
     brand: str | None = None
@@ -163,6 +172,24 @@ class ProductCreate(BaseModel):
     status: str = "draft"
     images: list[ProductImageCreate] = Field(default_factory=list)
     variants: list[ProductVariantCreate] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_prices(self) -> "ProductCreate":
+        selling_price = self.selling_price if self.selling_price is not None else self.price
+        if selling_price is None or selling_price <= 0:
+            raise ValueError("Selling price must be greater than zero.")
+        if self.buying_price < 0:
+            raise ValueError("Buying price cannot be negative.")
+        mrp = self.mrp if self.mrp is not None else self.compare_at_price
+        if mrp is not None and mrp <= 0:
+            raise ValueError("MRP must be greater than zero.")
+        if mrp is not None and selling_price > mrp:
+            raise ValueError("Selling price cannot exceed MRP.")
+        self.price = selling_price
+        self.selling_price = selling_price
+        self.mrp = mrp
+        self.compare_at_price = mrp
+        return self
 
 
 class ProductUpdate(BaseModel):
@@ -190,6 +217,24 @@ class ProductUpdate(BaseModel):
     is_trending: bool | None = None
     status: str | None = None
     images: list[ProductImageCreate] | None = None
+
+    @model_validator(mode="after")
+    def validate_prices(self) -> "ProductUpdate":
+        if self.buying_price is not None and self.buying_price < 0:
+            raise ValueError("Buying price cannot be negative.")
+        selling_price = self.selling_price if self.selling_price is not None else self.price
+        if selling_price is not None and selling_price <= 0:
+            raise ValueError("Selling price must be greater than zero.")
+        mrp = self.mrp if self.mrp is not None else self.compare_at_price
+        if mrp is not None and mrp <= 0:
+            raise ValueError("MRP must be greater than zero.")
+        if selling_price is not None:
+            self.price = selling_price
+            self.selling_price = selling_price
+        if self.mrp is not None or self.compare_at_price is not None:
+            self.mrp = mrp
+            self.compare_at_price = mrp
+        return self
 
 
 class ProductListResponse(BaseModel):

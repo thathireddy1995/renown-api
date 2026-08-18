@@ -103,6 +103,39 @@ class OtpCode(Base):
     )
 
 
+class HomeBanner(Base):
+    __tablename__ = "home_banners"
+    __table_args__ = (
+        CheckConstraint("sort_order >= 0", name="home_banners_sort_order_nonnegative"),
+        Index("ix_home_banners_active_order", "is_active", "sort_order"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    eyebrow: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    subtitle: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    brand_line: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    image_url: Mapped[str] = mapped_column(Text, nullable=False)
+    image_key: Mapped[str] = mapped_column(String(500), nullable=False)
+    image_alt: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    cta_label: Mapped[str] = mapped_column(String(60), nullable=False, default="Shop Now")
+    category: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Product(Base):
     __tablename__ = "products"
     __table_args__ = (
@@ -1312,6 +1345,12 @@ class Offer(Base):
             "status IN ('scheduled', 'active', 'expired', 'inactive', 'deleted')",
             name="offers_status_check",
         ),
+        CheckConstraint("discount_value > 0", name="offers_discount_value_positive"),
+        CheckConstraint(
+            "discount_type != 'PERCENTAGE' OR discount_value <= 100",
+            name="offers_percentage_at_most_100",
+        ),
+        CheckConstraint("end_date > start_date", name="offers_dates_ordered"),
         Index("ix_offers_status", "status"),
         Index("ix_offers_apply_on", "apply_on"),
         Index("ix_offers_product_id", "product_id"),
@@ -1334,13 +1373,13 @@ class Offer(Base):
     # Apply offer on configuration
     apply_on: Mapped[str] = mapped_column(String(20), nullable=False)  # 'PRODUCT', 'BRAND', 'CATEGORY', 'GENDER'
     product_id: Mapped[int | None] = mapped_column(
-        ForeignKey("products.id", ondelete="CASCADE"), nullable=True
+        ForeignKey("products.id", ondelete="SET NULL"), nullable=True
     )
     brand_id: Mapped[int | None] = mapped_column(
-        ForeignKey("brands.id", ondelete="CASCADE"), nullable=True
+        ForeignKey("brands.id", ondelete="SET NULL"), nullable=True
     )
     category_id: Mapped[int | None] = mapped_column(
-        ForeignKey("categories.id", ondelete="CASCADE"), nullable=True
+        ForeignKey("categories.id", ondelete="SET NULL"), nullable=True
     )
     gender: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 'MALE', 'FEMALE', 'UNISEX'
 
@@ -1360,6 +1399,12 @@ class Offer(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
     # Relationships

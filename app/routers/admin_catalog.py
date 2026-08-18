@@ -124,7 +124,7 @@ def list_products(
     ).all()
 
     return ProductListResponse(
-        items=[product_out(p, public_id=str(p.id)) for p in rows],
+        items=[product_out(p, public_id=str(p.id), include_cost=True) for p in rows],
         total=total,
         limit=limit,
         offset=offset,
@@ -136,7 +136,7 @@ def get_product(product_id: int, db: Session = Depends(get_db)) -> ProductOut:
     product = _load_product(db, product_id)
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
-    return product_out(product, public_id=str(product.id))
+    return product_out(product, public_id=str(product.id), include_cost=True)
 
 
 @router.post("/products", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
@@ -160,6 +160,9 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
         description=payload.description,
         price=payload.price,
         compare_at_price=payload.compare_at_price,
+        buying_price=payload.buying_price,
+        mrp=payload.mrp,
+        selling_price=payload.selling_price,
         brand_id=brand_id,
         category_id=category_id,
         gender=payload.gender,
@@ -201,7 +204,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
                 color=v.color,
                 color_hex=v.color_hex,
                 size=v.size,
-                price=v.price if v.price is not None else payload.price,
+                price=v.price if v.price is not None else payload.selling_price,
                 stock=v.stock,
                 images=v.images,
             )
@@ -227,7 +230,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
 
     product = _load_product(db, product.id)
     assert product is not None
-    return product_out(product, public_id=str(product.id))
+    return product_out(product, public_id=str(product.id), include_cost=True)
 
 
 @router.patch("/products/{product_id}", response_model=ProductOut)
@@ -254,6 +257,14 @@ def update_product(
         data["brand_id"] = brand_id
         data["category_id"] = category_id
 
+    next_selling_price = data.get("selling_price", product.selling_price or product.price)
+    next_mrp = data.get("mrp", product.mrp or product.compare_at_price)
+    if next_mrp is not None and next_selling_price > next_mrp:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Selling price cannot exceed MRP.",
+        )
+
     for key, value in data.items():
         setattr(product, key, value)
 
@@ -277,7 +288,7 @@ def update_product(
 
     product = _load_product(db, product_id)
     assert product is not None
-    return product_out(product, public_id=str(product.id))
+    return product_out(product, public_id=str(product.id), include_cost=True)
 
 
 @router.post(

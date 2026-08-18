@@ -3,83 +3,103 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+
+
+def aliased(default, snake: str, camel: str, **kwargs):
+    return Field(
+        default,
+        validation_alias=AliasChoices(snake, camel),
+        serialization_alias=camel,
+        **kwargs,
+    )
 
 
 class OfferOut(BaseModel):
     """Offer response DTO."""
 
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        serialize_by_alias=True,
+    )
+
     id: int
     name: str
     slug: str
-    discountType: str = Field(alias="discount_type")
-    discountValue: Decimal = Field(alias="discount_value")
-    maximumDiscount: Decimal | None = Field(alias="maximum_discount")
-    applyOn: str = Field(alias="apply_on")
-    productId: int | None = Field(alias="product_id")
-    productName: str | None = Field(None, alias="product_name")
-    brandId: int | None = Field(alias="brand_id")
-    brandName: str | None = Field(None, alias="brand_name")
-    categoryId: int | None = Field(alias="category_id")
-    categoryName: str | None = Field(None, alias="category_name")
+    discount_type: str = aliased(..., "discount_type", "discountType")
+    discount_value: Decimal = aliased(..., "discount_value", "discountValue")
+    maximum_discount: Decimal | None = aliased(None, "maximum_discount", "maximumDiscount")
+    apply_on: str = aliased(..., "apply_on", "applyOn")
+    product_id: int | None = aliased(None, "product_id", "productId")
+    product_name: str | None = aliased(None, "product_name", "productName")
+    brand_id: int | None = aliased(None, "brand_id", "brandId")
+    brand_name: str | None = aliased(None, "brand_name", "brandName")
+    category_id: int | None = aliased(None, "category_id", "categoryId")
+    category_name: str | None = aliased(None, "category_name", "categoryName")
     gender: str | None = None
-    startDate: datetime = Field(alias="start_date")
-    endDate: datetime = Field(alias="end_date")
+    start_date: datetime = aliased(..., "start_date", "startDate")
+    end_date: datetime = aliased(..., "end_date", "endDate")
     priority: int
     status: str
-    createdAt: datetime = Field(alias="created_at")
-    updatedAt: datetime = Field(alias="updated_at")
-
-    class Config:
-        populate_by_name = True
+    created_at: datetime = aliased(..., "created_at", "createdAt")
+    updated_at: datetime = aliased(..., "updated_at", "updatedAt")
+    created_by: int | None = aliased(None, "created_by", "createdBy")
+    updated_by: int | None = aliased(None, "updated_by", "updatedBy")
 
 
 class OfferCreate(BaseModel):
     """Offer creation DTO."""
 
-    name: str = Field(..., min_length=1, max_length=200)
-    discountType: str = Field(
-        ..., alias="discount_type", pattern="^(FLAT|PERCENTAGE)$"
-    )
-    discountValue: Decimal = Field(..., alias="discount_value", gt=0)
-    maximumDiscount: Decimal | None = Field(None, alias="maximum_discount", gt=0)
-    applyOn: str = Field(
-        ..., alias="apply_on", pattern="^(PRODUCT|BRAND|CATEGORY|GENDER)$"
-    )
-    productId: int | None = Field(None, alias="product_id")
-    brandId: int | None = Field(None, alias="brand_id")
-    categoryId: int | None = Field(None, alias="category_id")
-    gender: str | None = Field(None, pattern="^(MALE|FEMALE|UNISEX)?$")
-    startDate: datetime = Field(..., alias="start_date")
-    endDate: datetime = Field(..., alias="end_date")
-    priority: int = Field(default=0, ge=0)
+    model_config = ConfigDict(populate_by_name=True)
 
-    class Config:
-        populate_by_name = True
+    name: str = Field(..., min_length=1, max_length=200)
+    discount_type: str = aliased(
+        ..., "discount_type", "discountType", pattern="^(FLAT|PERCENTAGE)$"
+    )
+    discount_value: Decimal = aliased(
+        ..., "discount_value", "discountValue", gt=0
+    )
+    maximum_discount: Decimal | None = aliased(
+        None, "maximum_discount", "maximumDiscount", gt=0
+    )
+    apply_on: str = aliased(
+        ..., "apply_on", "applyOn", pattern="^(PRODUCT|BRAND|CATEGORY|GENDER)$"
+    )
+    product_id: int | None = aliased(None, "product_id", "productId")
+    brand_id: int | None = aliased(None, "brand_id", "brandId")
+    category_id: int | None = aliased(None, "category_id", "categoryId")
+    gender: str | None = Field(None, pattern="^(MALE|FEMALE|UNISEX|KIDS)?$")
+    start_date: datetime = aliased(..., "start_date", "startDate")
+    end_date: datetime = aliased(..., "end_date", "endDate")
+    priority: int = Field(default=0, ge=0)
 
 
 class OfferUpdate(BaseModel):
     """Offer update DTO."""
 
-    name: str | None = Field(None, min_length=1, max_length=200)
-    discountType: str | None = Field(
-        None, alias="discount_type", pattern="^(FLAT|PERCENTAGE)$"
-    )
-    discountValue: Decimal | None = Field(None, alias="discount_value", gt=0)
-    maximumDiscount: Decimal | None = Field(None, alias="maximum_discount", gt=0)
-    applyOn: str | None = Field(
-        None, alias="apply_on", pattern="^(PRODUCT|BRAND|CATEGORY|GENDER)$"
-    )
-    productId: int | None = Field(None, alias="product_id")
-    brandId: int | None = Field(None, alias="brand_id")
-    categoryId: int | None = Field(None, alias="category_id")
-    gender: str | None = Field(None, pattern="^(MALE|FEMALE|UNISEX)?$")
-    startDate: datetime | None = Field(None, alias="start_date")
-    endDate: datetime | None = Field(None, alias="end_date")
-    priority: int | None = Field(None, ge=0)
+    model_config = ConfigDict(populate_by_name=True)
 
-    class Config:
-        populate_by_name = True
+    name: str | None = Field(None, min_length=1, max_length=200)
+    discount_type: str | None = aliased(
+        None, "discount_type", "discountType", pattern="^(FLAT|PERCENTAGE)$"
+    )
+    discount_value: Decimal | None = aliased(
+        None, "discount_value", "discountValue", gt=0
+    )
+    maximum_discount: Decimal | None = aliased(
+        None, "maximum_discount", "maximumDiscount", gt=0
+    )
+    apply_on: str | None = aliased(
+        None, "apply_on", "applyOn", pattern="^(PRODUCT|BRAND|CATEGORY|GENDER)$"
+    )
+    product_id: int | None = aliased(None, "product_id", "productId")
+    brand_id: int | None = aliased(None, "brand_id", "brandId")
+    category_id: int | None = aliased(None, "category_id", "categoryId")
+    gender: str | None = Field(None, pattern="^(MALE|FEMALE|UNISEX|KIDS)?$")
+    start_date: datetime | None = aliased(None, "start_date", "startDate")
+    end_date: datetime | None = aliased(None, "end_date", "endDate")
+    priority: int | None = Field(None, ge=0)
 
 
 class OfferListResponse(BaseModel):

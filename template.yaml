@@ -62,7 +62,7 @@ Parameters:
   PublicImageBucket:
     Type: String
     Default: "renown-public"
-    Description: "Public S3 bucket for catalog product images."
+    Description: "Public S3 bucket for catalog product images and homepage banners."
   PublicImageRegion:
     Type: String
     Default: "ap-south-2"
@@ -121,9 +121,11 @@ Resources:
               Action:
                 - s3:PutObject
                 - s3:GetObject
+                - s3:DeleteObject
               Resource:
                 - !Sub "arn:aws:s3:::renown-api/*"
                 - !Sub "arn:aws:s3:::${PublicImageBucket}/catalog/*"
+                - !Sub "arn:aws:s3:::${PublicImageBucket}/homepage/*"
       Events:
         ApiRoot:
           Type: HttpApi

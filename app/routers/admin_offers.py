@@ -1,6 +1,6 @@
 """Admin offers CRUD endpoints under /admin/offers."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
@@ -9,14 +9,14 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.catalog_serialize import slugify
 from app.database import get_db
-from app.deps import pagination, require_role
+from app.deps import get_current_staff, pagination, require_role
 from app.dto.offers_dto import (
     OfferCreate,
     OfferListResponse,
     OfferOut,
     OfferUpdate,
 )
-from app.schemas import Brand, Category, Offer, Product
+from app.schemas import Brand, Category, Offer, Product, User
 
 router = APIRouter(
     prefix="/admin/offers",
@@ -53,7 +53,7 @@ def _determine_offer_status(offer: Offer) -> str:
     if offer.status == "deleted":
         return "deleted"
     
-    now = datetime.now(offer.start_date.tzinfo)
+    now = datetime.now(timezone.utc)
     
     if now < offer.start_date:
         return "scheduled"
@@ -89,7 +89,53 @@ def _offer_out(offer: Offer) -> OfferOut:
         status=auto_status,
         created_at=offer.created_at,
         updated_at=offer.updated_at,
+        created_by=offer.created_by,
+        updated_by=offer.updated_by,
     )
+
+
+def _status_for_dates(start_date: datetime, end_date: datetime) -> str:
+    now = datetime.now(timezone.utc)
+    if now < start_date:
+        return "scheduled"
+    if now > end_date:
+        return "expired"
+    return "active"
+
+
+def _normalize_target(data: dict, db: Session) -> None:
+    apply_on = data["apply_on"]
+    target_fields = {
+        "PRODUCT": "product_id",
+        "BRAND": "brand_id",
+        "CATEGORY": "category_id",
+        "GENDER": "gender",
+    }
+    target_field = target_fields[apply_on]
+    if not data.get(target_field):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{target_field.replace('_', ' ').title()} is required.",
+        )
+
+    model_by_field = {
+        "product_id": Product,
+        "brand_id": Brand,
+        "category_id": Category,
+    }
+    model = model_by_field.get(target_field)
+    if model is not None and db.get(model, data[target_field]) is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Selected {target_field.removesuffix('_id')} does not exist.",
+        )
+
+    for field in ("product_id", "brand_id", "category_id", "gender"):
+        if field != target_field:
+            data[field] = None
+
+    if data["discount_type"] == "FLAT":
+        data["maximum_discount"] = None
 
 
 @router.get("/", response_model=OfferListResponse)
@@ -108,15 +154,26 @@ def list_offers(
     stmt = stmt.where(Offer.status != "deleted")
     count_stmt = count_stmt.where(Offer.status != "deleted")
 
-    # Filter by status
     if status_filter and status_filter != "all":
-        # For status filters, we need to determine actual status based on dates
-        if status_filter in ("scheduled", "active", "expired"):
-            # Client filters by computed status; we'll filter client-side below
-            pass
-        elif status_filter == "inactive":
-            stmt = stmt.where(Offer.status == "inactive")
-            count_stmt = count_stmt.where(Offer.status == "inactive")
+        if status_filter == "inactive":
+            status_clause = Offer.status == "inactive"
+        elif status_filter == "scheduled":
+            status_clause = (Offer.status != "inactive") & (Offer.start_date > func.now())
+        elif status_filter == "active":
+            status_clause = (
+                (Offer.status != "inactive")
+                & (Offer.start_date <= func.now())
+                & (Offer.end_date >= func.now())
+            )
+        elif status_filter == "expired":
+            status_clause = (Offer.status != "inactive") & (Offer.end_date < func.now())
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid offer status filter.",
+            )
+        stmt = stmt.where(status_clause)
+        count_stmt = count_stmt.where(status_clause)
 
     # Search by name
     if search:
@@ -136,10 +193,7 @@ def list_offers(
         .offset(offset)
     ).all()
 
-    # Apply computed status filter on client side (after date determination)
     items = [_offer_out(o) for o in rows]
-    if status_filter and status_filter != "all" and status_filter != "inactive":
-        items = [o for o in items if o.status == status_filter]
 
     return OfferListResponse(
         items=items,
@@ -159,7 +213,11 @@ def get_offer(offer_id: int, db: Session = Depends(get_db)) -> OfferOut:
 
 
 @router.post("/", response_model=OfferOut, status_code=status.HTTP_201_CREATED)
-def create_offer(payload: OfferCreate, db: Session = Depends(get_db)) -> OfferOut:
+def create_offer(
+    payload: OfferCreate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_staff),
+) -> OfferOut:
     """Create a new offer."""
     # Validate that end_date > start_date
     if payload.end_date <= payload.start_date:
@@ -168,52 +226,33 @@ def create_offer(payload: OfferCreate, db: Session = Depends(get_db)) -> OfferOu
             detail="End date must be after start date.",
         )
 
-    # Validate based on apply_on
-    if payload.apply_on == "PRODUCT" and not payload.product_id:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Product ID is required when applying to a product.",
-        )
-    if payload.apply_on == "BRAND" and not payload.brand_id:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Brand ID is required when applying to a brand.",
-        )
-    if payload.apply_on == "CATEGORY" and not payload.category_id:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Category ID is required when applying to a category.",
-        )
-    if payload.apply_on == "GENDER" and not payload.gender:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Gender is required when applying to a gender segment.",
-        )
-
-    # Validate max discount for percentage offers
     if payload.discount_type == "PERCENTAGE" and payload.discount_value > 100:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Discount value cannot exceed 100% for percentage-based offers.",
         )
 
+    data = payload.model_dump()
+    _normalize_target(data, db)
     slug = _unique_offer_slug(db, payload.name)
 
     offer = Offer(
-        name=payload.name,
+        name=payload.name.strip(),
         slug=slug,
-        discount_type=payload.discount_type,
-        discount_value=payload.discount_value,
-        maximum_discount=payload.maximum_discount,
-        apply_on=payload.apply_on,
-        product_id=payload.product_id,
-        brand_id=payload.brand_id,
-        category_id=payload.category_id,
-        gender=payload.gender,
-        start_date=payload.start_date,
-        end_date=payload.end_date,
-        priority=payload.priority,
-        status="scheduled",  # Will be auto-determined on retrieval
+        discount_type=data["discount_type"],
+        discount_value=data["discount_value"],
+        maximum_discount=data["maximum_discount"],
+        apply_on=data["apply_on"],
+        product_id=data["product_id"],
+        brand_id=data["brand_id"],
+        category_id=data["category_id"],
+        gender=data["gender"],
+        start_date=data["start_date"],
+        end_date=data["end_date"],
+        priority=data["priority"],
+        status=_status_for_dates(data["start_date"], data["end_date"]),
+        created_by=actor.id,
+        updated_by=actor.id,
     )
 
     db.add(offer)
@@ -240,7 +279,10 @@ def create_offer(payload: OfferCreate, db: Session = Depends(get_db)) -> OfferOu
 
 @router.patch("/{offer_id}", response_model=OfferOut)
 def update_offer(
-    offer_id: int, payload: OfferUpdate, db: Session = Depends(get_db)
+    offer_id: int,
+    payload: OfferUpdate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_staff),
 ) -> OfferOut:
     """Update an offer."""
     offer = _load_offer(db, offer_id)
@@ -258,30 +300,6 @@ def update_offer(
             detail="End date must be after start date.",
         )
 
-    # Validate apply_on constraints
-    apply_on = data.get("apply_on", offer.apply_on)
-    if apply_on == "PRODUCT" and not data.get("product_id", offer.product_id):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Product ID is required when applying to a product.",
-        )
-    if apply_on == "BRAND" and not data.get("brand_id", offer.brand_id):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Brand ID is required when applying to a brand.",
-        )
-    if apply_on == "CATEGORY" and not data.get("category_id", offer.category_id):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Category ID is required when applying to a category.",
-        )
-    if apply_on == "GENDER" and not data.get("gender", offer.gender):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Gender is required when applying to a gender segment.",
-        )
-
-    # Validate percentage offers
     discount_type = data.get("discount_type", offer.discount_type)
     discount_value = data.get("discount_value", offer.discount_value)
     if discount_type == "PERCENTAGE" and discount_value > 100:
@@ -290,10 +308,27 @@ def update_offer(
             detail="Discount value cannot exceed 100% for percentage-based offers.",
         )
 
-    # Update fields
+    target_data = {
+        "apply_on": data.get("apply_on", offer.apply_on),
+        "product_id": data.get("product_id", offer.product_id),
+        "brand_id": data.get("brand_id", offer.brand_id),
+        "category_id": data.get("category_id", offer.category_id),
+        "gender": data.get("gender", offer.gender),
+        "discount_type": discount_type,
+        "maximum_discount": data.get("maximum_discount", offer.maximum_discount),
+    }
+    _normalize_target(target_data, db)
+    data.update(target_data)
+    if "name" in data:
+        data["name"] = data["name"].strip()
+        data["slug"] = _unique_offer_slug(db, data["name"], exclude_id=offer.id)
+
     for key, value in data.items():
         if hasattr(offer, key):
             setattr(offer, key, value)
+    offer.updated_by = actor.id
+    if offer.status != "inactive":
+        offer.status = _status_for_dates(start_date, end_date)
 
     try:
         db.commit()
@@ -316,7 +351,11 @@ def update_offer(
 
 
 @router.delete("/{offer_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_offer(offer_id: int, db: Session = Depends(get_db)) -> None:
+def delete_offer(
+    offer_id: int,
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_staff),
+) -> None:
     """Soft-delete an offer by setting status to 'deleted'."""
     offer = db.get(Offer, offer_id)
     if not offer or offer.status == "deleted":
@@ -324,6 +363,7 @@ def delete_offer(offer_id: int, db: Session = Depends(get_db)) -> None:
 
     # Soft delete: set status to deleted
     offer.status = "deleted"
+    offer.updated_by = actor.id
     
     try:
         db.commit()
@@ -336,14 +376,18 @@ def delete_offer(offer_id: int, db: Session = Depends(get_db)) -> None:
 
 
 @router.post("/{offer_id}/activate", response_model=OfferOut)
-def activate_offer(offer_id: int, db: Session = Depends(get_db)) -> OfferOut:
+def activate_offer(
+    offer_id: int,
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_staff),
+) -> OfferOut:
     """Activate an offer (set status to match computed status, not forced to 'active')."""
     offer = _load_offer(db, offer_id)
     if not offer or offer.status == "deleted":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Offer not found.")
 
-    # Reset status to let auto-determination happen
-    offer.status = "active"
+    offer.status = _status_for_dates(offer.start_date, offer.end_date)
+    offer.updated_by = actor.id
 
     try:
         db.commit()
@@ -360,13 +404,18 @@ def activate_offer(offer_id: int, db: Session = Depends(get_db)) -> OfferOut:
 
 
 @router.post("/{offer_id}/deactivate", response_model=OfferOut)
-def deactivate_offer(offer_id: int, db: Session = Depends(get_db)) -> OfferOut:
+def deactivate_offer(
+    offer_id: int,
+    db: Session = Depends(get_db),
+    actor: User = Depends(get_current_staff),
+) -> OfferOut:
     """Deactivate an offer (set status to 'inactive')."""
     offer = _load_offer(db, offer_id)
     if not offer or offer.status == "deleted":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Offer not found.")
 
     offer.status = "inactive"
+    offer.updated_by = actor.id
 
     try:
         db.commit()

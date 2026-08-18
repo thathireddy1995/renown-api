@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 
+from app.core.offer_pricing import OfferPrice
 from app.dto.catalog_dto import ProductOut, ProductVariantOut
 from app.schemas import Product, ProductVariant
 
@@ -52,6 +53,8 @@ def product_out(
     public_id: str | None = None,
     rating: float = 0,
     reviews: int = 0,
+    offer_price: OfferPrice | None = None,
+    include_cost: bool = False,
 ) -> ProductOut:
     """Build a UI-shaped ProductOut. public_id defaults to slug so customer
     ProductCard links (/products/$id) keep working without UI rewrites."""
@@ -67,15 +70,17 @@ def product_out(
     buying_price = _money(product.buying_price)
     mrp = _money(product.mrp or product.compare_at_price) or _money(product.price) or 0.0
     selling_price = _money(product.selling_price or product.price) or 0.0
-    price = selling_price  # For backward compatibility
+    price = float(offer_price.final_price) if offer_price else selling_price
 
     # Discount is computed from MRP vs Selling Price (before offers)
     discount_pct = 0
     offer = None
-    if mrp and selling_price > 0 and selling_price < mrp:
-        discount_pct = int(round((1 - selling_price / mrp) * 100))
+    if mrp and price > 0 and price < mrp:
+        discount_pct = int(round((1 - price / mrp) * 100))
         if discount_pct > 0:
             offer = f"{discount_pct}% OFF"
+    if offer_price is not None:
+        offer = f"{offer_price.offer_name}: {offer_price.label}"
 
     color = ""
     color_hex = ""
@@ -96,11 +101,21 @@ def product_out(
         price=price,
         compare_at_price=mrp,
         compareAt=mrp,
-        buying_price=buying_price,
-        buyingPrice=buying_price,
+        buying_price=buying_price if include_cost else None,
+        buyingPrice=buying_price if include_cost else None,
         mrp=mrp,
         sellingPrice=selling_price,
         selling_price=selling_price,
+        base_selling_price=selling_price,
+        baseSellingPrice=selling_price,
+        offer_price=float(offer_price.final_price) if offer_price else None,
+        offerPrice=float(offer_price.final_price) if offer_price else None,
+        offer_discount=float(offer_price.discount) if offer_price else 0,
+        offerDiscount=float(offer_price.discount) if offer_price else 0,
+        applied_offer_id=offer_price.offer_id if offer_price else None,
+        appliedOfferId=offer_price.offer_id if offer_price else None,
+        applied_offer_name=offer_price.offer_name if offer_price else None,
+        appliedOfferName=offer_price.offer_name if offer_price else None,
         discount_percentage=discount_pct,
         discountPercentage=discount_pct,
         brand=brand,
@@ -135,7 +150,7 @@ def product_out(
         reviews=int(reviews or 0),
         tags=[],
         offer=offer,
-        originalPrice=compare,
+        originalPrice=mrp,
         created_at=product.created_at,
         updated_at=product.updated_at,
     )

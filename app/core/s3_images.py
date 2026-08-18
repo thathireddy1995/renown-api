@@ -7,6 +7,7 @@ Objects are keyed per product (or a pending namespace before creation):
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -40,10 +41,16 @@ MAX_FILES_PER_PRESIGN = 25
 
 
 def _s3():
+    # when_required avoids signing checksum headers that browsers cannot send
+    # on a presigned PUT, which otherwise fails with SignatureDoesNotMatch.
     return boto3.client(
         "s3",
         region_name=S3_PUBLIC_REGION,
-        config=BotoConfig(signature_version="s3v4"),
+        config=BotoConfig(
+            signature_version="s3v4",
+            request_checksum_calculation="when_required",
+            response_checksum_validation="when_required",
+        ),
     )
 
 
@@ -66,11 +73,19 @@ def object_key(product_id: int | str, content_type: str) -> str:
     return f"catalog/products/{product_id}/{uuid.uuid4().hex}.{ext}"
 
 
+def banner_object_key(content_type: str) -> str:
+    ext = ALLOWED_CONTENT_TYPES[content_type]
+    return f"homepage/banners/{uuid.uuid4().hex}.{ext}"
+
+
 def public_url_for(key: str) -> str:
     return f"{S3_PUBLIC_BASE_URL.rstrip('/')}/{key}"
 
 
-def presign_puts(product_id: int | str, files: list[tuple[str, str]]) -> list[dict[str, str]]:
+def _presign_puts(
+    files: list[tuple[str, str]],
+    key_for_content_type: Callable[[str], str],
+) -> list[dict[str, str]]:
     if not S3_PUBLIC_BUCKET:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -92,7 +107,7 @@ def presign_puts(product_id: int | str, files: list[tuple[str, str]]) -> list[di
     try:
         for filename, content_type in files:
             resolved = resolve_content_type(filename, content_type)
-            key = object_key(product_id, resolved)
+            key = key_for_content_type(resolved)
             put_url = client.generate_presigned_url(
                 "put_object",
                 Params={
@@ -116,3 +131,24 @@ def presign_puts(product_id: int | str, files: list[tuple[str, str]]) -> list[di
             detail="Could not create an upload URL for S3. Check Lambda access to renown-public.",
         ) from err
     return uploads
+
+
+def presign_puts(
+    product_id: int | str, files: list[tuple[str, str]]
+) -> list[dict[str, str]]:
+    return _presign_puts(files, lambda content_type: object_key(product_id, content_type))
+
+
+def presign_banner_puts(files: list[tuple[str, str]]) -> list[dict[str, str]]:
+    return _presign_puts(files, banner_object_key)
+
+
+def delete_banner_object(key: str) -> bool:
+    """Best-effort cleanup after banner metadata is replaced or deleted."""
+    if not S3_PUBLIC_BUCKET or not key.startswith("homepage/banners/"):
+        return False
+    try:
+        _s3().delete_object(Bucket=S3_PUBLIC_BUCKET, Key=key)
+        return True
+    except (BotoCoreError, ClientError):
+        return False
