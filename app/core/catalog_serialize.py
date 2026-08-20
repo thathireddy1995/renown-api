@@ -170,6 +170,71 @@ def product_out(
     )
 
 
+def product_card_out(
+    product: Product,
+    *,
+    rating: float = 0,
+    reviews: int = 0,
+    offer_price: OfferPrice | None = None,
+) -> ProductOut:
+    """Storefront card payload: one image, no description, no variant galleries."""
+    first_image = ""
+    if product.images:
+        first_image = product.images[0].url or ""
+    variants_live = live_variants(product.variants)
+    lite_variants = [
+        ProductVariantOut(
+            id=variant.id,
+            product_id=variant.product_id,
+            sku=variant.sku,
+            color=_clean_label(variant.color),
+            color_hex=variant.color_hex if _clean_label(variant.color) else None,
+            size=_clean_label(variant.size),
+            price=variant.price,
+            stock=variant.stock,
+            images=[],
+        )
+        for variant in variants_live
+    ]
+    card = product_out(
+        product,
+        rating=rating,
+        reviews=reviews,
+        offer_price=offer_price,
+        include_variants=False,
+        include_description=False,
+        list_image=first_image,
+        list_stock=sum(v.stock for v in variants_live),
+    )
+    first = variants_live[0] if variants_live else None
+    return card.model_copy(
+        update={
+            "image": "",
+            "variants": lite_variants,
+            "color": (_clean_label(first.color) or "") if first else "",
+            "colorHex": (first.color_hex or "") if first else "",
+            "size": (_clean_label(first.size) or "") if first else "",
+        }
+    )
+
+
+def product_cards_out(db, rows: list[Product]) -> list[ProductOut]:
+    from app.core.offer_pricing import offer_prices_for
+    from app.core.review_aggregates import review_aggregates_for
+
+    aggregates = review_aggregates_for(db, [p.id for p in rows])
+    offer_prices = offer_prices_for(db, list(rows))
+    return [
+        product_card_out(
+            product,
+            rating=aggregates.get(product.id, (0.0, 0))[0],
+            reviews=aggregates.get(product.id, (0.0, 0))[1],
+            offer_price=offer_prices.get(product.id),
+        )
+        for product in rows
+    ]
+
+
 def slugify(value: str) -> str:
     out = []
     prev_dash = False

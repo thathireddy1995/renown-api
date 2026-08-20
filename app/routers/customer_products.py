@@ -4,21 +4,37 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, load_only, selectinload
 
 from app.core.catalog_lookups import brand_id_for, category_id_for
-from app.core.catalog_serialize import product_out
+from app.core.catalog_serialize import product_cards_out, product_out
 from app.core.offer_pricing import offer_prices_for
 from app.core.review_aggregates import review_aggregates_for
 from app.database import get_db
 from app.deps import pagination
 from app.dto.catalog_dto import ProductListResponse, ProductOut
-from app.schemas import Brand, Category, Product
+from app.schemas import Brand, Category, Product, ProductVariant
 
 router = APIRouter(prefix="/customer/products", tags=["customer-products"])
 
 _PRODUCT_LOAD = (
     selectinload(Product.variants),
+    selectinload(Product.images),
+    selectinload(Product.brand),
+    selectinload(Product.category),
+)
+
+_CARD_LOAD = (
+    selectinload(Product.variants).load_only(
+        ProductVariant.id,
+        ProductVariant.product_id,
+        ProductVariant.sku,
+        ProductVariant.color,
+        ProductVariant.color_hex,
+        ProductVariant.size,
+        ProductVariant.price,
+        ProductVariant.stock,
+    ),
     selectinload(Product.images),
     selectinload(Product.brand),
     selectinload(Product.category),
@@ -46,6 +62,7 @@ def list_products(
     min_price: Decimal | None = Query(None),
     max_price: Decimal | None = Query(None),
     search: str | None = Query(None, alias="q"),
+    lite: bool = Query(False),
 ) -> ProductListResponse:
     limit, offset = page
     stmt = select(Product).where(_active_base())
@@ -89,16 +106,17 @@ def list_products(
 
     total = db.scalar(count_stmt) or 0
     rows = db.scalars(
-        stmt.options(*_PRODUCT_LOAD)
+        stmt.options(*(_CARD_LOAD if lite else _PRODUCT_LOAD))
         .order_by(Product.id.asc())
         .limit(limit)
         .offset(offset)
     ).all()
-    aggregates = review_aggregates_for(db, [p.id for p in rows])
-    offer_prices = offer_prices_for(db, list(rows))
-
-    return ProductListResponse(
-        items=[
+    if lite:
+        items = product_cards_out(db, list(rows))
+    else:
+        aggregates = review_aggregates_for(db, [p.id for p in rows])
+        offer_prices = offer_prices_for(db, list(rows))
+        items = [
             product_out(
                 p,
                 rating=aggregates.get(p.id, (0.0, 0))[0],
@@ -106,7 +124,10 @@ def list_products(
                 offer_price=offer_prices.get(p.id),
             )
             for p in rows
-        ],
+        ]
+
+    return ProductListResponse(
+        items=items,
         total=total,
         limit=limit,
         offset=offset,

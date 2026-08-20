@@ -152,6 +152,62 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${FastApiFunction}"
       RetentionInDays: 7
 
+  HomeCacheResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "${AWS::StackName}-home-public-cors"
+        CorsConfig:
+          AccessControlAllowCredentials: false
+          AccessControlAllowHeaders:
+            Items:
+              - "*"
+          AccessControlAllowMethods:
+            Items:
+              - GET
+              - HEAD
+              - OPTIONS
+          AccessControlAllowOrigins:
+            Items:
+              - "*"
+          AccessControlExposeHeaders:
+            Items:
+              - Cache-Control
+              - ETag
+          AccessControlMaxAgeSec: 86400
+          OriginOverride: true
+
+  HomeApiDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: "Cached public Renown homepage API"
+        Enabled: true
+        HttpVersion: http2and3
+        PriceClass: PriceClass_200
+        Origins:
+          - Id: RenownHttpApiOrigin
+            DomainName: !Sub "${RenownHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+        DefaultCacheBehavior:
+          TargetOriginId: RenownHttpApiOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+          ResponseHeadersPolicyId: !Ref HomeCacheResponseHeadersPolicy
+
 Outputs:
   ApiId:
     Description: "HTTP API Gateway ID"
@@ -162,3 +218,6 @@ Outputs:
   HealthCheckUrl:
     Description: "Health check endpoint"
     Value: !Sub "https://${RenownHttpApi}.execute-api.${AWS::Region}.amazonaws.com/health"
+  HomeCacheUrl:
+    Description: "CloudFront-cached public homepage API origin"
+    Value: !Sub "https://${HomeApiDistribution.DomainName}"

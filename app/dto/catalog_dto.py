@@ -11,6 +11,19 @@ def _blank_to_none(value: str | None) -> str | None:
     return text or None
 
 
+def _stored_image_url(value: str) -> str:
+    url = value.strip()
+    if url.lower().startswith("data:image/"):
+        raise ValueError("Inline images are not allowed. Upload the image to S3 first.")
+    if not url.lower().startswith(("https://", "http://")):
+        raise ValueError("Image must be an HTTP(S) URL.")
+    return url
+
+
+def _stored_image_urls(values: list[str]) -> list[str]:
+    return [_stored_image_url(value) for value in values]
+
+
 class ProductImageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -22,6 +35,11 @@ class ProductImageOut(BaseModel):
 class ProductImageCreate(BaseModel):
     url: str
     sort_order: int = 0
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        return _stored_image_url(value)
 
 
 class ImagePresignFile(BaseModel):
@@ -72,6 +90,11 @@ class ProductVariantCreate(BaseModel):
     stock: int = 0
     images: list[str] = Field(default_factory=list)
 
+    @field_validator("images")
+    @classmethod
+    def validate_images(cls, values: list[str]) -> list[str]:
+        return _stored_image_urls(values)
+
 
 class ProductVariantUpdate(BaseModel):
     product_id: int | None = None
@@ -82,6 +105,11 @@ class ProductVariantUpdate(BaseModel):
     price: Decimal | None = None
     stock: int | None = None
     images: list[str] | None = None
+
+    @field_validator("images")
+    @classmethod
+    def validate_images(cls, values: list[str] | None) -> list[str] | None:
+        return _stored_image_urls(values) if values is not None else None
 
 
 class ProductOut(BaseModel):

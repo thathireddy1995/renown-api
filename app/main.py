@@ -30,6 +30,7 @@ from app.routers import (
     customer_catalog,
     customer_compare,
     customer_coupons,
+    customer_home,
     customer_orders,
     customer_payments,
     customer_products,
@@ -121,6 +122,7 @@ app.include_router(admin_transfer_requests.router)
 app.include_router(admin_stock_allocation.router)
 app.include_router(admin_store_orders.router)
 app.include_router(home_banners.admin_router)
+app.include_router(customer_home.router)
 app.include_router(customer_products.router)
 app.include_router(customer_reviews.router)
 app.include_router(customer_catalog.router)
