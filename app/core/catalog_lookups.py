@@ -1,9 +1,9 @@
 """Resolve brand/category names via real brands/categories tables (Phase 3)."""
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import Integer, cast, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.schemas import Brand, Category
+from app.schemas import Brand, Category, Product
 
 
 def brand_name(brand) -> str:
@@ -45,3 +45,21 @@ def category_id_for(db: Session, name: str | None) -> int | None:
         )
     )
     return row.id if row else None
+
+
+SKU_START = 1001
+
+
+def next_product_sku(db: Session) -> str:
+    """Next unused base SKU in the SKU1001, SKU1002, … sequence."""
+    max_n = db.scalar(
+        select(func.max(cast(func.substring(Product.sku, 4), Integer))).where(
+            Product.sku.op("~")(r"^SKU[0-9]+$")
+        )
+    )
+    n = (max_n or (SKU_START - 1)) + 1
+    if n < SKU_START:
+        n = SKU_START
+    while db.scalar(select(Product.id).where(Product.sku == f"SKU{n}")):
+        n += 1
+    return f"SKU{n}"

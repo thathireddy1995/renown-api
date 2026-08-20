@@ -5,7 +5,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.core.catalog_lookups import brand_id_for, category_id_for
+from app.core.catalog_lookups import brand_id_for, category_id_for, next_product_sku
 from app.core.catalog_serialize import product_out, slugify
 from app.database import get_db
 from app.deps import pagination, require_role
@@ -19,6 +19,7 @@ from app.dto.catalog_dto import (
     ProductListResponse,
     ProductOptionListResponse,
     ProductOptionOut,
+    NextSkuOut,
     ProductOut,
     ProductUpdate,
 )
@@ -208,6 +209,11 @@ def list_product_options(
     )
 
 
+@router.get("/products/next-sku", response_model=NextSkuOut)
+def get_next_product_sku(db: Session = Depends(get_db)) -> NextSkuOut:
+    return NextSkuOut(sku=next_product_sku(db))
+
+
 @router.get("/products/{product_id}", response_model=ProductOut)
 def get_product(product_id: int, db: Session = Depends(get_db)) -> ProductOut:
     product = _load_product(db, product_id)
@@ -218,7 +224,8 @@ def get_product(product_id: int, db: Session = Depends(get_db)) -> ProductOut:
 
 @router.post("/products", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
 def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> ProductOut:
-    existing = db.scalar(select(Product).where(Product.sku == payload.sku))
+    sku = (payload.sku or "").strip() or next_product_sku(db)
+    existing = db.scalar(select(Product).where(Product.sku == sku))
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -240,7 +247,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
     product = Product(
         name=payload.name,
         slug=slug,
-        sku=payload.sku,
+        sku=sku,
         product_id=payload.product_id,
         description=payload.description,
         price=payload.price,

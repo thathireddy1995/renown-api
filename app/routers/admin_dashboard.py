@@ -1,9 +1,11 @@
 """Admin dashboard — /admin/dashboard (aggregate reads only)."""
 
-from datetime import timedelta
+from datetime import date, datetime, timedelta
+from json import loads
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import cast, Date, func, select
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.admin_order_status import admin_status_label
@@ -18,23 +20,125 @@ from app.dto.reports_dto import (
     RecentOrderRow,
     TopProductProp,
 )
-from app.schemas import (
-    Brand,
-    Customer,
-    Order,
-    OrderItem,
-    Product,
-    ProductImage,
-    ProductVariant,
-    Warehouse,
-    WarehouseInventory,
-)
 
 router = APIRouter(
     prefix="/admin/dashboard",
     tags=["admin-dashboard"],
     dependencies=[Depends(require_role("admin"))],
 )
+
+# One round-trip: remote Postgres RTT is ~90ms, so 9 sequential queries felt slow.
+_DASHBOARD_SQL = text(
+    """
+    WITH order_stats AS (
+        SELECT
+            coalesce(sum(total) FILTER (
+                WHERE created_at >= :period_start AND created_at < :period_end
+            ), 0) AS rev_cur,
+            count(*) FILTER (
+                WHERE created_at >= :period_start AND created_at < :period_end
+            ) AS ord_cur,
+            coalesce(sum(total) FILTER (
+                WHERE created_at >= :prev_start AND created_at < :period_start
+            ), 0) AS rev_prev,
+            count(*) FILTER (
+                WHERE created_at >= :prev_start AND created_at < :period_start
+            ) AS ord_prev
+        FROM orders
+        WHERE created_at >= :prev_start AND created_at < :period_end
+    ),
+    cust_stats AS (
+        SELECT
+            count(*) FILTER (
+                WHERE created_at >= :period_start AND created_at < :period_end
+            ) AS new_cur,
+            count(*) FILTER (
+                WHERE created_at >= :prev_start AND created_at < :period_start
+            ) AS new_prev
+        FROM customers
+        WHERE created_at >= :prev_start AND created_at < :period_end
+    ),
+    trend AS (
+        SELECT
+            created_at::date AS d,
+            coalesce(sum(total), 0) AS revenue,
+            count(*) AS orders
+        FROM orders
+        WHERE created_at >= :period_start AND created_at < :period_end
+        GROUP BY 1
+    ),
+    top AS (
+        SELECT
+            p.slug,
+            p.name,
+            b.name AS brand,
+            (
+                SELECT pi.url
+                FROM product_images pi
+                WHERE pi.product_id = p.id
+                ORDER BY pi.sort_order ASC, pi.id ASC
+                LIMIT 1
+            ) AS image,
+            p.price
+        FROM (
+            SELECT oi.product_id, sum(oi.qty) AS qty
+            FROM order_items oi
+            JOIN orders o ON o.id = oi.order_id
+            WHERE o.created_at >= :period_start AND o.created_at < :period_end
+            GROUP BY oi.product_id
+            ORDER BY sum(oi.qty) DESC
+            LIMIT 5
+        ) sold
+        JOIN products p ON p.id = sold.product_id
+        LEFT JOIN brands b ON b.id = p.brand_id
+        ORDER BY sold.qty DESC
+    ),
+    low AS (
+        SELECT
+            pv.sku,
+            p.name,
+            w.name AS warehouse,
+            wi.on_hand AS stock,
+            count(*) OVER () AS total
+        FROM warehouse_inventory wi
+        JOIN product_variants pv ON pv.id = wi.variant_id
+        JOIN products p ON p.id = pv.product_id
+        JOIN warehouses w ON w.id = wi.warehouse_id
+        WHERE wi.on_hand <= wi.reorder_point
+        ORDER BY wi.on_hand ASC
+        LIMIT 12
+    )
+    SELECT json_build_object(
+        'order_stats', (SELECT row_to_json(order_stats) FROM order_stats),
+        'cust_stats', (SELECT row_to_json(cust_stats) FROM cust_stats),
+        'trend', (SELECT coalesce(json_agg(trend ORDER BY d), '[]'::json) FROM trend),
+        'recent', (
+            SELECT coalesce(json_agg(r), '[]'::json)
+            FROM (
+                SELECT o.order_number, c.name AS customer, o.status, o.total
+                FROM orders o
+                JOIN customers c ON c.id = o.customer_id
+                ORDER BY o.created_at DESC
+                LIMIT 6
+            ) r
+        ),
+        'top', (SELECT coalesce(json_agg(top), '[]'::json) FROM top),
+        'low', (SELECT coalesce(json_agg(low ORDER BY stock), '[]'::json) FROM low)
+    )
+    """
+)
+
+
+def _as_date(value: Any) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        return date.fromisoformat(value[:10])
+    return None
 
 
 @router.get("", response_model=AdminDashboardResponse)
@@ -45,41 +149,31 @@ def admin_dashboard(
     now = utcnow()
     today = start_of_day(now)
     period_start = today - timedelta(days=days - 1)
+    period_end = today + timedelta(days=1)
     prev_start = period_start - timedelta(days=days)
-    prev_end = period_start
 
-    def _period_stats(start, end):
-        return db.execute(
-            select(
-                func.coalesce(func.sum(Order.total), 0),
-                func.count(Order.id),
-            ).where(Order.created_at >= start, Order.created_at < end)
-        ).one()
+    payload = db.execute(
+        _DASHBOARD_SQL,
+        {
+            "period_start": period_start,
+            "period_end": period_end,
+            "prev_start": prev_start,
+        },
+    ).scalar() or {}
+    if isinstance(payload, str):
+        payload = loads(payload)
 
-    cur = _period_stats(period_start, today + timedelta(days=1))
-    prev = _period_stats(prev_start, prev_end)
-    rev_cur, ord_cur = float(cur[0] or 0), int(cur[1] or 0)
-    rev_prev, ord_prev = float(prev[0] or 0), int(prev[1] or 0)
+    order_stats = payload.get("order_stats") or {}
+    cust_stats = payload.get("cust_stats") or {}
+    rev_cur = float(order_stats.get("rev_cur") or 0)
+    ord_cur = int(order_stats.get("ord_cur") or 0)
+    rev_prev = float(order_stats.get("rev_prev") or 0)
+    ord_prev = int(order_stats.get("ord_prev") or 0)
+    new_cust = int(cust_stats.get("new_cur") or 0)
+    new_cust_prev = int(cust_stats.get("new_prev") or 0)
 
-    new_cust = db.scalar(
-        select(func.count()).where(
-            Customer.created_at >= period_start,
-            Customer.created_at < today + timedelta(days=1),
-        )
-    ) or 0
-    new_cust_prev = db.scalar(
-        select(func.count()).where(
-            Customer.created_at >= prev_start,
-            Customer.created_at < prev_end,
-        )
-    ) or 0
-
-    # Low stock in one query
-    low_stock_count = db.scalar(
-        select(func.count()).select_from(WarehouseInventory).where(
-            WarehouseInventory.on_hand <= WarehouseInventory.reorder_point
-        )
-    ) or 0
+    low_rows = payload.get("low") or []
+    low_stock_count = int(low_rows[0].get("total") or 0) if low_rows else 0
 
     kpis = [
         DashboardKpi(
@@ -104,119 +198,47 @@ def admin_dashboard(
         ),
     ]
 
-    day_col = cast(Order.created_at, Date).label("d")
-    trend_rows = db.execute(
-        select(
-            day_col,
-            func.coalesce(func.sum(Order.total), 0),
-            func.count(Order.id),
-        )
-        .where(Order.created_at >= period_start)
-        .group_by(day_col)
-        .order_by(day_col.asc())
-    ).all()
-    by_day = {
-        r[0]: (float(r[1] or 0), int(r[2] or 0)) for r in trend_rows if r[0] is not None
-    }
+    by_day: dict[date, tuple[float, int]] = {}
+    for row in payload.get("trend") or []:
+        d = _as_date(row.get("d"))
+        if d is None:
+            continue
+        by_day[d] = (float(row.get("revenue") or 0), int(row.get("orders") or 0))
     sales_by_day: list[DayPoint] = []
     for i in range(days):
         d = (period_start + timedelta(days=i)).date()
         rev, cnt = by_day.get(d, (0.0, 0))
         sales_by_day.append(DayPoint(day=d.strftime("%a"), revenue=rev, orders=cnt))
 
-    # Recent orders — single query with customer join
-    recent_rows = db.execute(
-        select(
-            Order.order_number,
-            Customer.name,
-            Order.status,
-            Order.total,
-        )
-        .join(Customer, Customer.id == Order.customer_id)
-        .order_by(Order.created_at.desc())
-        .limit(6)
-    ).all()
     recent_orders = [
         RecentOrderRow(
-            id=r[0],
-            customer=r[1] or "Customer",
-            status=admin_status_label(r[2] or ""),
-            total=float(r[3] or 0),
+            id=row.get("order_number") or "",
+            customer=row.get("customer") or "Customer",
+            status=admin_status_label(row.get("status") or ""),
+            total=float(row.get("total") or 0),
         )
-        for r in recent_rows
+        for row in (payload.get("recent") or [])
     ]
 
-    # Top products by qty sold — single aggregate + image via lateral/min id
-    top_sub = (
-        select(
-            OrderItem.product_id.label("pid"),
-            func.sum(OrderItem.qty).label("qty"),
-            func.coalesce(
-                func.sum(func.coalesce(OrderItem.price_snapshot, 0) * OrderItem.qty), 0
-            ).label("rev"),
-        )
-        .join(Order, Order.id == OrderItem.order_id)
-        .where(Order.created_at >= period_start)
-        .group_by(OrderItem.product_id)
-        .order_by(func.sum(OrderItem.qty).desc())
-        .limit(5)
-        .subquery()
-    )
-    img_sub = (
-        select(
-            ProductImage.product_id.label("pid"),
-            func.min(ProductImage.url).label("url"),
-        )
-        .group_by(ProductImage.product_id)
-        .subquery()
-    )
-    top_rows = db.execute(
-        select(
-            Product.slug,
-            Product.name,
-            Brand.name,
-            img_sub.c.url,
-            Product.price,
-        )
-        .select_from(top_sub)
-        .join(Product, Product.id == top_sub.c.pid)
-        .outerjoin(Brand, Brand.id == Product.brand_id)
-        .outerjoin(img_sub, img_sub.c.pid == Product.id)
-        .order_by(top_sub.c.qty.desc())
-    ).all()
     top_products = [
         TopProductProp(
-            id=r[0] or "",
-            name=r[1] or "",
-            brand=r[2] or "",
-            image=r[3] or "",
-            price=float(r[4] or 0),
+            id=row.get("slug") or "",
+            name=row.get("name") or "",
+            brand=row.get("brand") or "",
+            image=row.get("image") or "",
+            price=float(row.get("price") or 0),
         )
-        for r in top_rows
+        for row in (payload.get("top") or [])
     ]
 
-    low_rows = db.execute(
-        select(
-            ProductVariant.sku,
-            Product.name,
-            Warehouse.name,
-            WarehouseInventory.on_hand,
-        )
-        .join(ProductVariant, ProductVariant.id == WarehouseInventory.variant_id)
-        .join(Product, Product.id == ProductVariant.product_id)
-        .join(Warehouse, Warehouse.id == WarehouseInventory.warehouse_id)
-        .where(WarehouseInventory.on_hand <= WarehouseInventory.reorder_point)
-        .order_by(WarehouseInventory.on_hand.asc())
-        .limit(12)
-    ).all()
     low_stock = [
         LowStockProp(
-            sku=r[0] or "",
-            name=r[1] or "",
-            warehouse=r[2] or "",
-            stock=int(r[3] or 0),
+            sku=row.get("sku") or "",
+            name=row.get("name") or "",
+            warehouse=row.get("warehouse") or "",
+            stock=int(row.get("stock") or 0),
         )
-        for r in low_rows
+        for row in low_rows
     ]
 
     end_d = today.date()

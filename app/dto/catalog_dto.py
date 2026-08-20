@@ -159,7 +159,7 @@ class ProductOut(BaseModel):
 class ProductCreate(BaseModel):
     name: str = Field(max_length=200)
     slug: str | None = Field(default=None, max_length=220)
-    sku: str = Field(max_length=40)
+    sku: str | None = Field(default=None, max_length=40)
     product_id: str | None = Field(default=None, max_length=40)
     description: str | None = None
     price: Decimal | None = None
@@ -279,6 +279,10 @@ class ProductOptionListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class NextSkuOut(BaseModel):
+    sku: str
 
 
 class VariantListResponse(BaseModel):
