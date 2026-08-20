@@ -115,7 +115,7 @@ def list_orders(
 ) -> AdminOrderListResponse:
     limit, offset = page
     item_counts = (
-        select(OrderItem.order_id, func.count().label("items"))
+        select(OrderItem.order_id, func.count().label("item_count"))
         .group_by(OrderItem.order_id)
         .subquery()
     )
@@ -123,7 +123,7 @@ def list_orders(
         select(
             Order,
             Customer.name.label("customer_name"),
-            func.coalesce(item_counts.c.items, 0).label("items"),
+            func.coalesce(item_counts.c.item_count, 0).label("item_count"),
             func.count().over().label("total_count"),
         )
         .join(Customer, Customer.id == Order.customer_id)
@@ -163,7 +163,7 @@ def list_orders(
 
     return AdminOrderListResponse(
         items=[
-            _order_list_row(row[0], row.customer_name, int(row.items or 0)) for row in rows
+            _order_list_row(row[0], row.customer_name, int(row.item_count or 0)) for row in rows
         ],
         total=total,
         limit=limit,
