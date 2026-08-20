@@ -55,14 +55,26 @@ def product_out(
     reviews: int = 0,
     offer_price: OfferPrice | None = None,
     include_cost: bool = False,
+    include_variants: bool = True,
+    include_description: bool = True,
+    list_image: str | None = None,
+    list_stock: int | None = None,
 ) -> ProductOut:
     """Build a UI-shaped ProductOut. public_id defaults to slug so customer
     ProductCard links (/products/$id) keep working without UI rewrites."""
-    images = [img.url for img in (product.images or [])]
-    variants_live = live_variants(product.variants)
-    variants = [variant_out(v, product.name) for v in variants_live]
-    stock = sum(v.stock for v in variants_live)
-    first = variants_live[0] if variants_live else None
+    if list_image is not None:
+        images = [list_image] if list_image else []
+    else:
+        images = [img.url for img in (product.images or [])]
+    if include_variants:
+        variants_live = live_variants(product.variants)
+        variants = [variant_out(v, product.name) for v in variants_live]
+        stock = sum(v.stock for v in variants_live)
+        first = variants_live[0] if variants_live else None
+    else:
+        variants = []
+        stock = int(list_stock or 0)
+        first = None
     brand = product.brand.name if product.brand else ""
     category = product.category.name if product.category else ""
 
@@ -97,7 +109,9 @@ def product_out(
         name=product.name,
         slug=product.slug,
         sku=product.sku,
-        description=product.description,
+        product_id=product.product_id,
+        productId=product.product_id,
+        description=product.description if include_description else None,
         price=price,
         compare_at_price=mrp,
         compareAt=mrp,

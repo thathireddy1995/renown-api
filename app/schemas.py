@@ -148,6 +148,7 @@ class Product(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     slug: Mapped[str] = mapped_column(String(220), nullable=False, unique=True)
     sku: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
+    product_id: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     compare_at_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
@@ -1411,3 +1412,103 @@ class Offer(Base):
     product: Mapped["Product | None"] = relationship()
     brand: Mapped["Brand | None"] = relationship()
     category: Mapped["Category | None"] = relationship()
+
+
+class Coupon(Base):
+    __tablename__ = "coupons"
+    __table_args__ = (
+        CheckConstraint(
+            "discount_type IN ('FLAT', 'PERCENTAGE')",
+            name="coupons_discount_type_check",
+        ),
+        CheckConstraint(
+            "apply_on IN ('ALL', 'BRAND', 'CATEGORY', 'GENDER')",
+            name="coupons_apply_on_check",
+        ),
+        CheckConstraint(
+            "status IN ('scheduled', 'active', 'expired', 'inactive', 'deleted')",
+            name="coupons_status_check",
+        ),
+        CheckConstraint("discount_value > 0", name="coupons_discount_value_positive"),
+        CheckConstraint(
+            "discount_type != 'PERCENTAGE' OR discount_value <= 100",
+            name="coupons_percentage_at_most_100",
+        ),
+        CheckConstraint("end_date > start_date", name="coupons_dates_ordered"),
+        CheckConstraint("min_order_amount >= 0", name="coupons_min_order_nonnegative"),
+        Index("ix_coupons_status", "status"),
+        Index("ix_coupons_dates", "start_date", "end_date"),
+        Index("ix_coupons_brand_id", "brand_id"),
+        Index("ix_coupons_category_id", "category_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    code: Mapped[str] = mapped_column(String(30), nullable=False)
+
+    discount_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    discount_value: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    maximum_discount: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    min_order_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+
+    apply_on: Mapped[str] = mapped_column(String(20), nullable=False, default="ALL")
+    brand_id: Mapped[int | None] = mapped_column(
+        ForeignKey("brands.id", ondelete="SET NULL"), nullable=True
+    )
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categories.id", ondelete="SET NULL"), nullable=True
+    )
+    gender: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    usage_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    per_customer_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    used_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    brand: Mapped["Brand | None"] = relationship()
+    category: Mapped["Category | None"] = relationship()
+    redemptions: Mapped[list["CouponRedemption"]] = relationship(
+        back_populates="coupon", cascade="all, delete-orphan"
+    )
+
+
+class CouponRedemption(Base):
+    __tablename__ = "coupon_redemptions"
+    __table_args__ = (
+        Index("ix_coupon_redemptions_coupon_customer", "coupon_id", "customer_id"),
+        Index("ix_coupon_redemptions_customer_id", "customer_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    coupon_id: Mapped[int] = mapped_column(
+        ForeignKey("coupons.id", ondelete="CASCADE"), nullable=False
+    )
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id", ondelete="CASCADE"), nullable=False
+    )
+    order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
+    )
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    coupon: Mapped["Coupon"] = relationship(back_populates="redemptions")

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager
 
 from app.core.deps import require_role
 from app.core.employees import (
@@ -70,61 +70,39 @@ def list_employees(
     type_filter: str | None = Query(None, alias="type"),
 ) -> AdminEmployeeListResponse:
     limit, offset = page
-    stmt = select(Employee).options(*employee_eager())
-    count_stmt = select(func.count()).select_from(Employee)
+    stmt = (
+        select(Employee, func.count().over().label("total_count"))
+        .outerjoin(Store, Employee.store_id == Store.id)
+        .outerjoin(Warehouse, Employee.warehouse_id == Warehouse.id)
+        .options(contains_eager(Employee.store), contains_eager(Employee.warehouse))
+    )
 
     if type_filter == "store":
         stmt = stmt.where(Employee.store_id.is_not(None))
-        count_stmt = count_stmt.where(Employee.store_id.is_not(None))
     elif type_filter == "warehouse":
         stmt = stmt.where(Employee.warehouse_id.is_not(None))
-        count_stmt = count_stmt.where(Employee.warehouse_id.is_not(None))
 
     if role:
         stmt = stmt.where(Employee.job_role.ilike(role))
-        count_stmt = count_stmt.where(Employee.job_role.ilike(role))
 
     if search:
         q = f"%{search.strip()}%"
-        stmt = (
-            stmt.outerjoin(Store, Employee.store_id == Store.id)
-            .outerjoin(Warehouse, Employee.warehouse_id == Warehouse.id)
-            .where(
-                or_(
-                    Employee.name.ilike(q),
-                    Employee.employee_code.ilike(q),
-                    Employee.job_role.ilike(q),
-                    Store.name.ilike(q),
-                    Warehouse.name.ilike(q),
-                )
+        stmt = stmt.where(
+            or_(
+                Employee.name.ilike(q),
+                Employee.employee_code.ilike(q),
+                Employee.job_role.ilike(q),
+                Store.name.ilike(q),
+                Warehouse.name.ilike(q),
             )
         )
-        count_stmt = (
-            select(func.count())
-            .select_from(Employee)
-            .outerjoin(Store, Employee.store_id == Store.id)
-            .outerjoin(Warehouse, Employee.warehouse_id == Warehouse.id)
-            .where(
-                or_(
-                    Employee.name.ilike(q),
-                    Employee.employee_code.ilike(q),
-                    Employee.job_role.ilike(q),
-                    Store.name.ilike(q),
-                    Warehouse.name.ilike(q),
-                )
-            )
-        )
-        if type_filter == "store":
-            count_stmt = count_stmt.where(Employee.store_id.is_not(None))
-        elif type_filter == "warehouse":
-            count_stmt = count_stmt.where(Employee.warehouse_id.is_not(None))
 
-    total = db.scalar(count_stmt) or 0
-    rows = db.scalars(
+    rows = db.execute(
         stmt.order_by(Employee.employee_code.asc()).limit(limit).offset(offset)
-    ).all()
+    ).unique().all()
+    total = int(rows[0].total_count) if rows else 0
     return AdminEmployeeListResponse(
-        items=[AdminEmployeeOut(**admin_employee_row(r)) for r in rows],
+        items=[AdminEmployeeOut(**admin_employee_row(row[0])) for row in rows],
         total=total,
         limit=limit,
         offset=offset,

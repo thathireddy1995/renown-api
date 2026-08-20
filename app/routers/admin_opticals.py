@@ -1,6 +1,6 @@
 """Admin opticals CRUD — /admin/opticals/{lens-types,frame-types,colors,sizes}."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -238,18 +238,24 @@ def delete_frame_type(item_id: int, db: Session = Depends(get_db)) -> None:
 def list_colors(
     db: Session = Depends(get_db),
     page: tuple[int, int] = Depends(pagination),
+    include_counts: bool = Query(False, alias="counts"),
 ) -> ColorListResponse:
     limit, offset = page
-    total = db.scalar(select(func.count()).select_from(Color)) or 0
-    rows = db.scalars(select(Color).order_by(Color.id.asc()).limit(limit).offset(offset)).all()
-    counts = _color_counts(db)
+    rows = db.execute(
+        select(Color, func.count().over().label("total_count"))
+        .order_by(Color.id.asc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    total = int(rows[0].total_count) if rows else 0
+    counts = _color_counts(db) if include_counts else {}
     return ColorListResponse(
         items=[
             ColorOut(
-                id=public_id(r.id, "c"),
-                name=r.name,
-                hex=r.hex,
-                products=counts.get(r.id, 0),
+                id=public_id(r[0].id, "c"),
+                name=r[0].name,
+                hex=r[0].hex,
+                products=counts.get(r[0].id, 0),
             )
             for r in rows
         ],
@@ -321,19 +327,25 @@ def delete_color(item_id: int, db: Session = Depends(get_db)) -> None:
 def list_sizes(
     db: Session = Depends(get_db),
     page: tuple[int, int] = Depends(pagination),
+    include_counts: bool = Query(False, alias="counts"),
 ) -> SizeListResponse:
     limit, offset = page
-    total = db.scalar(select(func.count()).select_from(Size)) or 0
-    rows = db.scalars(select(Size).order_by(Size.id.asc()).limit(limit).offset(offset)).all()
-    counts = _size_counts(db)
+    rows = db.execute(
+        select(Size, func.count().over().label("total_count"))
+        .order_by(Size.id.asc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    total = int(rows[0].total_count) if rows else 0
+    counts = _size_counts(db) if include_counts else {}
     return SizeListResponse(
         items=[
             SizeOut(
-                id=public_id(r.id, "s"),
-                name=r.name,
-                code=r.code,
-                measurement=r.measurement or "",
-                products=counts.get(r.id, 0),
+                id=public_id(r[0].id, "s"),
+                name=r[0].name,
+                code=r[0].code,
+                measurement=r[0].measurement or "",
+                products=counts.get(r[0].id, 0),
             )
             for r in rows
         ],

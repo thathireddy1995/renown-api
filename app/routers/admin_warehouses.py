@@ -107,8 +107,30 @@ def list_warehouses(
     db: Session = Depends(get_db),
     page: tuple[int, int] = Depends(pagination),
     search: str | None = Query(None, alias="q"),
+    lite: bool = Query(False),
 ) -> WarehouseListResponse:
     limit, offset = page
+    if lite:
+        stmt = select(Warehouse, func.count().over().label("total_count"))
+        if search and search.strip():
+            like = f"%{search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    Warehouse.code.ilike(like),
+                    Warehouse.name.ilike(like),
+                    Warehouse.city.ilike(like),
+                )
+            )
+        rows = db.execute(
+            stmt.order_by(Warehouse.id.asc()).limit(limit).offset(offset)
+        ).all()
+        total = int(rows[0].total_count) if rows else 0
+        return WarehouseListResponse(
+            items=[_warehouse_out(row[0]) for row in rows],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
     stats = _stats_subq()
     stmt = select(Warehouse, stats.c.used, stats.c.skus).outerjoin(
         stats, stats.c.warehouse_id == Warehouse.id

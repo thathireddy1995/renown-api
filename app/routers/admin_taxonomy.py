@@ -1,7 +1,7 @@
 """Admin taxonomy CRUD — /admin/taxonomy/{categories,brands,collections,attributes}."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -74,25 +74,47 @@ def _attr_out(row: Attribute) -> AttributeOut:
     )
 
 
-# ---- categories ----
+def _list_taxonomy(
+    db: Session,
+    model,
+    product_fk,
+    limit: int,
+    offset: int,
+    include_counts: bool,
+) -> TaxonomyListResponse:
+    if include_counts:
+        rows = db.execute(
+            select(
+                model,
+                func.count(Product.id).label("products"),
+                func.count().over().label("total_count"),
+            )
+            .outerjoin(Product, and_(product_fk == model.id, Product.status != "deleted"))
+            .group_by(model.id)
+            .order_by(model.id.asc())
+            .limit(limit)
+            .offset(offset)
+        ).all()
+        items = [_taxonomy_out(row[0], int(row.products or 0)) for row in rows]
+    else:
+        rows = db.execute(
+            select(model, func.count().over().label("total_count"))
+            .order_by(model.id.asc())
+            .limit(limit)
+            .offset(offset)
+        ).all()
+        items = [_taxonomy_out(row[0], 0) for row in rows]
+    total = int(rows[0].total_count) if rows else 0
+    return TaxonomyListResponse(items=items, total=total, limit=limit, offset=offset)
 
 @router.get("/categories", response_model=TaxonomyListResponse)
 def list_categories(
     db: Session = Depends(get_db),
     page: tuple[int, int] = Depends(pagination),
+    include_counts: bool = Query(True, alias="counts"),
 ) -> TaxonomyListResponse:
     limit, offset = page
-    total = db.scalar(select(func.count()).select_from(Category)) or 0
-    rows = db.scalars(
-        select(Category).order_by(Category.id.asc()).limit(limit).offset(offset)
-    ).all()
-    counts = _product_counts_by_category(db)
-    return TaxonomyListResponse(
-        items=[_taxonomy_out(r, counts.get(r.id, 0)) for r in rows],
-        total=total,
-        limit=limit,
-        offset=offset,
-    )
+    return _list_taxonomy(db, Category, Product.category_id, limit, offset, include_counts)
 
 
 @router.post("/categories", response_model=TaxonomyOut, status_code=status.HTTP_201_CREATED)
@@ -181,17 +203,10 @@ def delete_category(item_id: int, db: Session = Depends(get_db)) -> None:
 def list_brands(
     db: Session = Depends(get_db),
     page: tuple[int, int] = Depends(pagination),
+    include_counts: bool = Query(True, alias="counts"),
 ) -> TaxonomyListResponse:
     limit, offset = page
-    total = db.scalar(select(func.count()).select_from(Brand)) or 0
-    rows = db.scalars(select(Brand).order_by(Brand.id.asc()).limit(limit).offset(offset)).all()
-    counts = _product_counts_by_brand(db)
-    return TaxonomyListResponse(
-        items=[_taxonomy_out(r, counts.get(r.id, 0)) for r in rows],
-        total=total,
-        limit=limit,
-        offset=offset,
-    )
+    return _list_taxonomy(db, Brand, Product.brand_id, limit, offset, include_counts)
 
 
 @router.post("/brands", response_model=TaxonomyOut, status_code=status.HTTP_201_CREATED)
@@ -292,12 +307,15 @@ def list_collections(
     page: tuple[int, int] = Depends(pagination),
 ) -> TaxonomyListResponse:
     limit, offset = page
-    total = db.scalar(select(func.count()).select_from(Collection)) or 0
-    rows = db.scalars(
-        select(Collection).order_by(Collection.id.asc()).limit(limit).offset(offset)
+    rows = db.execute(
+        select(Collection, func.count().over().label("total_count"))
+        .order_by(Collection.id.asc())
+        .limit(limit)
+        .offset(offset)
     ).all()
+    total = int(rows[0].total_count) if rows else 0
     return TaxonomyListResponse(
-        items=[_taxonomy_out(r, 0) for r in rows],
+        items=[_taxonomy_out(row[0], 0) for row in rows],
         total=total,
         limit=limit,
         offset=offset,
@@ -370,16 +388,16 @@ def list_attributes(
     page: tuple[int, int] = Depends(pagination),
 ) -> AttributeListResponse:
     limit, offset = page
-    total = db.scalar(select(func.count()).select_from(Attribute)) or 0
-    rows = db.scalars(
-        select(Attribute)
+    rows = db.execute(
+        select(Attribute, func.count().over().label("total_count"))
         .options(selectinload(Attribute.values))
         .order_by(Attribute.id.asc())
         .limit(limit)
         .offset(offset)
-    ).all()
+    ).unique().all()
+    total = int(rows[0].total_count) if rows else 0
     return AttributeListResponse(
-        items=[_attr_out(r) for r in rows],
+        items=[_attr_out(row[0]) for row in rows],
         total=total,
         limit=limit,
         offset=offset,

@@ -1,9 +1,9 @@
 """Admin catalog — products CRUD under /admin/catalog."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import DataError, IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.catalog_lookups import brand_id_for, category_id_for
 from app.core.catalog_serialize import product_out, slugify
@@ -17,6 +17,8 @@ from app.dto.catalog_dto import (
     ImagePresignResponse,
     ProductCreate,
     ProductListResponse,
+    ProductOptionListResponse,
+    ProductOptionOut,
     ProductOut,
     ProductUpdate,
 )
@@ -81,50 +83,125 @@ def list_products(
     search: str | None = Query(None, alias="q"),
 ) -> ProductListResponse:
     limit, offset = page
-    stmt = select(Product)
-    count_stmt = select(func.count()).select_from(Product)
+    first_image = (
+        select(
+            ProductImage.product_id,
+            ProductImage.url,
+            func.row_number()
+            .over(
+                partition_by=ProductImage.product_id,
+                order_by=(ProductImage.sort_order.asc(), ProductImage.id.asc()),
+            )
+            .label("rn"),
+        )
+    ).subquery()
+    stock_by_product = (
+        select(
+            ProductVariant.product_id,
+            func.coalesce(func.sum(ProductVariant.stock), 0).label("list_stock"),
+        )
+        .where(
+            ProductVariant.color != "__deleted__",
+            ProductVariant.size != "__deleted__",
+        )
+        .group_by(ProductVariant.product_id)
+    ).subquery()
+    stmt = (
+        select(
+            Product,
+            first_image.c.url.label("list_image"),
+            func.coalesce(stock_by_product.c.list_stock, 0).label("list_stock"),
+            func.count().over().label("total_count"),
+        )
+        .outerjoin(
+            first_image,
+            and_(first_image.c.product_id == Product.id, first_image.c.rn == 1),
+        )
+        .outerjoin(stock_by_product, stock_by_product.c.product_id == Product.id)
+        .options(joinedload(Product.brand), joinedload(Product.category))
+    )
 
     if status_filter:
         stmt = stmt.where(Product.status == status_filter)
-        count_stmt = count_stmt.where(Product.status == status_filter)
     else:
         # Soft-deleted products stay in DB for order history but leave the catalog UI.
         stmt = stmt.where(Product.status != "deleted")
-        count_stmt = count_stmt.where(Product.status != "deleted")
 
     resolved_brand = brand_id if brand_id is not None else brand_id_for(db, brand)
     if resolved_brand is not None:
         stmt = stmt.where(Product.brand_id == resolved_brand)
-        count_stmt = count_stmt.where(Product.brand_id == resolved_brand)
 
     resolved_category = (
         category_id if category_id is not None else category_id_for(db, category)
     )
     if resolved_category is not None:
         stmt = stmt.where(Product.category_id == resolved_category)
-        count_stmt = count_stmt.where(Product.category_id == resolved_category)
 
     if search:
         like = f"%{search.strip()}%"
-        filt = or_(Product.name.ilike(like), Product.sku.ilike(like), Product.slug.ilike(like))
-        stmt = stmt.where(filt)
-        count_stmt = count_stmt.where(filt)
-
-    total = db.scalar(count_stmt) or 0
-    rows = db.scalars(
-        stmt.options(
-            selectinload(Product.variants),
-            selectinload(Product.images),
-            selectinload(Product.brand),
-            selectinload(Product.category),
+        stmt = stmt.where(
+            or_(
+                Product.name.ilike(like),
+                Product.sku.ilike(like),
+                Product.slug.ilike(like),
+                Product.product_id.ilike(like),
+            )
         )
+
+    rows = db.execute(
+        stmt.order_by(Product.id.desc()).limit(limit).offset(offset)
+    ).unique().all()
+    total = int(rows[0].total_count) if rows else 0
+    if not rows and offset > 0:
+        count_stmt = select(func.count()).select_from(Product).where(Product.status != "deleted")
+        if status_filter:
+            count_stmt = select(func.count()).select_from(Product).where(Product.status == status_filter)
+        total = db.scalar(count_stmt) or 0
+
+    return ProductListResponse(
+        items=[
+            product_out(
+                row[0],
+                public_id=str(row[0].id),
+                include_cost=True,
+                include_variants=False,
+                include_description=False,
+                list_image=row.list_image or "",
+                list_stock=int(row.list_stock or 0),
+            )
+            for row in rows
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/products/options", response_model=ProductOptionListResponse)
+def list_product_options(
+    db: Session = Depends(get_db),
+    page: tuple[int, int] = Depends(pagination),
+) -> ProductOptionListResponse:
+    """id/name/sku/price only — used by variant and offer dropdowns."""
+    limit, offset = page
+    rows = db.execute(
+        select(Product, func.count().over().label("total_count"))
+        .where(Product.status != "deleted")
         .order_by(Product.id.desc())
         .limit(limit)
         .offset(offset)
     ).all()
-
-    return ProductListResponse(
-        items=[product_out(p, public_id=str(p.id), include_cost=True) for p in rows],
+    total = int(rows[0].total_count) if rows else 0
+    return ProductOptionListResponse(
+        items=[
+            ProductOptionOut(
+                id=row[0].id,
+                name=row[0].name,
+                sku=row[0].sku,
+                price=float(row[0].selling_price or row[0].price or 0),
+            )
+            for row in rows
+        ],
         total=total,
         limit=limit,
         offset=offset,
@@ -147,6 +224,13 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
             status_code=status.HTTP_409_CONFLICT,
             detail="SKU already exists. Use a different base SKU.",
         )
+    if payload.product_id:
+        existing_pid = db.scalar(select(Product.id).where(Product.product_id == payload.product_id))
+        if existing_pid:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Product ID already exists. Use a different Product ID.",
+            )
     slug = _unique_product_slug(db, payload.slug or slugify(payload.name))
 
     brand_id, category_id = _resolve_brand_category(
@@ -157,6 +241,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
         name=payload.name,
         slug=slug,
         sku=payload.sku,
+        product_id=payload.product_id,
         description=payload.description,
         price=payload.price,
         compare_at_price=payload.compare_at_price,
@@ -212,12 +297,14 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
 
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as err:
         db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="SKU already exists. Use a different base SKU.",
-        )
+        msg = str(getattr(err, "orig", err)).lower()
+        if "product_id" in msg or "ux_products_product_id" in msg:
+            detail = "Product ID already exists. Use a different Product ID."
+        else:
+            detail = "SKU already exists. Use a different base SKU."
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from err
     except DataError as err:
         db.rollback()
         raise HTTPException(
@@ -245,6 +332,20 @@ def update_product(
     images = data.pop("images", None)
     brand = data.pop("brand", None)
     category = data.pop("category", None)
+
+    next_product_id = data.get("product_id", product.product_id)
+    if next_product_id:
+        taken = db.scalar(
+            select(Product.id).where(
+                Product.product_id == next_product_id,
+                Product.id != product.id,
+            )
+        )
+        if taken:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Product ID already exists. Use a different Product ID.",
+            )
 
     if brand is not None or category is not None or "brand_id" in data or "category_id" in data:
         brand_id, category_id = _resolve_brand_category(
@@ -282,6 +383,20 @@ def update_product(
 
     try:
         db.commit()
+    except IntegrityError as err:
+        db.rollback()
+        msg = str(getattr(err, "orig", err)).lower()
+        if "product_id" in msg or "ux_products_product_id" in msg:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Product ID already exists. Use a different Product ID.",
+            ) from err
+        if "sku" in msg or "ux_products_sku" in msg:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="SKU already exists. Use a different base SKU.",
+            ) from err
+        raise
     except Exception:
         db.rollback()
         raise
@@ -358,6 +473,8 @@ def delete_product(product_id: int, db: Session = Depends(get_db)) -> None:
     product.status = "deleted"
     if not (product.sku or "").endswith(suffix):
         product.sku = f"{(product.sku or 'sku')[: max(1, 40 - len(suffix))]}{suffix}"[:40]
+    if product.product_id and not product.product_id.endswith(suffix):
+        product.product_id = f"{product.product_id[: max(1, 40 - len(suffix))]}{suffix}"[:40]
     if not (product.slug or "").endswith(suffix):
         product.slug = f"{(product.slug or 'item')[: max(1, 220 - len(suffix))]}{suffix}"[:220]
     # Variants keep their rows (order/inventory history references them) but

@@ -12,6 +12,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.coupon_pricing import quote_coupon, redeem_coupon
 from app.core.offer_pricing import price_for_offer, winning_offers_for
 from app.schemas import (
     Address,
@@ -36,11 +37,26 @@ def next_order_number(db: Session) -> str:
 
 
 def compute_pricing(
-    subtotal: Decimal, delivery: str, coupon_code: str | None
+    subtotal: Decimal,
+    delivery: str,
+    coupon_code: str | None,
+    *,
+    db: Session | None = None,
+    customer: Customer | None = None,
+    line_rows: list[tuple[CartItem, Decimal]] | None = None,
 ) -> tuple[Decimal, Decimal, Decimal, Decimal, str | None]:
-    """Cart / checkout pricing (INR). Coupons require a promotions API — no demo codes."""
+    """Cart / checkout pricing (INR). Coupons are quoted against the live cart."""
     code = (coupon_code or "").strip().upper() or None
     discount = Decimal("0")
+    if code:
+        if db is None or customer is None or line_rows is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Coupon cannot be applied.",
+            )
+        quoted = quote_coupon(db, code, customer.id, line_rows, subtotal)
+        discount = quoted.discount
+        code = quoted.code
 
     if delivery == "pickup":
         shipping = Decimal("0")
@@ -230,7 +246,14 @@ def create_order_record(
     Store pickup also creates a matching StoreOrder (channel=click_collect)
     so the order appears on the staff store Orders screen.
     """
-    discount, shipping, tax, total, coupon = compute_pricing(subtotal, delivery or "ship", coupon_code)
+    discount, shipping, tax, total, coupon = compute_pricing(
+        subtotal,
+        delivery or "ship",
+        coupon_code,
+        db=db,
+        customer=customer,
+        line_rows=line_rows,
+    )
     store_id = resolve_pickup_store(db, delivery or "ship", pickup_store_id)
     mode = "pickup" if store_id is not None else (delivery or "ship")
 
@@ -275,6 +298,9 @@ def create_order_record(
             )
         )
     db.add_all(order_items)
+
+    if coupon:
+        redeem_coupon(db, coupon, customer.id, order.id, line_rows, subtotal)
 
     if store_id is not None:
         _create_pickup_store_order(

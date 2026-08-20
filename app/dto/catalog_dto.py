@@ -1,7 +1,14 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+def _blank_to_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    return text or None
 
 
 class ProductImageOut(BaseModel):
@@ -88,6 +95,8 @@ class ProductOut(BaseModel):
     name: str
     slug: str
     sku: str
+    product_id: str | None = None
+    productId: str | None = None
     description: str | None = None
     price: float
     compare_at_price: float | None = None
@@ -151,6 +160,7 @@ class ProductCreate(BaseModel):
     name: str = Field(max_length=200)
     slug: str | None = Field(default=None, max_length=220)
     sku: str = Field(max_length=40)
+    product_id: str | None = Field(default=None, max_length=40)
     description: str | None = None
     price: Decimal | None = None
     compare_at_price: Decimal | None = None
@@ -172,6 +182,11 @@ class ProductCreate(BaseModel):
     status: str = "draft"
     images: list[ProductImageCreate] = Field(default_factory=list)
     variants: list[ProductVariantCreate] = Field(default_factory=list)
+
+    @field_validator("product_id", mode="before")
+    @classmethod
+    def normalize_product_id(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
 
     @model_validator(mode="after")
     def validate_prices(self) -> "ProductCreate":
@@ -196,6 +211,7 @@ class ProductUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=200)
     slug: str | None = Field(default=None, max_length=220)
     sku: str | None = Field(default=None, max_length=40)
+    product_id: str | None = Field(default=None, max_length=40)
     description: str | None = None
     price: Decimal | None = None
     compare_at_price: Decimal | None = None
@@ -218,6 +234,11 @@ class ProductUpdate(BaseModel):
     status: str | None = None
     images: list[ProductImageCreate] | None = None
 
+    @field_validator("product_id", mode="before")
+    @classmethod
+    def normalize_product_id(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
+
     @model_validator(mode="after")
     def validate_prices(self) -> "ProductUpdate":
         if self.buying_price is not None and self.buying_price < 0:
@@ -239,6 +260,22 @@ class ProductUpdate(BaseModel):
 
 class ProductListResponse(BaseModel):
     items: list[ProductOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class ProductOptionOut(BaseModel):
+    """Slim row for admin dropdowns (variants, offers) — no images/stock."""
+
+    id: int
+    name: str
+    sku: str
+    price: float = 0
+
+
+class ProductOptionListResponse(BaseModel):
+    items: list[ProductOptionOut]
     total: int
     limit: int
     offset: int

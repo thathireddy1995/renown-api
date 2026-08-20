@@ -114,16 +114,20 @@ def list_orders(
     date_to: date | None = Query(None),
 ) -> AdminOrderListResponse:
     limit, offset = page
-
-    stmt = (
-        select(Order)
-        .options(selectinload(Order.items), selectinload(Order.customer))
-        .join(Customer, Customer.id == Order.customer_id)
+    item_counts = (
+        select(OrderItem.order_id, func.count().label("items"))
+        .group_by(OrderItem.order_id)
+        .subquery()
     )
-    count_stmt = (
-        select(func.count())
-        .select_from(Order)
+    stmt = (
+        select(
+            Order,
+            Customer.name.label("customer_name"),
+            func.coalesce(item_counts.c.items, 0).label("items"),
+            func.count().over().label("total_count"),
+        )
         .join(Customer, Customer.id == Order.customer_id)
+        .outerjoin(item_counts, item_counts.c.order_id == Order.id)
     )
 
     if status_filter:
@@ -141,33 +145,26 @@ def list_orders(
                 except HTTPException:
                     statuses = [raw]
         stmt = stmt.where(Order.status.in_(statuses))
-        count_stmt = count_stmt.where(Order.status.in_(statuses))
 
     if date_from is not None:
-        start = _parse_day_start(date_from)
-        stmt = stmt.where(Order.created_at >= start)
-        count_stmt = count_stmt.where(Order.created_at >= start)
+        stmt = stmt.where(Order.created_at >= _parse_day_start(date_from))
 
     if date_to is not None:
-        end = _parse_day_end(date_to)
-        stmt = stmt.where(Order.created_at <= end)
-        count_stmt = count_stmt.where(Order.created_at <= end)
+        stmt = stmt.where(Order.created_at <= _parse_day_end(date_to))
 
     if search and search.strip():
         like = f"%{search.strip()}%"
-        filt = or_(Order.order_number.ilike(like), Customer.name.ilike(like))
-        stmt = stmt.where(filt)
-        count_stmt = count_stmt.where(filt)
+        stmt = stmt.where(or_(Order.order_number.ilike(like), Customer.name.ilike(like)))
 
-    total = db.scalar(count_stmt) or 0
-    orders = db.scalars(
-        stmt.order_by(Order.created_at.desc(), Order.id.desc())
-        .limit(limit)
-        .offset(offset)
-    ).unique().all()
+    rows = db.execute(
+        stmt.order_by(Order.created_at.desc(), Order.id.desc()).limit(limit).offset(offset)
+    ).all()
+    total = int(rows[0].total_count) if rows else 0
 
     return AdminOrderListResponse(
-        items=[_order_to_list_row(order) for order in orders],
+        items=[
+            _order_list_row(row[0], row.customer_name, int(row.items or 0)) for row in rows
+        ],
         total=total,
         limit=limit,
         offset=offset,

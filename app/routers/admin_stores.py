@@ -103,8 +103,26 @@ def list_stores(
     db: Session = Depends(get_db),
     page: tuple[int, int] = Depends(pagination),
     search: str | None = Query(None, alias="q"),
+    lite: bool = Query(False),
 ) -> StoreListResponse:
     limit, offset = page
+    if lite:
+        stmt = select(Store, func.count().over().label("total_count"))
+        if search and search.strip():
+            like = f"%{search.strip()}%"
+            stmt = stmt.where(
+                or_(Store.code.ilike(like), Store.name.ilike(like), Store.city.ilike(like))
+            )
+        rows = db.execute(
+            stmt.order_by(Store.id.asc()).limit(limit).offset(offset)
+        ).all()
+        total = int(rows[0].total_count) if rows else 0
+        return StoreListResponse(
+            items=[_store_out(row[0]) for row in rows],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
     stats = _sku_stats_subq()
     stmt = select(Store, stats.c.skus).outerjoin(stats, stats.c.store_id == Store.id)
     count_stmt = select(func.count()).select_from(Store)

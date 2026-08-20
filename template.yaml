@@ -5,7 +5,7 @@ Parameters:
   DatabaseUrl:
     Type: String
     NoEcho: true
-    Description: "Postgres connection string (Neon) — passed via --parameter-overrides, never committed here."
+    Description: "Postgres URL for database 'renown' on the VPS (103.86.176.17:6432). Passed from renown-api/.env via --parameter-overrides. Never commit the password here. A direct Lambda env edit is overwritten on the next sam deploy unless this parameter matches .env."
   JwtSecret:
     Type: String
     NoEcho: true
@@ -99,6 +99,8 @@ Resources:
       CodeUri: .
       Environment:
         Variables:
+          # Sourced from the DatabaseUrl parameter (.env), not hardcoded.
+          # Production: postgresql://admin@103.86.176.17:6432/renown
           DATABASE_URL: !Ref DatabaseUrl
           JWT_SECRET: !Ref JwtSecret
           JWT_EXPIRE_MINUTES: !Ref JwtExpireMinutes

@@ -22,6 +22,9 @@ venv/
 notes.txt
 deploy.sh
 
+# Local DB dumps
+backups/
+
 # AWS SAM
 .aws-sam/
 samconfig.toml

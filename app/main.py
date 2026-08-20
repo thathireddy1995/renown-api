@@ -7,6 +7,7 @@ from app.routers import (
     admin_auth,
     admin_catalog,
     admin_catalog_variants,
+    admin_coupons,
     admin_customers,
     admin_dashboard,
     admin_employees,
@@ -28,6 +29,7 @@ from app.routers import (
     customer_cart,
     customer_catalog,
     customer_compare,
+    customer_coupons,
     customer_orders,
     customer_payments,
     customer_products,
@@ -103,6 +105,7 @@ app.include_router(customer_appointments.router)
 app.include_router(admin_catalog.router)
 app.include_router(admin_catalog_variants.router)
 app.include_router(admin_offers.router)
+app.include_router(admin_coupons.router)
 app.include_router(admin_taxonomy.router)
 app.include_router(admin_opticals.router)
 app.include_router(admin_orders.router)
@@ -122,6 +125,7 @@ app.include_router(customer_products.router)
 app.include_router(customer_reviews.router)
 app.include_router(customer_catalog.router)
 app.include_router(customer_cart.router)
+app.include_router(customer_coupons.router)
 app.include_router(customer_wishlist.router)
 app.include_router(customer_compare.router)
 app.include_router(customer_addresses.router)

@@ -37,20 +37,28 @@ def list_variants(
     product_id: int | None = Query(None),
 ) -> VariantListResponse:
     limit, offset = page
-    stmt = select(ProductVariant).options(selectinload(ProductVariant.product))
-    count_stmt = select(func.count()).select_from(ProductVariant)
+    stmt = (
+        select(
+            ProductVariant,
+            Product.name.label("product_name"),
+            func.count().over().label("total_count"),
+        ).join(Product, Product.id == ProductVariant.product_id)
+    )
 
     if product_id is not None:
         stmt = stmt.where(ProductVariant.product_id == product_id)
-        count_stmt = count_stmt.where(ProductVariant.product_id == product_id)
+    stmt = stmt.where(
+        ProductVariant.color != "__deleted__",
+        ProductVariant.size != "__deleted__",
+    )
 
-    total = db.scalar(count_stmt) or 0
-    rows = db.scalars(
+    rows = db.execute(
         stmt.order_by(ProductVariant.id.desc()).limit(limit).offset(offset)
-    ).all()
+    ).unique().all()
+    total = int(rows[0].total_count) if rows else 0
 
     return VariantListResponse(
-        items=[variant_out(v, v.product.name if v.product else "") for v in rows],
+        items=[variant_out(row[0], row.product_name or "") for row in rows],
         total=total,
         limit=limit,
         offset=offset,

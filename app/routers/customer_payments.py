@@ -50,7 +50,7 @@ def create_payment_order(
     resolve_pickup_store(db, delivery, payload.pickup_store_id)
 
     _discount, _shipping, _tax, total, _coupon = compute_pricing(
-        subtotal, delivery, payload.coupon_code
+        subtotal, delivery, payload.coupon_code, db=db, customer=customer, line_rows=_line_rows
     )
     amount_paise = int((total * 100).to_integral_value())
     if amount_paise <= 0:
@@ -63,7 +63,10 @@ def create_payment_order(
                 "currency": "INR",
                 "receipt": f"cust-{customer.id}-{int(time.time() * 1000)}",
                 "payment_capture": 1,
-                "notes": {"customer_id": str(customer.id)},
+                "notes": {
+                    "customer_id": str(customer.id),
+                    "coupon_code": _coupon or "",
+                },
             }
         )
     except razorpay_errors.BadRequestError as e:

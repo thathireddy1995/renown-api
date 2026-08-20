@@ -79,6 +79,7 @@ def list_products(
             Product.name.ilike(like),
             Product.sku.ilike(like),
             Product.slug.ilike(like),
+            Product.product_id.ilike(like),
             Product.description.ilike(like),
             Product.brand.has(Brand.name.ilike(like)),
             Product.category.has(Category.name.ilike(like)),

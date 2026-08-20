@@ -31,8 +31,12 @@ def _order_stats_subq():
     )
 
 
-def _customer_row(
-    customer: Customer,
+def _customer_out(
+    *,
+    customer_id: int,
+    name: str | None,
+    email: str | None,
+    phone: str | None,
     orders: int | None,
     spent,
     last_order,
@@ -41,14 +45,31 @@ def _customer_row(
     if last_order is not None:
         last = last_order.strftime("%Y-%m-%d") if hasattr(last_order, "strftime") else str(last_order)[:10]
     return AdminCustomerOut(
-        id=f"C-{customer.id:03d}" if customer.id < 1000 else f"C-{customer.id}",
-        name=customer.name
-        or (f"Customer {customer.phone[-4:]}" if customer.phone else None)
-        or (customer.email.split("@")[0].title() if customer.email else "Customer"),
-        email=customer.email or "",
+        id=f"C-{customer_id:03d}" if customer_id < 1000 else f"C-{customer_id}",
+        name=name
+        or (f"Customer {phone[-4:]}" if phone else None)
+        or (email.split("@")[0].title() if email else "Customer"),
+        email=email or "",
         orders=int(orders or 0),
         spent=float(spent or 0),
         lastOrder=last,
+    )
+
+
+def _customer_row(
+    customer: Customer,
+    orders: int | None,
+    spent,
+    last_order,
+) -> AdminCustomerOut:
+    return _customer_out(
+        customer_id=customer.id,
+        name=customer.name,
+        email=customer.email,
+        phone=customer.phone,
+        orders=orders,
+        spent=spent,
+        last_order=last_order,
     )
 
 
@@ -61,38 +82,64 @@ def list_customers(
     limit, offset = page
     stats = _order_stats_subq()
 
+    # One round-trip: page rows + total via window count. Avoids a separate
+    # COUNT(*) against a high-RTT remote DB, and skips password_hash.
     stmt = (
         select(
-            Customer,
+            Customer.id,
+            Customer.name,
+            Customer.email,
+            Customer.phone,
             stats.c.orders,
             stats.c.spent,
             stats.c.last_order,
+            func.count().over().label("total_count"),
         )
+        .select_from(Customer)
         .outerjoin(stats, stats.c.customer_id == Customer.id)
     )
-    count_stmt = select(func.count()).select_from(Customer)
 
     if search and search.strip():
         like = f"%{search.strip()}%"
-        filt = or_(
-            Customer.name.ilike(like),
-            Customer.email.ilike(like),
-            Customer.phone.ilike(like),
+        stmt = stmt.where(
+            or_(
+                Customer.name.ilike(like),
+                Customer.email.ilike(like),
+                Customer.phone.ilike(like),
+            )
         )
-        stmt = stmt.where(filt)
-        count_stmt = count_stmt.where(filt)
 
-    total = db.scalar(count_stmt) or 0
     rows = db.execute(
         stmt.order_by(Customer.created_at.desc(), Customer.id.desc())
         .limit(limit)
         .offset(offset)
     ).all()
+    total = int(rows[0].total_count) if rows else 0
+    if not rows and offset > 0:
+        count_stmt = select(func.count()).select_from(Customer)
+        if search and search.strip():
+            like = f"%{search.strip()}%"
+            count_stmt = count_stmt.where(
+                or_(
+                    Customer.name.ilike(like),
+                    Customer.email.ilike(like),
+                    Customer.phone.ilike(like),
+                )
+            )
+        total = db.scalar(count_stmt) or 0
 
     return AdminCustomerListResponse(
         items=[
-            _customer_row(customer, orders, spent, last_order)
-            for customer, orders, spent, last_order in rows
+            _customer_out(
+                customer_id=row.id,
+                name=row.name,
+                email=row.email,
+                phone=row.phone,
+                orders=row.orders,
+                spent=row.spent,
+                last_order=row.last_order,
+            )
+            for row in rows
         ],
         total=total,
         limit=limit,
