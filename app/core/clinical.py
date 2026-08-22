@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.ist import as_ist, today as ist_today
+from app.core.ist import as_ist, now as ist_now, today as ist_today
 from app.schemas import Appointment, Customer, Doctor, Prescription, Store
 
 TYPE_LABEL = {
@@ -107,7 +107,10 @@ def staff_prescription_row(row: Prescription) -> dict:
     return {
         "id": f"RX-{row.id}",
         "customer": row.customer.name if row.customer and row.customer.name else "—",
-        "date": (row.recorded_at or (row.created_at.date() if row.created_at else date.today())).isoformat(),
+        "date": (
+            row.recorded_at
+            or (as_ist(row.created_at).date() if row.created_at else ist_today())
+        ).isoformat(),
         "sphR": row.right_sph or "0",
         "cylR": row.right_cyl or "0",
         "sphL": row.left_sph or "0",
@@ -196,7 +199,7 @@ def find_or_create_customer_by_name(
         return None
     row = Customer(
         name=name,
-        phone=phone or f"walkin-{int(datetime.now(timezone.utc).timestamp())}",
+        phone=phone or f"walkin-{int(ist_now().timestamp())}",
         is_active=True,
     )
     db.add(row)

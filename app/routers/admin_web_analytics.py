@@ -23,7 +23,8 @@ router = APIRouter(
 _STATS_SQL = text(
     """
     WITH bounds AS (
-        SELECT now() - make_interval(days => :days) AS since
+        SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')
+            - make_interval(days => :days) AS since
     ),
     scoped AS (
         SELECT visitor_hash, event_name, path, referrer, country, device, created_at

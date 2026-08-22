@@ -1,11 +1,10 @@
 """Staff warehouse transfers — /staff/warehouse/transfers."""
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.ist import now as ist_now
 from app.core.stock_transfers import (
     apply_transfer_completion,
     list_stock_transfers_query,
@@ -159,9 +158,9 @@ def create_transfer(
         if not db.get(ProductVariant, it.variant_id):
             raise HTTPException(status_code=404, detail=f"Variant {it.variant_id} not found")
 
-    num = f"TR-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+    num = f"TR-{int(ist_now().timestamp()) % 100000}"
     while db.scalar(select(StockTransfer.id).where(StockTransfer.transfer_number == num)):
-        num = f"TR-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
+        num = f"TR-{int(ist_now().timestamp()) % 100000 + 1}"
 
     transfer = StockTransfer(
         transfer_number=num,

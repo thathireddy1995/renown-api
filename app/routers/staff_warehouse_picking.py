@@ -1,7 +1,5 @@
 """Staff warehouse picking — /staff/warehouse/picking."""
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -90,7 +88,7 @@ def release_wave(
     elif not db.get(Warehouse, warehouse_id):
         raise HTTPException(status_code=404, detail="Warehouse not found")
 
-    ts = int(datetime.now(timezone.utc).timestamp()) % 100000
+    ts = int(ist_now().timestamp()) % 100000
     list_number = f"PL-{ts}"
     while db.scalar(select(PickList.id).where(PickList.list_number == list_number)):
         ts += 1

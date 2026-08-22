@@ -3,9 +3,10 @@
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.ist import IST_SQL_NOW
 from app.schemas import Offer, Product
 
 
@@ -74,8 +75,8 @@ def winning_offers_for(db: Session, products: list[Product]) -> dict[int, Offer]
         select(Offer)
         .where(
             Offer.status.notin_(("inactive", "deleted")),
-            Offer.start_date <= func.now(),
-            Offer.end_date >= func.now(),
+            Offer.start_date <= IST_SQL_NOW,
+            Offer.end_date >= IST_SQL_NOW,
         )
         .order_by(Offer.priority.desc(), Offer.id.desc())
     ).all()

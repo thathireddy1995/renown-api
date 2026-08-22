@@ -1,12 +1,11 @@
 """Staff warehouse dispatch — /staff/warehouse/dispatch."""
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.deps import TokenPrincipal
+from app.core.ist import now as ist_now
 from app.database import get_db
 from app.deps import get_current_warehouse_staff, pagination, require_role
 from app.dto.staff_dto import (
@@ -206,9 +205,9 @@ def create_dispatch(
                 status_code=404, detail=f"Variant {it.variant_id} not found"
             )
 
-    do_number = f"DO-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+    do_number = f"DO-{int(ist_now().timestamp()) % 100000}"
     while db.scalar(select(DispatchOrder.id).where(DispatchOrder.do_number == do_number)):
-        do_number = f"DO-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
+        do_number = f"DO-{int(ist_now().timestamp()) % 100000 + 1}"
 
     order = DispatchOrder(
         do_number=do_number,

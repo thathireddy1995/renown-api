@@ -10,13 +10,14 @@ Safe to re-run — matched by audit_number.
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import select, text
 
+from app.core.ist import naive_now
 from app.database import SessionLocal
 from app.schemas import (
     ImportJob,
@@ -58,7 +59,7 @@ def seed() -> None:
             print("No variants — run seed_products first")
             return
 
-        now = datetime.now(timezone.utc)
+        now = naive_now()
         for num, zone, counted, expected, variance, auditor, days_ago, status in AUDITS:
             row = db.scalar(
                 select(InventoryAudit).where(InventoryAudit.audit_number == num)

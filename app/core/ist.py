@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import DateTime
+from sqlalchemy import DateTime, text
 from sqlalchemy.types import TypeDecorator
 
 IST = ZoneInfo("Asia/Kolkata")
+IST_SQL_NOW = text("(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')")
 
 
 class ISTDateTime(TypeDecorator):
@@ -51,13 +52,13 @@ def start_of_day(dt: datetime | date | None = None) -> datetime:
     elif isinstance(dt, datetime):
         local = as_ist(dt)
     else:
-        return datetime.combine(dt, time.min, tzinfo=IST)
-    return local.replace(hour=0, minute=0, second=0, microsecond=0)
+        return datetime.combine(dt, time.min)
+    return local.replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
 
 
 def end_of_day(dt: datetime | date | None = None) -> datetime:
     if isinstance(dt, date) and not isinstance(dt, datetime):
-        return datetime.combine(dt, time.max, tzinfo=IST)
+        return datetime.combine(dt, time.max)
     local = start_of_day(dt)
     return local.replace(hour=23, minute=59, second=59, microsecond=999999)
 

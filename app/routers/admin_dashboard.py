@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.admin_order_status import admin_status_label
 from app.core.deps import require_role
-from app.core.report_fmt import delta_pct, inr, start_of_day, utcnow
+from app.core.report_fmt import delta_pct, inr, ist_now, start_of_day
 from app.database import get_db
 from app.dto.reports_dto import (
     AdminDashboardResponse,
@@ -146,7 +146,7 @@ def admin_dashboard(
     db: Session = Depends(get_db),
     days: int = Query(7, ge=7, le=30),
 ) -> AdminDashboardResponse:
-    now = utcnow()
+    now = ist_now()
     today = start_of_day(now)
     period_start = today - timedelta(days=days - 1)
     period_end = today + timedelta(days=1)

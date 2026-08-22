@@ -116,7 +116,8 @@ def main() -> None:
                 CREATE TABLE IF NOT EXISTS schema_migrations (
                     id SERIAL PRIMARY KEY,
                     name VARCHAR(255) NOT NULL UNIQUE,
-                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    applied_at TIMESTAMP DEFAULT
+                        (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')
                 )
                 """
             )

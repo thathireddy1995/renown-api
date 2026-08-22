@@ -8,7 +8,7 @@ from decimal import Decimal
 from app.core.ist import now, start_of_day as ist_start_of_day
 
 
-def utcnow() -> datetime:
+def ist_now() -> datetime:
     return now()
 
 

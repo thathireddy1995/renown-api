@@ -7,7 +7,7 @@ from sqlalchemy import cast, Date, case, func, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import TokenPrincipal, require_role
-from app.core.report_fmt import delta_pct, pct, start_of_day, utcnow
+from app.core.report_fmt import delta_pct, ist_now, pct, start_of_day
 from app.database import get_db
 from app.dto.reports_dto import (
     DashboardKpi,
@@ -85,7 +85,7 @@ def warehouse_reports(
 ) -> StaffWarehouseReportsResponse:
     wid = _wh_id(db, principal)
     sid = _resolve_store_id(db, wid, store_id)
-    now = utcnow()
+    now = ist_now()
     today = start_of_day(now)
     since = today - timedelta(days=42)
 
@@ -329,7 +329,7 @@ def warehouse_dashboard(
     principal: TokenPrincipal = Depends(require_role("warehouse_manager")),
 ) -> StaffWarehouseDashboardResponse:
     wid = _wh_id(db, principal)
-    now = utcnow()
+    now = ist_now()
     today = start_of_day(now)
     yesterday = today - timedelta(days=1)
     week_start = today - timedelta(days=6)

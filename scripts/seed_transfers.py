@@ -10,13 +10,14 @@ Safe to re-run — matched by transfer/request/allocation numbers.
 from __future__ import annotations
 
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import timedelta
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import select
 
+from app.core.ist import naive_now, today as ist_today
 from app.database import SessionLocal
 from app.schemas import (
     Order,
@@ -94,9 +95,9 @@ def seed() -> None:
             if not src or not dst or not variant:
                 print(f"Skip transfer {num}: missing warehouse/variant")
                 continue
-            created = datetime.now(timezone.utc) - timedelta(days=created_days)
+            created = naive_now() - timedelta(days=created_days)
             eta = (
-                date.today() + timedelta(days=eta_days)
+                ist_today() + timedelta(days=eta_days)
                 if eta_days is not None
                 else None
             )
@@ -135,7 +136,7 @@ def seed() -> None:
             if not req_wh or not tgt_wh or not variant:
                 print(f"Skip request {num}")
                 continue
-            created = datetime.now(timezone.utc) - timedelta(days=days_ago)
+            created = naive_now() - timedelta(days=days_ago)
             row = db.scalar(
                 select(TransferRequest).where(TransferRequest.request_number == num)
             )
@@ -168,7 +169,7 @@ def seed() -> None:
                 print(f"Skip allocation {num}")
                 continue
             order = orders.get(order_num)
-            created = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
+            created = naive_now() - timedelta(hours=hours_ago)
             row = db.scalar(
                 select(StockAllocation).where(StockAllocation.allocation_number == num)
             )

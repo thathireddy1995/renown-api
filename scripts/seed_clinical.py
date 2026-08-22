@@ -10,13 +10,14 @@ Safe to re-run — doctors matched by name; appointments/prescriptions by fixed 
 from __future__ import annotations
 
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import select, text
 
+from app.core.ist import naive_now
 from app.database import SessionLocal
 from app.schemas import Appointment, Customer, Doctor, Prescription, Store
 
@@ -104,7 +105,7 @@ def seed() -> None:
         for d in db.scalars(select(Doctor)).all():
             doctors[d.name] = d
 
-        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today = naive_now().replace(hour=0, minute=0, second=0, microsecond=0)
 
         for (
             apt_id,

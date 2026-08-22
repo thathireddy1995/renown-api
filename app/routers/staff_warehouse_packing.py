@@ -1,12 +1,12 @@
 """Staff warehouse packing — /staff/warehouse/packing."""
 
-from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.ist import now as ist_now
 from app.database import get_db
 from app.deps import get_current_warehouse_staff, pagination, require_role
 from app.dto.staff_dto import (
@@ -89,9 +89,9 @@ def create_pack(
     elif dispatch_id is not None and not db.get(DispatchOrder, dispatch_id):
         raise HTTPException(status_code=404, detail="Dispatch order not found")
 
-    pack_number = f"PK-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+    pack_number = f"PK-{int(ist_now().timestamp()) % 100000}"
     while db.scalar(select(Pack.id).where(Pack.pack_number == pack_number)):
-        pack_number = f"PK-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
+        pack_number = f"PK-{int(ist_now().timestamp()) % 100000 + 1}"
 
     status_val = (body.status or "Processing").strip().title()
     if status_val not in ("Pending", "Processing", "Done", "Cancelled"):

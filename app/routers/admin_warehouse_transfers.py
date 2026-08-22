@@ -1,11 +1,12 @@
 """Admin warehouse stock transfers — /admin/warehouse/transfers."""
 
-from datetime import date, datetime, timezone
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.ist import now as ist_now
 from app.core.stock_transfers import (
     ADMIN_STATUS,
     admin_transfer_row,
@@ -83,9 +84,9 @@ def create_transfer(
         if not db.get(ProductVariant, it.variant_id):
             raise HTTPException(status_code=404, detail=f"Variant {it.variant_id} not found")
 
-    num = f"TR-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+    num = f"TR-{int(ist_now().timestamp()) % 100000}"
     while db.scalar(select(StockTransfer.id).where(StockTransfer.transfer_number == num)):
-        num = f"TR-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
+        num = f"TR-{int(ist_now().timestamp()) % 100000 + 1}"
 
     eta = None
     if body.eta and body.eta != "—":

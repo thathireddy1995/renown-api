@@ -1,12 +1,10 @@
 """Admin transfer requests — /admin/transfer-requests."""
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.ist import format_ist_date
+from app.core.ist import format_ist_date, now as ist_now
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.dto.admin_dto import (
@@ -117,9 +115,9 @@ def create_transfer_request(
     if urgency not in ("Low", "Medium", "High"):
         raise HTTPException(status_code=422, detail="Urgency must be Low, Medium, or High")
 
-    num = f"REQ-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+    num = f"REQ-{int(ist_now().timestamp()) % 100000}"
     while db.scalar(select(TransferRequest.id).where(TransferRequest.request_number == num)):
-        num = f"REQ-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
+        num = f"REQ-{int(ist_now().timestamp()) % 100000 + 1}"
 
     row = TransferRequest(
         request_number=num,
@@ -163,9 +161,9 @@ def approve_transfer_request(
         )
 
     # Create stock transfer: stock moves from target (supplier) → requester
-    num = f"TR-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+    num = f"TR-{int(ist_now().timestamp()) % 100000}"
     while db.scalar(select(StockTransfer.id).where(StockTransfer.transfer_number == num)):
-        num = f"TR-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
+        num = f"TR-{int(ist_now().timestamp()) % 100000 + 1}"
 
     transfer = StockTransfer(
         transfer_number=num,

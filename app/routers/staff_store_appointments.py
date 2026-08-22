@@ -1,6 +1,6 @@
 """Staff store appointments — /staff/store/appointments."""
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
@@ -16,6 +16,7 @@ from app.core.clinical import (
     parse_slot,
     staff_appointment_row,
 )
+from app.core.ist import today as ist_today
 from app.database import get_db
 from app.deps import pagination, require_role, TokenPrincipal
 from app.dto.clinical_dto import (
@@ -62,15 +63,15 @@ def _parse_staff_slot(date_str: str | None, time_str: str):
     day = date_str
     time_part = raw
     if lowered.startswith("today "):
-        day = date.today().isoformat()
+        day = ist_today().isoformat()
         time_part = raw.split(" ", 1)[1]
     elif lowered.startswith("tomorrow "):
-        day = (date.today() + timedelta(days=1)).isoformat()
+        day = (ist_today() + timedelta(days=1)).isoformat()
         time_part = raw.split(" ", 1)[1]
     elif " " in raw and len(raw.split(" ", 1)[0]) == 10:
         day, time_part = raw.split(" ", 1)
     if not day:
-        day = date.today().isoformat()
+        day = ist_today().isoformat()
     return parse_slot(day, time_part)
 
 

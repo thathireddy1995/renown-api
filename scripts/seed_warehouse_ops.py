@@ -10,7 +10,7 @@ Safe to re-run — matched by supplier code / PO / GRN / pick / pack / DO number
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -18,6 +18,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import func, select
 
+from app.core.ist import naive_now
 from app.database import SessionLocal
 from app.schemas import (
     DispatchOrder,
@@ -148,7 +149,7 @@ def seed() -> None:
                 if status == "Done":
                     po.status = "Received"
 
-            when = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
+            when = naive_now() - timedelta(hours=hours_ago)
             grn = db.scalar(select(Grn).where(Grn.grn_number == grn_number))
             if grn:
                 grn.purchase_order_id = po.id

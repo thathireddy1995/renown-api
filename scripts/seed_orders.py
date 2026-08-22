@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import secrets
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -22,6 +22,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from app.core.ist import naive_now
 from app.database import SessionLocal
 from app.schemas import Address, Customer, Order, OrderItem, Product
 
@@ -62,7 +63,7 @@ def _ensure_order(
         .where(Order.order_number == order_number)
         .options(selectinload(Order.items))
     )
-    created_at = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    created_at = naive_now() - timedelta(days=days_ago)
 
     line_defs = []
     for sku, qty in item_specs:

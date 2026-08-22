@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_role
-from app.core.report_fmt import inr, pct, start_of_day, utcnow
+from app.core.report_fmt import inr, ist_now, pct, start_of_day
 from app.database import get_db
 from app.dto.reports_dto import (
     AdminReportsResponse,
@@ -98,7 +98,7 @@ def admin_reports(
     db: Session = Depends(get_db),
     days: int = Query(30, ge=7, le=90),
 ) -> AdminReportsResponse:
-    now = utcnow()
+    now = ist_now()
     since = start_of_day(now) - timedelta(days=days - 1)
 
     payload = db.execute(_REPORTS_SQL, {"since": since}).scalar() or {}

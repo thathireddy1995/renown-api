@@ -1,12 +1,12 @@
 """Staff store POS — /staff/store/pos."""
 
-from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.ist import now as ist_now
 from app.core.offer_pricing import price_for_offer, winning_offers_for
 from app.database import get_db
 from app.deps import require_role, TokenPrincipal
@@ -239,9 +239,9 @@ def pos_checkout(
     if pay not in ("card", "upi", "cash", "online"):
         pay = "card"
 
-    order_number = f"SO-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+    order_number = f"SO-{int(ist_now().timestamp()) % 100000}"
     while db.scalar(select(StoreOrder.id).where(StoreOrder.order_number == order_number)):
-        order_number = f"SO-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
+        order_number = f"SO-{int(ist_now().timestamp()) % 100000 + 1}"
 
     user = db.get(User, principal.sub)
 

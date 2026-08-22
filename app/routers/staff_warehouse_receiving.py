@@ -1,12 +1,10 @@
 """Staff warehouse receiving — /staff/warehouse/receiving."""
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.ist import naive_now
+from app.core.ist import naive_now, now as ist_now
 from app.core.relative_time import relative_received_label
 from app.database import get_db
 from app.deps import get_current_warehouse_staff, pagination, require_role
@@ -163,9 +161,9 @@ def create_grn(
             select(Supplier).where(func.lower(Supplier.name) == body.vendor.strip().lower())
         )
         if not supplier:
-            code = f"SUP-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+            code = f"SUP-{int(ist_now().timestamp()) % 100000}"
             while db.scalar(select(Supplier.id).where(Supplier.code == code)):
-                code = f"SUP-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
+                code = f"SUP-{int(ist_now().timestamp()) % 100000 + 1}"
             supplier = Supplier(
                 code=code,
                 name=body.vendor.strip(),
@@ -183,7 +181,7 @@ def create_grn(
             )
         if not db.get(Supplier, supplier_id):
             raise HTTPException(status_code=404, detail="Supplier not found")
-        po_num = body.po_number or f"PO-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+        po_num = body.po_number or f"PO-{int(ist_now().timestamp()) % 100000}"
         po = PurchaseOrder(
             po_number=po_num,
             supplier_id=supplier_id,
@@ -201,9 +199,9 @@ def create_grn(
                 status_code=404, detail=f"Variant {it.variant_id} not found"
             )
 
-    grn_number = f"GRN-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+    grn_number = f"GRN-{int(ist_now().timestamp()) % 100000}"
     while db.scalar(select(Grn.id).where(Grn.grn_number == grn_number)):
-        grn_number = f"GRN-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
+        grn_number = f"GRN-{int(ist_now().timestamp()) % 100000 + 1}"
 
     status_val = body.status or "Done"
     now = naive_now()

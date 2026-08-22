@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+import time
 
 import bcrypt
 import jwt
@@ -21,7 +21,7 @@ def create_access_token(
     store_id: int | None = None,
     warehouse_id: int | None = None,
 ) -> str:
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRE_MINUTES)
+    expires_at = int(time.time()) + JWT_EXPIRE_MINUTES * 60
     payload: dict = {"sub": str(user_id), "role": role, "exp": expires_at}
     if store_id is not None:
         payload["store_id"] = store_id

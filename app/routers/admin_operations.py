@@ -336,7 +336,7 @@ def export_entity(
                     r[1],
                     r[2],
                     float(r[3] or 0),
-                    r[4].isoformat() if r[4] else "",
+                    format_ist_datetime(r[4]),
                 ]
 
     elif key == "customers":
@@ -362,7 +362,7 @@ def export_entity(
                     r[2],
                     r[3] or "",
                     r[4],
-                    r[5].isoformat() if r[5] else "",
+                    format_ist_datetime(r[5]),
                 ]
 
     else:  # inventory

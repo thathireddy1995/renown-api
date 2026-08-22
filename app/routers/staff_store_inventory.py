@@ -1,13 +1,12 @@
 """Staff store inventory — /staff/store/inventory."""
 
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.inventory_status import store_stock_status
+from app.core.ist import now as ist_now
 from app.database import get_db
 from app.deps import pagination, require_role, TokenPrincipal
 from app.routers.admin_warehouses import case_dot_color
@@ -216,9 +215,9 @@ def request_stock(
     if urgency not in ("Low", "Medium", "High"):
         urgency = "Medium"
 
-    num = f"REQ-{int(datetime.now(timezone.utc).timestamp()) % 100000}"
+    num = f"REQ-{int(ist_now().timestamp()) % 100000}"
     while db.scalar(select(TransferRequest.id).where(TransferRequest.request_number == num)):
-        num = f"REQ-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
+        num = f"REQ-{int(ist_now().timestamp()) % 100000 + 1}"
 
     row = TransferRequest(
         request_number=num,

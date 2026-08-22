@@ -7,7 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.ist import as_ist, now as ist_now
+from app.core.ist import IST_SQL_NOW, as_ist, now as ist_now
 from app.database import get_db
 from app.deps import get_current_staff, pagination, require_role
 from app.dto.coupons_dto import (
@@ -146,15 +146,15 @@ def list_coupons(
         if status_filter == "inactive":
             status_clause = Coupon.status == "inactive"
         elif status_filter == "scheduled":
-            status_clause = (Coupon.status != "inactive") & (Coupon.start_date > func.now())
+            status_clause = (Coupon.status != "inactive") & (Coupon.start_date > IST_SQL_NOW)
         elif status_filter == "active":
             status_clause = (
                 (Coupon.status != "inactive")
-                & (Coupon.start_date <= func.now())
-                & (Coupon.end_date >= func.now())
+                & (Coupon.start_date <= IST_SQL_NOW)
+                & (Coupon.end_date >= IST_SQL_NOW)
             )
         elif status_filter == "expired":
-            status_clause = (Coupon.status != "inactive") & (Coupon.end_date < func.now())
+            status_clause = (Coupon.status != "inactive") & (Coupon.end_date < IST_SQL_NOW)
         else:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

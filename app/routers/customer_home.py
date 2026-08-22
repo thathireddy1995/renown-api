@@ -114,8 +114,8 @@ _HOME_SQL = text(
             FROM offers o
             WHERE
                 o.status NOT IN ('inactive', 'deleted')
-                AND o.start_date <= now()
-                AND o.end_date >= now()
+                AND o.start_date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')
+                AND o.end_date >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')
                 AND (
                     (o.apply_on = 'PRODUCT' AND o.product_id = p.db_id)
                     OR (o.apply_on = 'BRAND' AND o.brand_id = p.brand_id)

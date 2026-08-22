@@ -10,7 +10,7 @@ Safe to re-run — matched by order_number.
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -18,6 +18,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import select
 
+from app.core.ist import naive_now
 from app.database import SessionLocal
 from app.schemas import ProductVariant, Store, StoreOrder, StoreOrderItem
 
@@ -65,7 +66,7 @@ def seed() -> None:
             channel,
         ) in ORDERS:
             store = stores.get(store_code) or next(iter(stores.values()))
-            created = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
+            created = naive_now() - timedelta(hours=hours_ago)
             subtotal = Decimal(str(round(total / 1.18)))
             tax = Decimal(str(total)) - subtotal
 

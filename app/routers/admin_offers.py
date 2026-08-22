@@ -8,7 +8,7 @@ from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.catalog_serialize import slugify
-from app.core.ist import as_ist, now as ist_now
+from app.core.ist import IST_SQL_NOW, as_ist, now as ist_now
 from app.database import get_db
 from app.deps import get_current_staff, pagination, require_role
 from app.dto.offers_dto import (
@@ -161,15 +161,15 @@ def list_offers(
         if status_filter == "inactive":
             status_clause = Offer.status == "inactive"
         elif status_filter == "scheduled":
-            status_clause = (Offer.status != "inactive") & (Offer.start_date > func.now())
+            status_clause = (Offer.status != "inactive") & (Offer.start_date > IST_SQL_NOW)
         elif status_filter == "active":
             status_clause = (
                 (Offer.status != "inactive")
-                & (Offer.start_date <= func.now())
-                & (Offer.end_date >= func.now())
+                & (Offer.start_date <= IST_SQL_NOW)
+                & (Offer.end_date >= IST_SQL_NOW)
             )
         elif status_filter == "expired":
-            status_clause = (Offer.status != "inactive") & (Offer.end_date < func.now())
+            status_clause = (Offer.status != "inactive") & (Offer.end_date < IST_SQL_NOW)
         else:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

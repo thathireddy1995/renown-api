@@ -13,10 +13,10 @@ from app.core.report_fmt import (
     delta_pct,
     inr,
     inr_lakhs,
+    ist_now,
     month_label,
     pct,
     start_of_day,
-    utcnow,
 )
 from app.core.store_orders import staff_order_row
 from app.database import get_db
@@ -68,7 +68,7 @@ def store_reports(
     principal: TokenPrincipal = Depends(require_role("store_manager")),
 ) -> StaffStoreReportsResponse:
     sid = _store_id(db, principal)
-    now = utcnow()
+    now = ist_now()
     today = start_of_day(now)
     month_start = today.replace(day=1)
     prev_month_end = month_start
@@ -208,7 +208,7 @@ def store_dashboard(
     principal: TokenPrincipal = Depends(require_role("store_manager")),
 ) -> StaffStoreDashboardResponse:
     sid = _store_id(db, principal)
-    now = utcnow()
+    now = ist_now()
     today = start_of_day(now)
     yesterday = today - timedelta(days=1)
     week_start = today - timedelta(days=6)
