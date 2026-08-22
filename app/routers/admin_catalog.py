@@ -146,6 +146,7 @@ def list_products(
                 Product.sku.ilike(like),
                 Product.slug.ilike(like),
                 Product.product_id.ilike(like),
+                Product.description.ilike(like),
             )
         )
 
@@ -166,7 +167,7 @@ def list_products(
                 public_id=str(row[0].id),
                 include_cost=True,
                 include_variants=False,
-                include_description=False,
+                include_description=True,
                 list_image=row.list_image or "",
                 list_stock=int(row.list_stock or 0),
             )

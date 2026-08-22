@@ -177,6 +177,24 @@ _HOME_SQL = text(
                 WHERE is_active IS TRUE
             ) b
         ),
+        'mobile_banners', (
+            SELECT coalesce(json_agg(m ORDER BY m.sort_order, m.id), '[]'::json)
+            FROM (
+                SELECT
+                    id,
+                    title,
+                    subtitle,
+                    media_url,
+                    media_type,
+                    media_alt,
+                    cta_label,
+                    category,
+                    sort_order,
+                    is_active
+                FROM mobile_banners
+                WHERE is_active IS TRUE
+            ) m
+        ),
         'categories', (
             SELECT coalesce(
                 json_agg(

@@ -136,6 +136,42 @@ class HomeBanner(Base):
     )
 
 
+class MobileBanner(Base):
+    __tablename__ = "mobile_banners"
+    __table_args__ = (
+        CheckConstraint("sort_order >= 0", name="mobile_banners_sort_order_nonnegative"),
+        CheckConstraint(
+            "media_type IN ('image', 'gif', 'video')",
+            name="mobile_banners_media_type_check",
+        ),
+        Index("ix_mobile_banners_active_order", "is_active", "sort_order"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    subtitle: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    media_url: Mapped[str] = mapped_column(Text, nullable=False)
+    media_key: Mapped[str] = mapped_column(String(500), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(20), nullable=False, default="image")
+    media_alt: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    cta_label: Mapped[str] = mapped_column(String(60), nullable=False, default="Shop Now")
+    category: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Product(Base):
     __tablename__ = "products"
     __table_args__ = (

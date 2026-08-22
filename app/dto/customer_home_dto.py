@@ -17,6 +17,19 @@ class HomeBannerCard(BaseModel):
     is_active: bool = True
 
 
+class MobileBannerCard(BaseModel):
+    id: int
+    title: str
+    subtitle: str = ""
+    media_url: str
+    media_type: str = "image"
+    media_alt: str = ""
+    cta_label: str = "Shop Now"
+    category: str | None = None
+    sort_order: int = 0
+    is_active: bool = True
+
+
 class HomeCategoryTile(BaseModel):
     id: int
     slug: str
@@ -37,6 +50,7 @@ class HomeProductCard(BaseModel):
 
 class CustomerHomeResponse(BaseModel):
     banners: list[HomeBannerCard] = Field(default_factory=list)
+    mobile_banners: list[MobileBannerCard] = Field(default_factory=list)
     categories: list[HomeCategoryTile] = Field(default_factory=list)
     products: list[HomeProductCard] = Field(default_factory=list)
     featured: list[str] = Field(default_factory=list)

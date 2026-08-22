@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, load_only, selectinload
 
 from app.core.catalog_lookups import brand_id_for, category_id_for
 from app.core.catalog_serialize import product_cards_out, product_out
-from app.core.offer_pricing import offer_prices_for
+from app.core.offer_pricing import _gender_key, offer_prices_for
 from app.core.review_aggregates import review_aggregates_for
 from app.database import get_db
 from app.deps import pagination
@@ -59,6 +59,7 @@ def list_products(
     brand_id: int | None = None,
     category: str | None = None,
     category_id: int | None = None,
+    gender: str | None = None,
     min_price: Decimal | None = Query(None),
     max_price: Decimal | None = Query(None),
     search: str | None = Query(None, alias="q"),
@@ -79,6 +80,19 @@ def list_products(
     if resolved_category is not None:
         stmt = stmt.where(Product.category_id == resolved_category)
         count_stmt = count_stmt.where(Product.category_id == resolved_category)
+
+    requested_gender = _gender_key(gender)
+    if requested_gender:
+        if requested_gender == "KIDS":
+            gender_match = func.upper(func.trim(func.coalesce(Product.gender, ""))) == "KIDS"
+        elif requested_gender in {"MALE", "FEMALE"}:
+            gender_match = func.upper(func.trim(func.coalesce(Product.gender, ""))).in_(
+                (requested_gender, "UNISEX", "MEN" if requested_gender == "MALE" else "WOMEN")
+            )
+        else:
+            gender_match = func.upper(func.trim(func.coalesce(Product.gender, ""))) == requested_gender
+        stmt = stmt.where(gender_match)
+        count_stmt = count_stmt.where(gender_match)
 
     if min_price is not None:
         stmt = stmt.where(Product.selling_price >= min_price)

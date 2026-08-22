@@ -37,6 +37,7 @@ from app.routers import (
     customer_reviews,
     customer_wishlist,
     home_banners,
+    mobile_banners,
     public_invoice,
     staff_auth,
     staff_store_appointments,
@@ -122,6 +123,7 @@ app.include_router(admin_transfer_requests.router)
 app.include_router(admin_stock_allocation.router)
 app.include_router(admin_store_orders.router)
 app.include_router(home_banners.admin_router)
+app.include_router(mobile_banners.admin_router)
 app.include_router(customer_home.router)
 app.include_router(customer_products.router)
 app.include_router(customer_reviews.router)
@@ -134,6 +136,7 @@ app.include_router(customer_addresses.router)
 app.include_router(customer_orders.router)
 app.include_router(customer_payments.router)
 app.include_router(home_banners.customer_router)
+app.include_router(mobile_banners.customer_router)
 app.include_router(public_invoice.router)
 
 
