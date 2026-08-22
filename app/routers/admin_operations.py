@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from app.core.ist import format_ist_datetime, naive_now
 from app.core.catalog_lookups import brand_id_for, category_id_for
 from app.core.catalog_serialize import slugify
 from app.core.deps import TokenPrincipal, require_role
@@ -61,7 +62,7 @@ def _job_out(row: ImportJob) -> ImportJobOut:
         rows=row.row_count,
         status=STATUS_UI.get(row.status, row.status.title()),
         by=row.created_by or "Admin",
-        date=(row.created_at or datetime.now(timezone.utc)).strftime("%Y-%m-%d %H:%M"),
+        date=format_ist_datetime(row.created_at) or format_ist_datetime(naive_now()),
     )
 
 
@@ -154,7 +155,7 @@ def bulk_upload(
 
     if not valid_rows:
         job.status = "failed"
-        job.completed_at = datetime.now(timezone.utc)
+        job.completed_at = naive_now()
         db.commit()
         return BulkUploadResponse(
             job_id=f"im-{job.id}",
@@ -255,7 +256,7 @@ def bulk_upload(
     job.row_count = imported
     job.error_count = error_count
     job.status = "completed" if imported else "failed"
-    job.completed_at = datetime.now(timezone.utc)
+    job.completed_at = naive_now()
     try:
         db.commit()
     except Exception:

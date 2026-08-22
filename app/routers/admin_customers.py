@@ -5,6 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.admin_order_status import admin_status_label
+from app.core.ist import format_ist_date, format_ist_datetime
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.dto.admin_dto import (
@@ -43,7 +44,11 @@ def _customer_out(
 ) -> AdminCustomerOut:
     last = ""
     if last_order is not None:
-        last = last_order.strftime("%Y-%m-%d") if hasattr(last_order, "strftime") else str(last_order)[:10]
+        last = (
+            format_ist_date(last_order)
+            if hasattr(last_order, "strftime")
+            else str(last_order)[:10]
+        )
     return AdminCustomerOut(
         id=f"C-{customer_id:03d}" if customer_id < 1000 else f"C-{customer_id}",
         name=name
@@ -177,7 +182,7 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)) -> AdminCustom
         AdminOrderOut(
             id=o.order_number,
             customer=base.name,
-            date=o.created_at.strftime("%Y-%m-%d") if o.created_at else "",
+            date=format_ist_datetime(o.created_at),
             items=len(o.items or []),
             status=admin_status_label(o.status),
             total=float(o.total or 0),
@@ -189,6 +194,6 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)) -> AdminCustom
         **base.model_dump(),
         phone=customer.phone,
         is_active=customer.is_active,
-        created_at=customer.created_at.strftime("%Y-%m-%d") if customer.created_at else "",
+        created_at=format_ist_date(customer.created_at),
         recent_orders=recent_orders,
     )

@@ -1,13 +1,14 @@
 """Quote and redeem checkout coupons against the current cart."""
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.ist import as_ist, now as ist_now
 from app.core.offer_pricing import _gender_key
 from app.schemas import CartItem, Coupon, CouponRedemption, Product
 
@@ -22,16 +23,14 @@ class CouponQuote:
 
 
 def _aware(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
+    return as_ist(dt)
 
 
 def _status_for_dates(start_date: datetime, end_date: datetime) -> str:
-    now = datetime.now(timezone.utc)
-    if now < _aware(start_date):
+    current = ist_now()
+    if current < _aware(start_date):
         return "scheduled"
-    if now > _aware(end_date):
+    if current > _aware(end_date):
         return "expired"
     return "active"
 

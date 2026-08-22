@@ -105,6 +105,7 @@ Resources:
           JWT_SECRET: !Ref JwtSecret
           JWT_EXPIRE_MINUTES: !Ref JwtExpireMinutes
           ENVIRONMENT: !Ref EnvironmentName
+          TZ: Asia/Kolkata
           RAZORPAY_KEY_ID: !Ref RazorpayKeyId
           RAZORPAY_KEY_SECRET: !Ref RazorpayKeySecret
           CORS_ORIGIN_REGEX: !Ref CorsOriginRegex

@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.ist import as_ist, format_ist_date, now as ist_now
 from app.schemas import (
     ProductVariant,
     StockTransfer,
@@ -151,7 +152,7 @@ def admin_transfer_row(t: StockTransfer) -> dict:
         "qty": qty,
         "status": admin_status_label(t.status),
         "eta": t.eta.isoformat() if t.eta else "—",
-        "created": t.created_at.strftime("%Y-%m-%d") if t.created_at else "",
+        "created": format_ist_date(t.created_at),
     }
 
 
@@ -182,10 +183,8 @@ def staff_transfer_row(
 def _relative_day(when: datetime | None) -> str:
     if when is None:
         return "—"
-    now = datetime.now(timezone.utc)
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
-    days = (now.date() - when.date()).days
+    local = as_ist(when)
+    days = (ist_now().date() - local.date()).days
     if days == 0:
         return "Today"
     if days == 1:

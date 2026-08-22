@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import JWT_SECRET
+from app.core.ist import naive_now
 from app.schemas import WebAnalyticsEvent
 
 _EVENT_NAME = re.compile(r"^[a-z0-9_]{1,40}$")
@@ -148,7 +149,7 @@ def sanitize_referrer(referrer: str | None, host: str | None) -> str | None:
 
 
 def session_id_for(db: Session, visitor: str) -> str:
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=30)
+    cutoff = naive_now() - timedelta(minutes=30)
     previous = db.scalar(
         select(WebAnalyticsEvent.session_id)
         .where(

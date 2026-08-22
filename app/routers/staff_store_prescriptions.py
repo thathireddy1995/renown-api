@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.ist import today as ist_today
 from app.core.clinical import (
     default_store,
     find_doctor_by_name,
@@ -133,7 +134,7 @@ def create_prescription(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="Invalid date") from exc
     else:
-        recorded = datetime.utcnow().date()
+        recorded = ist_today()
 
     row = Prescription(
         customer_id=customer.id,

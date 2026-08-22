@@ -7,6 +7,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.deps import TokenPrincipal, require_role
+from app.core.ist import as_ist, naive_now, today as ist_today
 from app.database import get_db
 from app.deps import pagination
 from app.dto.operations_dto import (
@@ -66,9 +67,8 @@ def _date_label(row: InventoryAudit) -> str:
     when = row.completed_at or row.created_at
     if when is None:
         return "—"
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
-    today = datetime.now(timezone.utc).date()
+    when = as_ist(when)
+    today = ist_today()
     d = when.date()
     if d == today:
         return "Today"
@@ -230,7 +230,7 @@ def patch_audit_status(
     new_status = _normalize_status(body.status)
     audit.status = new_status
     if new_status == "completed":
-        audit.completed_at = datetime.now(timezone.utc)
+        audit.completed_at = naive_now()
     try:
         db.commit()
     except Exception:

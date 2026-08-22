@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from app.core.catalog_serialize import slugify
+from app.core.ist import format_ist_date
 
 
 def status_label(status: str | None) -> str:
@@ -36,7 +37,7 @@ def type_store(value: str | None) -> str:
 def format_updated(dt: datetime | None) -> str:
     if not dt:
         return ""
-    return dt.strftime("%Y-%m-%d")
+    return format_ist_date(dt)
 
 
 def public_id(row_id: int, prefix: str = "") -> str:

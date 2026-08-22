@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.ist import as_ist, today as ist_today
 from app.core.inventory_status import warehouse_stock_status
 from app.core.security import hash_password
 from app.database import get_db
@@ -593,9 +594,8 @@ def _audit_date_label(row: InventoryAudit) -> str:
     when = row.completed_at or row.created_at
     if when is None:
         return "—"
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
-    today = datetime.now(timezone.utc).date()
+    when = as_ist(when)
+    today = ist_today()
     d = when.date()
     if d == today:
         return "Today"

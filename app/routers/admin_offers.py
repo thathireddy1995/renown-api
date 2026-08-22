@@ -1,6 +1,6 @@
 """Admin offers CRUD endpoints under /admin/offers."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
@@ -8,6 +8,7 @@ from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.catalog_serialize import slugify
+from app.core.ist import as_ist, now as ist_now
 from app.database import get_db
 from app.deps import get_current_staff, pagination, require_role
 from app.dto.offers_dto import (
@@ -53,11 +54,13 @@ def _determine_offer_status(offer: Offer) -> str:
     if offer.status == "deleted":
         return "deleted"
     
-    now = datetime.now(timezone.utc)
-    
-    if now < offer.start_date:
+    current = ist_now()
+    start = as_ist(offer.start_date)
+    end = as_ist(offer.end_date)
+
+    if current < start:
         return "scheduled"
-    elif now > offer.end_date:
+    elif current > end:
         return "expired"
     else:
         return "active"
@@ -95,10 +98,10 @@ def _offer_out(offer: Offer) -> OfferOut:
 
 
 def _status_for_dates(start_date: datetime, end_date: datetime) -> str:
-    now = datetime.now(timezone.utc)
-    if now < start_date:
+    current = ist_now()
+    if current < as_ist(start_date):
         return "scheduled"
-    if now > end_date:
+    if current > as_ist(end_date):
         return "expired"
     return "active"
 

@@ -40,7 +40,7 @@ _STATS_SQL = text(
             orders
         FROM (
             SELECT
-                date_trunc('day', created_at AT TIME ZONE 'Asia/Kolkata')::date AS day,
+                date_trunc('day', created_at)::date AS day,
                 count(DISTINCT visitor_hash) AS visitors,
                 count(*) FILTER (WHERE event_name = 'pageview') AS pageviews,
                 count(DISTINCT visitor_hash) FILTER (WHERE event_name = 'add_to_cart') AS carts,

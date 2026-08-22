@@ -1,12 +1,13 @@
 """Admin coupons CRUD under /admin/coupons."""
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.ist import as_ist, now as ist_now
 from app.database import get_db
 from app.deps import get_current_staff, pagination, require_role
 from app.dto.coupons_dto import (
@@ -33,12 +34,12 @@ def _load_coupon(db: Session, coupon_id: int) -> Coupon | None:
 
 
 def _status_for_dates(start_date: datetime, end_date: datetime) -> str:
-    now = datetime.now(timezone.utc)
-    start = start_date if start_date.tzinfo else start_date.replace(tzinfo=timezone.utc)
-    end = end_date if end_date.tzinfo else end_date.replace(tzinfo=timezone.utc)
-    if now < start:
+    current = ist_now()
+    start = as_ist(start_date)
+    end = as_ist(end_date)
+    if current < start:
         return "scheduled"
-    if now > end:
+    if current > end:
         return "expired"
     return "active"
 

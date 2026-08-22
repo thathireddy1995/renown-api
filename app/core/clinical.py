@@ -7,6 +7,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.ist import as_ist, today as ist_today
 from app.schemas import Appointment, Customer, Doctor, Prescription, Store
 
 TYPE_LABEL = {
@@ -57,10 +58,8 @@ def doctor_out(row: Doctor) -> dict:
 
 
 def format_slot(dt: datetime) -> str:
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    local = dt.astimezone()
-    today = datetime.now(local.tzinfo).date()
+    local = as_ist(dt)
+    today = ist_today()
     d = local.date()
     t = local.strftime("%H:%M")
     if d == today:
@@ -76,9 +75,7 @@ def customer_appointment_row(row: Appointment) -> dict:
     )
     doctor_name = row.doctor.name if row.doctor else "—"
     scheduled = row.scheduled_at
-    if scheduled.tzinfo is None:
-        scheduled = scheduled.replace(tzinfo=timezone.utc)
-    local = scheduled.astimezone()
+    local = as_ist(scheduled)
     return {
         "id": f"apt-{row.id}",
         "store": store_name,
@@ -170,12 +167,11 @@ def parse_doctor_id(raw: int | str) -> int | None:
 
 
 def parse_slot(date_str: str, time_str: str) -> datetime:
-    """Parse UI date (YYYY-MM-DD) + time like '10:00 AM' into UTC-aware datetime."""
+    """Parse UI date (YYYY-MM-DD) + time like '10:00 AM' as IST wall-clock."""
     cleaned = time_str.strip().upper().replace(".", "")
     for fmt in ("%Y-%m-%d %I:%M %p", "%Y-%m-%d %H:%M"):
         try:
-            naive = datetime.strptime(f"{date_str} {cleaned}", fmt)
-            return naive.replace(tzinfo=timezone.utc)
+            return datetime.strptime(f"{date_str} {cleaned}", fmt)
         except ValueError:
             continue
     raise ValueError(f"Invalid date/time: {date_str} {time_str}")

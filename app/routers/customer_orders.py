@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.ist import format_ist_datetime
 from app.core.order_service import (
     create_order_record,
     load_cart_lines,
@@ -187,7 +188,7 @@ def _order_out(order: Order, db: Session | None = None) -> OrderOut:
     address = _address_out(order.address) if order.address else None
     return OrderOut(
         id=order.order_number,
-        date=order.created_at.strftime("%Y-%m-%d") if order.created_at else "",
+        date=format_ist_datetime(order.created_at),
         status=_status_label(order.status),
         total=float(order.total or 0),
         subtotal=float(order.subtotal or 0),

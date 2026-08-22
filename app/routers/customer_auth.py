@@ -1,12 +1,13 @@
 import logging
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.ist import naive_now
 from app.core.config import (
     IS_PRODUCTION,
     OTP_EXPIRY_MINUTES,
@@ -51,7 +52,7 @@ def _normalize_phone(raw: str) -> str:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return naive_now()
 
 
 def _token_response(customer: Customer) -> CustomerTokenResponse:

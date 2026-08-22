@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.ist import format_ist_date
 from app.database import get_db
 from app.schemas import Order, OrderItem
 
@@ -106,7 +107,7 @@ def verify_invoice(
 
     return PublicInvoiceResponse(
         order_number=order.order_number,
-        date=order.created_at.strftime("%Y-%m-%d") if order.created_at else "",
+        date=format_ist_date(order.created_at),
         status=(order.status or "").title(),
         delivery=(order.delivery or "ship"),
         payment_method=order.payment_method or "",

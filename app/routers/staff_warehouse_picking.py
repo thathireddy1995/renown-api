@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.ist import now as ist_now
 from app.database import get_db
 from app.deps import get_current_warehouse_staff, pagination, require_role
 from app.dto.staff_dto import (
@@ -95,7 +96,7 @@ def release_wave(
         ts += 1
         list_number = f"PL-{ts}"
 
-    wave = (body.wave or "").strip() or f"Wave {datetime.now(timezone.utc).strftime('%H:%M')}"
+    wave = (body.wave or "").strip() or f"Wave {ist_now().strftime('%H:%M')}"
     status_val = (body.status or "Pending").strip().title()
     if status_val not in ("Pending", "Processing", "Done", "Cancelled"):
         status_val = "Pending"

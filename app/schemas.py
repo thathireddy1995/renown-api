@@ -6,7 +6,6 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Date,
-    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -18,6 +17,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+from app.core.ist import ISTDateTime
 
 
 class Base(DeclarativeBase):
@@ -56,10 +57,10 @@ class User(Base):
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -78,10 +79,10 @@ class Customer(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -95,11 +96,11 @@ class OtpCode(Base):
     phone: Mapped[str] = mapped_column(String(20), nullable=False)
     code: Mapped[str] = mapped_column(String(6), nullable=False)
     purpose: Mapped[str] = mapped_column(String(20), nullable=False, default="login")
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(ISTDateTime(), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(ISTDateTime(), nullable=True)
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
 
@@ -129,10 +130,10 @@ class HomeBanner(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -165,10 +166,10 @@ class MobileBanner(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -208,10 +209,10 @@ class Product(Base):
     is_trending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
     brand: Mapped["Brand | None"] = relationship()
@@ -255,10 +256,10 @@ class ProductVariant(Base):
     # product's shared image gallery.
     images: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
     product: Mapped["Product"] = relationship(back_populates="variants")
@@ -303,10 +304,10 @@ class ProductReview(Base):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="approved")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
     customer: Mapped["Customer"] = relationship()
@@ -340,10 +341,10 @@ class Category(Base):
     slug: Mapped[str] = mapped_column(String(140), nullable=False, unique=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -361,10 +362,10 @@ class Brand(Base):
     slug: Mapped[str] = mapped_column(String(140), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -377,10 +378,10 @@ class Collection(Base):
     slug: Mapped[str] = mapped_column(String(140), nullable=False, unique=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -394,7 +395,7 @@ class Attribute(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
     type: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     values: Mapped[list["AttributeValue"]] = relationship(
@@ -414,7 +415,7 @@ class AttributeValue(Base):
     )
     value: Mapped[str] = mapped_column(String(120), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     attribute: Mapped["Attribute"] = relationship(back_populates="values")
@@ -428,10 +429,10 @@ class LensType(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -442,10 +443,10 @@ class FrameType(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -456,10 +457,10 @@ class Color(Base):
     name: Mapped[str] = mapped_column(String(80), nullable=False, unique=True)
     hex: Mapped[str] = mapped_column(String(7), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -471,10 +472,10 @@ class Size(Base):
     code: Mapped[str] = mapped_column(String(10), nullable=False, unique=True)
     measurement: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -498,10 +499,10 @@ class CartItem(Base):
     qty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     saved_for_later: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
     product: Mapped["Product"] = relationship()
@@ -520,7 +521,7 @@ class WishlistItem(Base):
         ForeignKey("products.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     product: Mapped["Product"] = relationship()
@@ -538,7 +539,7 @@ class CompareItem(Base):
         ForeignKey("products.id", ondelete="CASCADE"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     product: Mapped["Product"] = relationship()
@@ -562,10 +563,10 @@ class Address(Base):
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -608,10 +609,10 @@ class Order(Base):
     tracking_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     verify_token: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
     items: Mapped[list["OrderItem"]] = relationship(
@@ -664,10 +665,10 @@ class Warehouse(Base):
     # Admin-visible staff portal password (users.password_hash is still used for login)
     login_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -695,10 +696,10 @@ class Store(Base):
     )
     today_orders: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
 
@@ -721,7 +722,7 @@ class WarehouseInventory(Base):
     reserved: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     reorder_point: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
     warehouse: Mapped["Warehouse"] = relationship()
@@ -748,7 +749,7 @@ class StoreInventory(Base):
     reserved: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     reorder_point: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
     store: Mapped["Store"] = relationship()
@@ -767,7 +768,7 @@ class Supplier(Base):
     lead_time_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="Active")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
 
@@ -785,7 +786,7 @@ class PurchaseOrder(Base):
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="Open")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     supplier: Mapped["Supplier"] = relationship()
@@ -809,10 +810,10 @@ class Grn(Base):
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="Pending")
     received_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        ISTDateTime(), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     purchase_order: Mapped["PurchaseOrder"] = relationship()
@@ -859,7 +860,7 @@ class PickList(Base):
     picker_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="Pending")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     warehouse: Mapped["Warehouse"] = relationship()
@@ -909,7 +910,7 @@ class DispatchOrder(Base):
     awb: Mapped[str | None] = mapped_column(String(80), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="Pending")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     warehouse: Mapped["Warehouse"] = relationship()
@@ -955,7 +956,7 @@ class Pack(Base):
     weight: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="Pending")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     dispatch_order: Mapped["DispatchOrder | None"] = relationship()
@@ -985,10 +986,10 @@ class StockTransfer(Base):
     requested_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
     eta: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
     from_warehouse: Mapped["Warehouse"] = relationship(
@@ -1054,10 +1055,10 @@ class TransferRequest(Base):
         ForeignKey("stock_transfers.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
     store: Mapped["Store | None"] = relationship(foreign_keys=[store_id])
@@ -1096,7 +1097,7 @@ class StockAllocation(Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
     picker_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     order: Mapped["Order | None"] = relationship()
@@ -1127,7 +1128,7 @@ class StoreOrder(Base):
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="Completed")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     store: Mapped["Store"] = relationship()
@@ -1170,7 +1171,7 @@ class Doctor(Base):
         ForeignKey("stores.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     store: Mapped["Store | None"] = relationship()
@@ -1208,15 +1209,15 @@ class Appointment(Base):
         String(30), nullable=False, default="eye_test"
     )
     scheduled_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+        ISTDateTime(), nullable=False
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="booked")
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
     customer: Mapped["Customer | None"] = relationship()
@@ -1245,7 +1246,7 @@ class Prescription(Base):
     pd: Mapped[str | None] = mapped_column(String(20), nullable=True)
     recorded_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     customer: Mapped["Customer"] = relationship()
@@ -1279,10 +1280,10 @@ class Employee(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     mtd_sales: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
     store: Mapped["Store | None"] = relationship()
@@ -1308,10 +1309,10 @@ class ImportJob(Base):
     error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        ISTDateTime(), nullable=True
     )
 
 
@@ -1335,10 +1336,10 @@ class InventoryAudit(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled")
     auditor_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        ISTDateTime(), nullable=True
     )
 
     warehouse: Mapped["Warehouse"] = relationship()
@@ -1423,8 +1424,8 @@ class Offer(Base):
     gender: Mapped[str | None] = mapped_column(String(20), nullable=True)  # 'MALE', 'FEMALE', 'UNISEX'
 
     # Scheduling
-    start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    start_date: Mapped[datetime] = mapped_column(ISTDateTime(), nullable=False)
+    end_date: Mapped[datetime] = mapped_column(ISTDateTime(), nullable=False)
 
     # Priority for multi-offer scenarios
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -1434,10 +1435,10 @@ class Offer(Base):
 
     # Audit fields
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
     created_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
@@ -1498,8 +1499,8 @@ class Coupon(Base):
     )
     gender: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
-    start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    start_date: Mapped[datetime] = mapped_column(ISTDateTime(), nullable=False)
+    end_date: Mapped[datetime] = mapped_column(ISTDateTime(), nullable=False)
 
     usage_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     per_customer_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -1508,10 +1509,10 @@ class Coupon(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="scheduled")
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
     created_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
@@ -1546,7 +1547,7 @@ class CouponRedemption(Base):
     )
     discount_amount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )
 
     coupon: Mapped["Coupon"] = relationship(back_populates="redemptions")
@@ -1582,5 +1583,5 @@ class WebAnalyticsEvent(Base):
     device: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        ISTDateTime(), server_default=func.now()
     )

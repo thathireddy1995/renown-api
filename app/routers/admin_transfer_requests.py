@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.ist import format_ist_date
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.dto.admin_dto import (
@@ -40,7 +41,7 @@ def _req_out(r: TransferRequest) -> AdminTransferRequestOut:
         sku=r.variant.sku if r.variant else "",
         qty=r.qty_requested,
         urgency=r.urgency or "Medium",
-        date=r.created_at.strftime("%Y-%m-%d") if r.created_at else "",
+        date=format_ist_date(r.created_at),
         status=STATUS_LABEL.get((r.status or "").lower(), r.status.title()),
     )
 

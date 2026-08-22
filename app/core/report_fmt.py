@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from decimal import Decimal
+
+from app.core.ist import now, start_of_day as ist_start_of_day
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return now()
 
 
 def start_of_day(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return ist_start_of_day(dt)
 
 
 def inr(amount: Decimal | float | int | None) -> str:

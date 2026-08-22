@@ -1,6 +1,6 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import DATABASE_URL
@@ -21,9 +21,20 @@ engine = create_engine(
     max_overflow=0,
     pool_pre_ping=True,
     pool_recycle=280,
+    connect_args={"options": "-c timezone=Asia/Kolkata"},
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def _set_ist_timezone(dbapi_connection, *_args) -> None:
+    cursor = dbapi_connection.cursor()
+    cursor.execute("SET TIME ZONE 'Asia/Kolkata'")
+    cursor.close()
+
+
+event.listen(engine, "connect", _set_ist_timezone)
+event.listen(engine, "checkout", _set_ist_timezone)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -31,6 +42,7 @@ def get_db() -> Generator[Session, None, None]:
     connection or create a new engine inline (api_rules.txt §6)."""
     db = SessionLocal()
     try:
+        db.execute(text("SET TIME ZONE 'Asia/Kolkata'"))
         yield db
     finally:
         db.close()

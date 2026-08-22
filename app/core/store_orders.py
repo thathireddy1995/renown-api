@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
+from app.core.ist import as_ist, format_ist_datetime, now as ist_now
 from app.schemas import Store, StoreOrder, StoreOrderItem
 
 CHANNEL_ADMIN_TYPE = {
@@ -153,7 +154,7 @@ def admin_order_row(o: StoreOrder) -> dict:
             (o.payment_method or "").lower(), (o.payment_method or "").title()
         ),
         "associate": o.associate_name or "—",
-        "time": o.created_at.strftime("%Y-%m-%d %H:%M") if o.created_at else "",
+        "time": format_ist_datetime(o.created_at),
         "status": o.status,
         "type": CHANNEL_ADMIN_TYPE.get(o.channel, "POS"),
     }
@@ -179,12 +180,10 @@ def staff_order_row(o: StoreOrder) -> dict:
 def _relative(when: datetime | None) -> str:
     if when is None:
         return "—"
-    now = datetime.now(timezone.utc)
-    if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
-    days = (now.date() - when.date()).days
+    local = as_ist(when)
+    days = (ist_now().date() - local.date()).days
     if days == 0:
-        return f"Today {when.strftime('%H:%M')}"
+        return f"Today {local.strftime('%H:%M')}"
     if days == 1:
         return "Yesterday"
     return f"{days}d ago"

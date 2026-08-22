@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.ist import naive_now
 from app.core.relative_time import relative_received_label
 from app.database import get_db
 from app.deps import get_current_warehouse_staff, pagination, require_role
@@ -205,7 +206,7 @@ def create_grn(
         grn_number = f"GRN-{int(datetime.now(timezone.utc).timestamp()) % 100000 + 1}"
 
     status_val = body.status or "Done"
-    now = datetime.now(timezone.utc)
+    now = naive_now()
     grn = Grn(
         grn_number=grn_number,
         purchase_order_id=po.id,
@@ -276,7 +277,7 @@ def patch_grn_status(
 
     grn.status = raw
     if raw == "Done" and grn.received_at is None:
-        grn.received_at = datetime.now(timezone.utc)
+        grn.received_at = naive_now()
         if grn.purchase_order:
             grn.purchase_order.status = "Received"
     elif raw != "Done":

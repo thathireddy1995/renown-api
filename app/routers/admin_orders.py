@@ -1,12 +1,13 @@
 """Admin orders — /admin/orders."""
 
-from datetime import date, datetime, time, timezone
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.admin_order_status import STATUS_LABEL, admin_status_label
+from app.core.ist import end_of_day, format_ist_datetime, start_of_day
 from app.core.product_resolve import public_product_id
 from app.database import get_db
 from app.deps import pagination, require_role
@@ -60,21 +61,13 @@ def _normalize_status(value: str) -> str:
     )
 
 
-def _parse_day_start(value: date) -> datetime:
-    return datetime.combine(value, time.min, tzinfo=timezone.utc)
-
-
-def _parse_day_end(value: date) -> datetime:
-    return datetime.combine(value, time.max, tzinfo=timezone.utc)
-
-
 def _order_list_row(
     order: Order, customer_name: str | None, items: int
 ) -> AdminOrderOut:
     return AdminOrderOut(
         id=order.order_number,
         customer=customer_name or f"Customer #{order.customer_id}",
-        date=order.created_at.strftime("%Y-%m-%d") if order.created_at else "",
+        date=format_ist_datetime(order.created_at),
         items=int(items or 0),
         status=_label(order.status),
         total=float(order.total or 0),
@@ -147,10 +140,10 @@ def list_orders(
         stmt = stmt.where(Order.status.in_(statuses))
 
     if date_from is not None:
-        stmt = stmt.where(Order.created_at >= _parse_day_start(date_from))
+        stmt = stmt.where(Order.created_at >= start_of_day(date_from))
 
     if date_to is not None:
-        stmt = stmt.where(Order.created_at <= _parse_day_end(date_to))
+        stmt = stmt.where(Order.created_at <= end_of_day(date_to))
 
     if search and search.strip():
         like = f"%{search.strip()}%"

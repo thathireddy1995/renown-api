@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.ist import format_ist_datetime
 from app.core.stock_transfers import reserve_allocation_stock
 from app.database import get_db
 from app.deps import pagination, require_role
@@ -44,7 +45,7 @@ def _alloc_out(a: StockAllocation) -> AdminStockAllocationOut:
         qty=a.qty,
         warehouse=a.warehouse.name if a.warehouse else "",
         picker=a.picker_name or "—",
-        created=a.created_at.strftime("%Y-%m-%d %H:%M") if a.created_at else "",
+        created=format_ist_datetime(a.created_at),
         status=_label(a.status),
     )
 

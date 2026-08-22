@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import cast, Date, func, select
 from sqlalchemy.orm import Session
 
+from app.core.ist import today as ist_today
 from app.core.store_orders import admin_order_row, list_store_orders_query
 from app.database import get_db
 from app.deps import pagination, require_role
@@ -24,7 +25,7 @@ router = APIRouter(prefix="/admin/store-orders", tags=["admin-store-orders"], de
 
 @router.get("/analytics", response_model=StoreAnalyticsResponse)
 def store_analytics(db: Session = Depends(get_db)) -> StoreAnalyticsResponse:
-    today = datetime.now(timezone.utc).date()
+    today = ist_today()
     start = today - timedelta(days=13)
 
     # Today's KPIs from store_orders + open store staff counts
