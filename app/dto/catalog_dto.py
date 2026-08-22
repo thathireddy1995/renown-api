@@ -3,6 +3,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.s3_images import is_view_360_key, public_url_for
+
 
 def _blank_to_none(value: str | None) -> str | None:
     if value is None:
@@ -22,6 +24,20 @@ def _stored_image_url(value: str) -> str:
 
 def _stored_image_urls(values: list[str]) -> list[str]:
     return [_stored_image_url(value) for value in values]
+
+
+def _normalize_view_360(url: str | None, key: str | None) -> tuple[str | None, str | None]:
+    url = (url or "").strip() or None
+    key = (key or "").strip() or None
+    if url is None and key is None:
+        return None, None
+    if url is None or key is None:
+        raise ValueError("360 view URL and storage key must be set together.")
+    if not is_view_360_key(key):
+        raise ValueError("360 view must be stored under catalog/products/…/360/ as an MP4.")
+    if url != public_url_for(key):
+        raise ValueError("360 view URL does not match its S3 object key.")
+    return url, key
 
 
 class ProductImageOut(BaseModel):
@@ -167,6 +183,10 @@ class ProductOut(BaseModel):
     status: str = "draft"
     image: str = ""
     images: list[str] = Field(default_factory=list)
+    view_360_url: str | None = None
+    view360Url: str | None = None
+    view_360_key: str | None = None
+    view360Key: str | None = None
     variants: list[ProductVariantOut] = Field(default_factory=list)
     stock: int = 0
     inStock: bool = False
@@ -209,6 +229,8 @@ class ProductCreate(BaseModel):
     is_trending: bool = False
     status: str = "draft"
     images: list[ProductImageCreate] = Field(default_factory=list)
+    view_360_url: str | None = None
+    view_360_key: str | None = None
     variants: list[ProductVariantCreate] = Field(default_factory=list)
 
     @field_validator("product_id", mode="before")
@@ -232,6 +254,9 @@ class ProductCreate(BaseModel):
         self.selling_price = selling_price
         self.mrp = mrp
         self.compare_at_price = mrp
+        self.view_360_url, self.view_360_key = _normalize_view_360(
+            self.view_360_url, self.view_360_key
+        )
         return self
 
 
@@ -261,6 +286,8 @@ class ProductUpdate(BaseModel):
     is_trending: bool | None = None
     status: str | None = None
     images: list[ProductImageCreate] | None = None
+    view_360_url: str | None = None
+    view_360_key: str | None = None
 
     @field_validator("product_id", mode="before")
     @classmethod
@@ -283,6 +310,20 @@ class ProductUpdate(BaseModel):
         if self.mrp is not None or self.compare_at_price is not None:
             self.mrp = mrp
             self.compare_at_price = mrp
+        view_fields = {"view_360_url", "view_360_key"} & self.model_fields_set
+        if view_fields:
+            if len(view_fields) == 1:
+                provided = next(iter(view_fields))
+                if getattr(self, provided) is not None:
+                    raise ValueError("360 view URL and storage key must be set together.")
+                # Explicitly clearing either half clears the pair so the DB can
+                # never retain a stale URL or storage key.
+                self.view_360_url = None
+                self.view_360_key = None
+            else:
+                self.view_360_url, self.view_360_key = _normalize_view_360(
+                    self.view_360_url, self.view_360_key
+                )
         return self
 
 

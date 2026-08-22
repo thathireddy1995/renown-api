@@ -42,6 +42,8 @@ class HomeProductCard(BaseModel):
     id: str
     name: str
     price: float
+    sellingPrice: float | None = None
+    mrp: float | None = None
     image: str = ""
     stock: int = 0
     rating: float = 0

@@ -10,7 +10,7 @@ from app.core.catalog_serialize import product_out, slugify
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.core.config import S3_PUBLIC_BUCKET
-from app.core.s3_images import presign_puts
+from app.core.s3_images import delete_view_360_object, presign_puts, presign_view_360_puts
 from app.dto.catalog_dto import (
     ImagePresignItem,
     ImagePresignRequest,
@@ -267,6 +267,8 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
         is_bestseller=payload.is_bestseller,
         is_trending=payload.is_trending,
         status=payload.status or "draft",
+        view_360_url=payload.view_360_url,
+        view_360_key=payload.view_360_key,
     )
     db.add(product)
     db.flush()
@@ -340,6 +342,7 @@ def update_product(
     images = data.pop("images", None)
     brand = data.pop("brand", None)
     category = data.pop("category", None)
+    old_view_360_key = product.view_360_key
 
     next_product_id = data.get("product_id", product.product_id)
     if next_product_id:
@@ -411,7 +414,48 @@ def update_product(
 
     product = _load_product(db, product_id)
     assert product is not None
+    if old_view_360_key and old_view_360_key != product.view_360_key:
+        delete_view_360_object(old_view_360_key)
     return product_out(product, public_id=str(product.id), include_cost=True)
+
+
+@router.post(
+    "/products/view-360/presign",
+    response_model=ImagePresignResponse,
+)
+def presign_pending_view_360(
+    payload: ImagePresignRequest,
+) -> ImagePresignResponse:
+    uploads = presign_view_360_puts(
+        "pending",
+        [(item.filename, item.content_type) for item in payload.files],
+    )
+    return ImagePresignResponse(
+        bucket=S3_PUBLIC_BUCKET,
+        uploads=[ImagePresignItem(**item) for item in uploads],
+    )
+
+
+@router.post(
+    "/products/{product_id}/view-360/presign",
+    response_model=ImagePresignResponse,
+)
+def presign_product_view_360(
+    product_id: int,
+    payload: ImagePresignRequest,
+    db: Session = Depends(get_db),
+) -> ImagePresignResponse:
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
+    uploads = presign_view_360_puts(
+        product_id,
+        [(item.filename, item.content_type) for item in payload.files],
+    )
+    return ImagePresignResponse(
+        bucket=S3_PUBLIC_BUCKET,
+        uploads=[ImagePresignItem(**item) for item in uploads],
+    )
 
 
 @router.post(
@@ -465,10 +509,13 @@ def delete_product(product_id: int, db: Session = Depends(get_db)) -> None:
     product = db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found.")
+    old_view_360_key = product.view_360_key
 
     try:
         db.delete(product)
         db.commit()
+        if old_view_360_key:
+            delete_view_360_object(old_view_360_key)
         return
     except IntegrityError:
         db.rollback()
@@ -479,6 +526,8 @@ def delete_product(product_id: int, db: Session = Depends(get_db)) -> None:
 
     suffix = f"-del-{product.id}"
     product.status = "deleted"
+    product.view_360_url = None
+    product.view_360_key = None
     if not (product.sku or "").endswith(suffix):
         product.sku = f"{(product.sku or 'sku')[: max(1, 40 - len(suffix))]}{suffix}"[:40]
     if product.product_id and not product.product_id.endswith(suffix):
@@ -493,6 +542,8 @@ def delete_product(product_id: int, db: Session = Depends(get_db)) -> None:
             variant.sku = f"{(variant.sku or 'sku')[: max(1, 40 - len(suffix))]}{suffix}"[:40]
     try:
         db.commit()
+        if old_view_360_key:
+            delete_view_360_object(old_view_360_key)
     except IntegrityError:
         db.rollback()
         raise HTTPException(

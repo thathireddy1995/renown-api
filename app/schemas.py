@@ -226,6 +226,8 @@ class Product(Base):
         cascade="all, delete-orphan",
         order_by="ProductImage.sort_order",
     )
+    view_360_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    view_360_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class ProductVariant(Base):
@@ -1548,3 +1550,37 @@ class CouponRedemption(Base):
     )
 
     coupon: Mapped["Coupon"] = relationship(back_populates="redemptions")
+
+
+class WebAnalyticsEvent(Base):
+    __tablename__ = "web_analytics_events"
+    __table_args__ = (
+        CheckConstraint(
+            "event_name IN ('pageview', 'click', 'add_to_cart', 'begin_checkout', 'purchase')",
+            name="ck_web_analytics_event_name",
+        ),
+        CheckConstraint(
+            "device IN ('desktop', 'mobile', 'tablet', 'unknown')",
+            name="ck_web_analytics_device",
+        ),
+        CheckConstraint(
+            "country IS NULL OR country ~ '^[A-Z]{2}$'",
+            name="ck_web_analytics_country",
+        ),
+        Index("ix_web_analytics_created", "created_at"),
+        Index("ix_web_analytics_event_created", "event_name", "created_at"),
+        Index("ix_web_analytics_visitor_created", "visitor_hash", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    visitor_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    session_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    event_name: Mapped[str] = mapped_column(String(40), nullable=False)
+    path: Mapped[str] = mapped_column(String(500), nullable=False)
+    referrer: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    device: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

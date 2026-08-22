@@ -6,6 +6,7 @@ Objects are keyed per product (or a pending namespace before creation):
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Callable
 
@@ -66,6 +67,12 @@ MOBILE_EXT_TO_CONTENT_TYPE = {
 VIDEO_EXTENSIONS = {"mp4", "webm", "mov"}
 GIF_EXTENSIONS = {"gif"}
 MOBILE_BANNER_PREFIX = "homepage/mobile-banners/"
+ALLOWED_360_TYPES = {
+    "video/mp4": "mp4",
+}
+VIEW_360_KEY_PATTERN = re.compile(
+    r"^catalog/products/(?:pending|\d+)/360/[a-f0-9]{32}\.mp4$"
+)
 
 MAX_FILES_PER_PRESIGN = 25
 
@@ -145,6 +152,54 @@ def infer_mobile_media_type(key: str, hinted: str | None = None) -> str:
 def mobile_banner_object_key(content_type: str) -> str:
     ext = ALLOWED_MOBILE_MEDIA_TYPES[content_type]
     return f"{MOBILE_BANNER_PREFIX}{uuid.uuid4().hex}.{ext}"
+
+
+def resolve_360_content_type(filename: str, content_type: str) -> str:
+    raw = (content_type or "").split(";")[0].strip().lower()
+    if raw in ALLOWED_360_TYPES:
+        return raw
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext == "mp4":
+        return "video/mp4"
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=f"360 view must be an MP4 file ({filename or 'file'}).",
+    )
+
+
+def view_360_object_key(product_id: int | str, content_type: str) -> str:
+    ext = ALLOWED_360_TYPES[content_type]
+    return f"catalog/products/{product_id}/360/{uuid.uuid4().hex}.{ext}"
+
+
+def is_view_360_key(key: str) -> bool:
+    return bool(VIEW_360_KEY_PATTERN.fullmatch((key or "").strip()))
+
+
+def presign_view_360_puts(
+    product_id: int | str, files: list[tuple[str, str]]
+) -> list[dict[str, str]]:
+    if len(files) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Upload one 360 view MP4 file at a time.",
+        )
+    return _presign_puts(
+        files,
+        lambda content_type: view_360_object_key(product_id, content_type),
+        resolve=resolve_360_content_type,
+        empty_detail="Add a 360 view MP4 file.",
+    )
+
+
+def delete_view_360_object(key: str) -> bool:
+    if not S3_PUBLIC_BUCKET or not is_view_360_key(key):
+        return False
+    try:
+        _s3().delete_object(Bucket=S3_PUBLIC_BUCKET, Key=key)
+        return True
+    except (BotoCoreError, ClientError):
+        return False
 
 
 def public_url_for(key: str) -> str:

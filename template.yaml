@@ -129,6 +129,17 @@ Resources:
                 - !Sub "arn:aws:s3:::${PublicImageBucket}/catalog/*"
                 - !Sub "arn:aws:s3:::${PublicImageBucket}/homepage/*"
       Events:
+        AnalyticsTrack:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref RenownHttpApi
+            Path: /analytics/track
+            Method: POST
+            TimeoutInMillis: 10000
+            PayloadFormatVersion: "2.0"
+            RouteSettings:
+              ThrottlingBurstLimit: 30
+              ThrottlingRateLimit: 10
         ApiRoot:
           Type: HttpApi
           Properties:

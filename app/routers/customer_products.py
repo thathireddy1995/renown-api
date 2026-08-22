@@ -49,7 +49,14 @@ def _active_base():
     "/",
     response_model=ProductListResponse,
     response_model_exclude={
-        "items": {"__all__": {"buying_price", "buyingPrice"}},
+        "items": {
+            "__all__": {
+                "buying_price",
+                "buyingPrice",
+                "view_360_key",
+                "view360Key",
+            }
+        },
     },
 )
 def list_products(
@@ -151,7 +158,12 @@ def list_products(
 @router.get(
     "/{slug}",
     response_model=ProductOut,
-    response_model_exclude={"buying_price", "buyingPrice"},
+    response_model_exclude={
+        "buying_price",
+        "buyingPrice",
+        "view_360_key",
+        "view360Key",
+    },
 )
 def get_product(slug: str, db: Session = Depends(get_db)) -> ProductOut:
     product = db.scalar(
