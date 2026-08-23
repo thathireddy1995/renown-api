@@ -7,10 +7,11 @@ from app.database import get_db
 from app.dto.web_analytics_dto import TrackAnalyticsIn, TrackAnalyticsOut
 from sqlalchemy.orm import Session
 
-router = APIRouter(prefix="/analytics", tags=["web-analytics"])
+router = APIRouter(tags=["web-analytics"])
 
 
-@router.post("/track", response_model=TrackAnalyticsOut)
+@router.post("/customer/page-hit", response_model=TrackAnalyticsOut)
+@router.post("/analytics/track", response_model=TrackAnalyticsOut)
 def track_event(
     payload: TrackAnalyticsIn,
     request: Request,
