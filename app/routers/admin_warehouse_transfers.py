@@ -6,13 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.ist import now as ist_now
 from app.core.stock_transfers import (
     ADMIN_STATUS,
     admin_transfer_row,
     apply_transfer_completion,
     list_stock_transfers_query,
     normalize_transfer_status,
+    persist_stock_transfer,
     transfer_eager_options,
 )
 from app.database import get_db
@@ -23,7 +23,7 @@ from app.dto.admin_dto import (
     AdminStockTransferOut,
     AdminStockTransferStatusUpdate,
 )
-from app.schemas import ProductVariant, StockTransfer, StockTransferItem, Warehouse
+from app.schemas import StockTransfer, Store, Warehouse
 
 router = APIRouter(prefix="/admin/warehouse/transfers", tags=["admin-warehouse-transfers"], dependencies=[Depends(require_role("admin"))])
 
@@ -73,51 +73,30 @@ def list_transfers(
 def create_transfer(
     body: AdminStockTransferCreate, db: Session = Depends(get_db)
 ) -> AdminStockTransferOut:
-    if not body.to_warehouse_id and not body.to_store_id:
-        raise HTTPException(status_code=422, detail="Destination required")
-    if not db.get(Warehouse, body.from_warehouse_id):
+    if body.from_warehouse_id and not db.get(Warehouse, body.from_warehouse_id):
         raise HTTPException(status_code=404, detail="Source warehouse not found")
-    if not body.items:
-        raise HTTPException(status_code=422, detail="At least one item required")
-
-    for it in body.items:
-        if not db.get(ProductVariant, it.variant_id):
-            raise HTTPException(status_code=404, detail=f"Variant {it.variant_id} not found")
-
-    num = f"TR-{int(ist_now().timestamp()) % 100000}"
-    while db.scalar(select(StockTransfer.id).where(StockTransfer.transfer_number == num)):
-        num = f"TR-{int(ist_now().timestamp()) % 100000 + 1}"
+    if body.to_warehouse_id and not db.get(Warehouse, body.to_warehouse_id):
+        raise HTTPException(status_code=404, detail="Destination warehouse not found")
+    if body.from_store_id and not db.get(Store, body.from_store_id):
+        raise HTTPException(status_code=404, detail="Source store not found")
+    if body.to_store_id and not db.get(Store, body.to_store_id):
+        raise HTTPException(status_code=404, detail="Destination store not found")
 
     eta = None
     if body.eta and body.eta != "—":
         eta = date.fromisoformat(body.eta[:10])
 
-    transfer = StockTransfer(
-        transfer_number=num,
+    loaded = persist_stock_transfer(
+        db,
         from_warehouse_id=body.from_warehouse_id,
+        from_store_id=body.from_store_id,
         to_warehouse_id=body.to_warehouse_id,
         to_store_id=body.to_store_id,
-        status=normalize_transfer_status(body.status),
+        items=body.items,
+        status=body.status,
         requested_by=body.requested_by,
         eta=eta,
     )
-    db.add(transfer)
-    db.flush()
-    for it in body.items:
-        db.add(
-            StockTransferItem(
-                stock_transfer_id=transfer.id,
-                variant_id=it.variant_id,
-                qty=it.qty,
-            )
-        )
-    db.commit()
-    loaded = db.scalar(
-        select(StockTransfer)
-        .where(StockTransfer.id == transfer.id)
-        .options(*transfer_eager_options())
-    )
-    assert loaded
     return _out(admin_transfer_row(loaded))
 
 

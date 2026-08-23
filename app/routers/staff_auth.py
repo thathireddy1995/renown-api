@@ -5,6 +5,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, verify_password
+from app.core.staff_users import stamp_last_login
 from app.database import get_db
 from app.dto.auth_dto import StaffLoginRequest, TokenResponse, UserOut
 from app.dto.location_dto import (
@@ -108,7 +109,8 @@ def _location_inactive(status: str | None) -> bool:
 @router.post("/login", response_model=TokenResponse)
 def staff_login(body: StaffLoginRequest, db: Session = Depends(get_db)):
     """Phone + password only — warehouse/store are taken from the staff account."""
-    user = db.scalar(select(User).where(User.phone == body.phone))
+    phone = "".join(ch for ch in (body.phone or "") if ch.isdigit())
+    user = db.scalar(select(User).where(User.phone == phone))
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not user.is_active:
@@ -161,7 +163,9 @@ def staff_login(body: StaffLoginRequest, db: Session = Depends(get_db)):
         warehouse_id=warehouse_id,
         store_id=store_id,
     )
+    user_out = _user_out(user, warehouse=warehouse, store=store)
+    stamp_last_login(db, user)
     return TokenResponse(
         access_token=token,
-        user=_user_out(user, warehouse=warehouse, store=store),
+        user=user_out,
     )

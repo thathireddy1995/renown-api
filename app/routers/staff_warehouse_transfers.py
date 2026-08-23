@@ -4,11 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.ist import now as ist_now
 from app.core.stock_transfers import (
     apply_transfer_completion,
     list_stock_transfers_query,
     normalize_transfer_status,
+    persist_stock_transfer,
     staff_transfer_row,
     transfer_eager_options,
 )
@@ -21,7 +21,7 @@ from app.dto.staff_dto import (
     StaffStockTransferOut,
     StaffStockTransferStatusUpdate,
 )
-from app.schemas import ProductVariant, StockTransfer, StockTransferItem, Store, User, Warehouse
+from app.schemas import StockTransfer, Store, User, Warehouse
 
 router = APIRouter(
     prefix="/staff/warehouse/transfers",
@@ -98,7 +98,7 @@ def list_transfers(
     limit, offset = page
     wid = _jwt_warehouse(db, principal).id
     stmt, count_stmt = list_stock_transfers_query(
-        search=search, from_warehouse_id=wid
+        search=search, warehouse_id=wid
     )
     total = db.scalar(count_stmt) or 0
     rows = db.scalars(
@@ -119,85 +119,65 @@ def create_transfer(
     principal: TokenPrincipal = Depends(require_role("warehouse_manager")),
     _: User = Depends(get_current_warehouse_staff),
 ) -> StaffStockTransferOut:
-    # Source warehouse is always the manager's JWT warehouse (cannot spoof).
-    from_id = _jwt_warehouse(db, principal).id
-
+    my_wh = _jwt_warehouse(db, principal)
+    dest_type = (body.destination_type or "").strip().lower()
+    from_store_id = body.from_store_id
     to_wh_id = body.to_warehouse_id
     to_store_id = body.to_store_id
-    dest_type = (body.destination_type or "").strip().lower()
+    from_wh_id: int | None = my_wh.id
 
-    if to_store_id is not None:
-        _assert_owned_store(db, from_id, to_store_id)
-
-    if not to_wh_id and not to_store_id and body.to_label:
-        if dest_type in ("store", "store_replen", "retail"):
-            store = _resolve_store_by_name(db, body.to_label, from_id)
+    if dest_type in ("store_return", "return", "store_to_wh"):
+        from_wh_id = None
+        to_wh_id = my_wh.id
+        if from_store_id is None and body.to_label:
+            store = _resolve_store_by_name(db, body.to_label, my_wh.id)
             if store:
-                to_store_id = store.id
-            else:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Store not found for this warehouse",
-                )
-        else:
-            wh = _resolve_warehouse_by_name(db, body.to_label)
-            if wh:
-                to_wh_id = wh.id
-            else:
-                store = _resolve_store_by_name(db, body.to_label, from_id)
+                from_store_id = store.id
+        if from_store_id is None:
+            raise HTTPException(status_code=422, detail="Select the store returning stock")
+        _assert_owned_store(db, my_wh.id, from_store_id)
+        to_store_id = None
+    else:
+        if to_store_id is not None:
+            _assert_owned_store(db, my_wh.id, to_store_id)
+
+        if not to_wh_id and not to_store_id and body.to_label:
+            if dest_type in ("store", "store_replen", "retail"):
+                store = _resolve_store_by_name(db, body.to_label, my_wh.id)
                 if store:
                     to_store_id = store.id
+                else:
+                    raise HTTPException(
+                        status_code=404,
+                        detail="Store not found for this warehouse",
+                    )
+            else:
+                wh = _resolve_warehouse_by_name(db, body.to_label)
+                if wh:
+                    to_wh_id = wh.id
+                else:
+                    store = _resolve_store_by_name(db, body.to_label, my_wh.id)
+                    if store:
+                        to_store_id = store.id
 
-    if not to_wh_id and not to_store_id:
-        raise HTTPException(status_code=422, detail="Destination required")
+        if not to_wh_id and not to_store_id:
+            raise HTTPException(status_code=422, detail="Destination required")
+        if to_store_id is not None:
+            _assert_owned_store(db, my_wh.id, to_store_id)
 
-    if to_store_id is not None:
-        _assert_owned_store(db, from_id, to_store_id)
+    if not body.items:
+        raise HTTPException(status_code=422, detail="Select a SKU and quantity")
 
-    for it in body.items:
-        if not db.get(ProductVariant, it.variant_id):
-            raise HTTPException(status_code=404, detail=f"Variant {it.variant_id} not found")
-
-    num = f"TR-{int(ist_now().timestamp()) % 100000}"
-    while db.scalar(select(StockTransfer.id).where(StockTransfer.transfer_number == num)):
-        num = f"TR-{int(ist_now().timestamp()) % 100000 + 1}"
-
-    transfer = StockTransfer(
-        transfer_number=num,
-        from_warehouse_id=from_id,
+    loaded = persist_stock_transfer(
+        db,
+        from_warehouse_id=from_wh_id,
+        from_store_id=from_store_id,
         to_warehouse_id=to_wh_id,
         to_store_id=to_store_id,
-        status=normalize_transfer_status(body.status),
+        items=body.items,
+        status=body.status,
     )
-    db.add(transfer)
-    db.flush()
-    for it in body.items:
-        db.add(
-            StockTransferItem(
-                stock_transfer_id=transfer.id,
-                variant_id=it.variant_id,
-                qty=it.qty,
-            )
-        )
-    db.commit()
-    loaded = db.scalar(
-        select(StockTransfer)
-        .where(StockTransfer.id == transfer.id)
-        .options(*transfer_eager_options())
-    )
-    assert loaded
-    items_override = None
-    qty_override = None
-    if not body.items:
-        if body.items_count is not None:
-            items_override = max(0, int(body.items_count))
-        if body.qty is not None:
-            qty_override = max(0, int(body.qty))
-    return _out(
-        staff_transfer_row(
-            loaded, items_override=items_override, qty_override=qty_override
-        )
-    )
+    return _out(staff_transfer_row(loaded))
 
 
 @router.patch("/{transfer_ref}/status", response_model=StaffStockTransferOut)

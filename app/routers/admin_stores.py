@@ -6,6 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.core.inventory_status import store_stock_status
 from app.core.security import hash_password
+from app.core.staff_users import (
+    assign_user_location,
+    require_assignable_user,
+)
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.dto.location_dto import (
@@ -170,13 +174,9 @@ def create_store(body: StoreCreate, db: Session = Depends(get_db)) -> StoreOut:
     if not wh:
         raise HTTPException(status_code=400, detail="Selected warehouse not found")
 
-    mobile = body.login_mobile.strip()
-    if len(mobile) != 10 or not mobile.isdigit():
-        raise HTTPException(status_code=400, detail="Login mobile must be a 10-digit number")
-    if len(body.login_password) < 4:
-        raise HTTPException(status_code=400, detail="Login password must be at least 4 characters")
-    if db.scalar(select(User.id).where(User.phone == mobile)):
-        raise HTTPException(status_code=409, detail="Login mobile is already registered")
+    if not body.user_id:
+        raise HTTPException(status_code=400, detail="Select a store manager to assign")
+    assigned = require_assignable_user(db, body.user_id, "store_manager")
 
     row = Store(
         code=body.code.strip(),
@@ -186,37 +186,25 @@ def create_store(body: StoreCreate, db: Session = Depends(get_db)) -> StoreOut:
         country=body.country,
         phone=body.phone,
         hours=body.hours,
-        manager=body.manager,
+        manager=assigned.name,
         staff=body.staff,
         status=body.status or "Open",
         today_revenue=body.today_revenue,
         today_orders=body.today_orders,
         warehouse_id=body.warehouse_id,
-        login_password=body.login_password,
     )
     db.add(row)
     db.flush()
-
-    manager_name = (body.manager or "").strip() or f"{row.name} Manager"
-    email = f"st-{row.code.lower().replace(' ', '-')}@renown.local"
-    if db.scalar(select(User.id).where(User.email == email)):
-        email = f"st-{row.id}-{row.code.lower()}@renown.local"
-
-    db.add(
-        User(
-            name=manager_name,
-            email=email,
-            phone=mobile,
-            password_hash=hash_password(body.login_password),
-            role="store_manager",
-            store_id=row.id,
-            warehouse_id=body.warehouse_id,
-            is_active=True,
-        )
+    assign_user_location(
+        assigned,
+        role="store_manager",
+        store_id=row.id,
+        warehouse_id=body.warehouse_id,
     )
+
     db.commit()
     db.refresh(row)
-    return _store_out(row, login_mobile=mobile, warehouse_name=wh.name)
+    return _store_out(row, login_mobile=assigned.phone, warehouse_name=wh.name)
 
 
 @router.get("/inventory", response_model=StoreInventoryListResponse)
@@ -272,6 +260,7 @@ def update_store(
     data = body.model_dump(exclude_unset=True)
     login_mobile = data.pop("login_mobile", None)
     login_password = data.pop("login_password", None)
+    user_id = data.pop("user_id", None)
 
     if "code" in data and data["code"]:
         clash = db.scalar(
@@ -345,6 +334,19 @@ def update_store(
                 manager.name = s.manager.strip()
             if s.warehouse_id is not None:
                 manager.warehouse_id = s.warehouse_id
+
+    if user_id:
+        assigned = require_assignable_user(db, int(user_id), "store_manager")
+        previous = _manager_for_store(db, store_id)
+        if previous and previous.id != assigned.id:
+            previous.store_id = None
+        assign_user_location(
+            assigned,
+            role="store_manager",
+            store_id=s.id,
+            warehouse_id=s.warehouse_id,
+        )
+        s.manager = assigned.name
 
     db.commit()
     db.refresh(s)

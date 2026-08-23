@@ -70,6 +70,8 @@ class WebAnalyticsOut(BaseModel):
     carts: int
     orders: int
     conversion_pct: float
+    bounce_rate_pct: float
+    avg_visit_seconds: int
     series: list[AnalyticsPoint]
     funnel: list[AnalyticsFunnelStep]
     top_pages: list[AnalyticsCount]

@@ -185,6 +185,8 @@ def create_employee(
         phone=phone,
         password_hash=hash_password(body.password),
         role=role,
+        store_id=store_id if emp_type == "store" else None,
+        warehouse_id=warehouse_id if emp_type == "warehouse" else None,
         is_active=st == "active",
     )
     db.add(row)
@@ -262,6 +264,20 @@ def update_employee(
         else:
             row.warehouse_id = wid
             row.store_id = None
+
+    login_user = None
+    if row.phone:
+        login_user = db.scalar(select(User).where(User.phone == row.phone))
+    if login_user:
+        login_user.name = row.name
+        role_key = (row.job_role or "").strip().lower()
+        mapped_role = ROLE_ALIASES.get(role_key)
+        if mapped_role in MANAGER_ROLES:
+            login_user.role = mapped_role
+        login_user.store_id = row.store_id
+        login_user.warehouse_id = row.warehouse_id
+        if row.status:
+            login_user.is_active = (parse_status(row.status) or row.status) == "active"
 
     try:
         db.commit()

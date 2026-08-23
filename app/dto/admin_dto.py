@@ -101,6 +101,7 @@ class AdminStockTransferOut(BaseModel):
     status: str
     eta: str = "—"
     created: str = ""
+    direction: str = "wh_to_wh"
 
 
 class AdminStockTransferItemIn(BaseModel):
@@ -109,7 +110,8 @@ class AdminStockTransferItemIn(BaseModel):
 
 
 class AdminStockTransferCreate(BaseModel):
-    from_warehouse_id: int
+    from_warehouse_id: int | None = None
+    from_store_id: int | None = None
     to_warehouse_id: int | None = None
     to_store_id: int | None = None
     requested_by: str | None = None
@@ -173,3 +175,51 @@ class AdminStockAllocationListResponse(BaseModel):
     limit: int
     offset: int
     counts: dict[str, int] = Field(default_factory=dict)
+
+
+class AdminDeliveryOut(BaseModel):
+    id: str
+    order_id: int
+    customer: str
+    phone: str | None = None
+    city: str = ""
+    address: str = ""
+    items: int
+    qty: int
+    total: float
+    status: str
+    date: str = ""
+
+
+class AdminDeliveryListResponse(BaseModel):
+    items: list[AdminDeliveryOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminDeliveryFulfill(BaseModel):
+    warehouse_id: int
+    order_ref: str
+    carrier: str | None = None
+    awb: str | None = None
+    mark_shipped: bool = True
+
+
+class AdminDispatchHistoryOut(BaseModel):
+    id: str
+    order: str = ""
+    destination: str
+    carrier: str = ""
+    awb: str = ""
+    items: int
+    status: str
+    warehouse_id: int
+    date: str = ""
+
+
+class AdminDispatchHistoryListResponse(BaseModel):
+    items: list[AdminDispatchHistoryOut]
+    total: int
+    limit: int
+    offset: int

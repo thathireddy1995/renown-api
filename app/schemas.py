@@ -56,6 +56,7 @@ class User(Base):
         ForeignKey("stores.id", ondelete="SET NULL"), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_login: Mapped[datetime | None] = mapped_column(ISTDateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         ISTDateTime(), server_default=func.now()
     )
@@ -577,6 +578,8 @@ class Order(Base):
         Index("ix_orders_status", "status"),
         Index("ix_orders_customer_id_status", "customer_id", "status"),
         Index("ix_orders_created_at", "created_at"),
+        Index("ix_orders_delivery_status_created", "delivery", "status", "created_at"),
+        Index("ix_orders_awb_code", "awb_code"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -896,12 +899,23 @@ class DispatchOrder(Base):
         Index("ix_dispatch_orders_warehouse_id", "warehouse_id"),
         Index("ix_dispatch_orders_status", "status"),
         Index("ix_dispatch_orders_destination_id", "destination_id"),
+        Index("ix_dispatch_orders_order_id", "order_id"),
+        Index(
+            "ix_dispatch_orders_warehouse_status_created",
+            "warehouse_id",
+            "status",
+            "created_at",
+        ),
+        Index("ix_dispatch_orders_awb", "awb"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     do_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
     warehouse_id: Mapped[int] = mapped_column(
         ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    order_id: Mapped[int | None] = mapped_column(
+        ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
     )
     destination_type: Mapped[str] = mapped_column(String(20), nullable=False)
     destination_id: Mapped[int | None] = mapped_column(nullable=True)
@@ -914,6 +928,7 @@ class DispatchOrder(Base):
     )
 
     warehouse: Mapped["Warehouse"] = relationship()
+    order: Mapped["Order | None"] = relationship()
     items: Mapped[list["DispatchOrderItem"]] = relationship(
         back_populates="dispatch_order", cascade="all, delete-orphan"
     )
@@ -969,12 +984,18 @@ class StockTransfer(Base):
         Index("ix_stock_transfers_from_warehouse_id", "from_warehouse_id"),
         Index("ix_stock_transfers_to_warehouse_id", "to_warehouse_id"),
         Index("ix_stock_transfers_to_store_id", "to_store_id"),
+        Index("ix_stock_transfers_from_store_id", "from_store_id"),
+        Index("ix_stock_transfers_created_at", "created_at"),
+        Index("ix_stock_transfers_status_created", "status", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     transfer_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
-    from_warehouse_id: Mapped[int] = mapped_column(
-        ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    from_warehouse_id: Mapped[int | None] = mapped_column(
+        ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True
+    )
+    from_store_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stores.id", ondelete="RESTRICT"), nullable=True
     )
     to_warehouse_id: Mapped[int | None] = mapped_column(
         ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True
@@ -992,9 +1013,10 @@ class StockTransfer(Base):
         ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )
 
-    from_warehouse: Mapped["Warehouse"] = relationship(
+    from_warehouse: Mapped["Warehouse | None"] = relationship(
         foreign_keys=[from_warehouse_id]
     )
+    from_store: Mapped["Store | None"] = relationship(foreign_keys=[from_store_id])
     to_warehouse: Mapped["Warehouse | None"] = relationship(
         foreign_keys=[to_warehouse_id]
     )

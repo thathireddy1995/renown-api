@@ -21,6 +21,8 @@ from app.routers import (
     admin_stores,
     admin_taxonomy,
     admin_transfer_requests,
+    admin_users,
+    admin_warehouse_deliveries,
     admin_warehouse_transfers,
     admin_warehouses,
     admin_web_analytics,
@@ -115,12 +117,14 @@ app.include_router(admin_opticals.router)
 app.include_router(admin_orders.router)
 app.include_router(admin_customers.router)
 app.include_router(admin_employees.router)
+app.include_router(admin_users.router)
 app.include_router(admin_reports.router)
 app.include_router(admin_dashboard.router)
 app.include_router(admin_operations.router)
 app.include_router(admin_warehouses.router)
 app.include_router(admin_stores.router)
 app.include_router(admin_warehouse_transfers.router)
+app.include_router(admin_warehouse_deliveries.router)
 app.include_router(admin_transfer_requests.router)
 app.include_router(admin_stock_allocation.router)
 app.include_router(admin_store_orders.router)

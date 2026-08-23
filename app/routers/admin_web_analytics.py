@@ -27,7 +27,7 @@ _STATS_SQL = text(
             - make_interval(days => :days) AS since
     ),
     scoped AS (
-        SELECT visitor_hash, event_name, path, referrer, country, device, created_at
+        SELECT visitor_hash, session_id, event_name, path, referrer, country, device, created_at
         FROM web_analytics_events, bounds
         WHERE created_at >= bounds.since
     ),
@@ -106,10 +106,23 @@ _STATS_SQL = text(
         GROUP BY 1
         ORDER BY value DESC
         LIMIT 8
+    ),
+    sessions AS (
+        SELECT
+            session_id,
+            count(*) FILTER (WHERE event_name = 'pageview') AS pageviews,
+            extract(epoch FROM (max(created_at) - min(created_at))) AS duration_seconds
+        FROM scoped
+        GROUP BY session_id
     )
     SELECT
         (SELECT count(*) FROM scoped WHERE event_name = 'pageview')::int AS pageviews,
         (SELECT count(DISTINCT visitor_hash) FROM scoped)::int AS visitors,
+        (SELECT count(*) FROM sessions WHERE pageviews > 0)::int AS session_count,
+        (SELECT count(*) FROM sessions WHERE pageviews = 1)::int AS bounced_sessions,
+        coalesce((
+            SELECT avg(duration_seconds) FROM sessions WHERE pageviews > 0
+        ), 0) AS avg_visit_seconds,
         (
             SELECT count(DISTINCT visitor_hash)
             FROM scoped
@@ -189,6 +202,8 @@ def web_analytics(
     carts = int(row["funnel_cart"] or 0)
     orders = int(row["funnel_orders"] or 0)
     visitors = int(row["visitors"] or 0)
+    session_count = int(row["session_count"] or 0)
+    bounced = int(row["bounced_sessions"] or 0)
     series_raw = _as_rows(row["series"])
     return WebAnalyticsOut(
         range_days=days,
@@ -197,6 +212,8 @@ def web_analytics(
         carts=int(row["carts"] or 0),
         orders=orders,
         conversion_pct=_pct(orders, home or visitors or 1),
+        bounce_rate_pct=_pct(bounced, session_count or 1),
+        avg_visit_seconds=int(round(float(row["avg_visit_seconds"] or 0))),
         series=[
             AnalyticsPoint(
                 date=str(point.get("date") or ""),

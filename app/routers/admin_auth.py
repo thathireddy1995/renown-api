@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, verify_password
+from app.core.staff_users import stamp_last_login
 from app.database import get_db
 from app.dto.auth_dto import AdminLoginRequest, TokenResponse, UserOut
 from app.schemas import User
@@ -29,4 +30,6 @@ def login(payload: AdminLoginRequest, db: Session = Depends(get_db)) -> TokenRes
         )
 
     token = create_access_token(user.id, user.role)
-    return TokenResponse(access_token=token, user=UserOut.model_validate(user))
+    user_out = UserOut.model_validate(user)
+    stamp_last_login(db, user)
+    return TokenResponse(access_token=token, user=user_out)

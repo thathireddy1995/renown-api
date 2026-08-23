@@ -1,6 +1,6 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import DATABASE_URL
@@ -42,7 +42,6 @@ def get_db() -> Generator[Session, None, None]:
     connection or create a new engine inline (api_rules.txt §6)."""
     db = SessionLocal()
     try:
-        db.execute(text("SET TIME ZONE 'Asia/Kolkata'"))
         yield db
     finally:
         db.close()

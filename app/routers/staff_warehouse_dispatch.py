@@ -5,18 +5,27 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.deps import TokenPrincipal
-from app.core.ist import now as ist_now
 from app.database import get_db
 from app.deps import get_current_warehouse_staff, pagination, require_role
+from app.core.warehouse_deliveries import (
+    fulfill_online_order,
+    list_pending_deliveries_query,
+    next_do_number,
+    pending_delivery_row,
+    resolve_order,
+)
 from app.dto.staff_dto import (
     StaffDispatchCreate,
     StaffDispatchListResponse,
     StaffDispatchOut,
     StaffDispatchStatusUpdate,
+    StaffPendingDeliveryListResponse,
+    StaffPendingDeliveryOut,
 )
 from app.schemas import (
     DispatchOrder,
     DispatchOrderItem,
+    Order,
     ProductVariant,
     Store,
     User,
@@ -55,6 +64,7 @@ def _assert_owned_store(db: Session, warehouse_id: int, store_id: int) -> Store:
 def _dispatch_out(d: DispatchOrder, items_override: int | None = None) -> StaffDispatchOut:
     items = d.items or []
     qty = items_override if items_override is not None else sum(i.qty for i in items)
+    order_number = d.order.order_number if getattr(d, "order", None) else None
     return StaffDispatchOut(
         id=d.do_number,
         destination=d.destination_label or "",
@@ -63,6 +73,7 @@ def _dispatch_out(d: DispatchOrder, items_override: int | None = None) -> StaffD
         awb=d.awb or "",
         items=qty,
         status=d.status,
+        order=order_number,
     )
 
 
@@ -80,13 +91,36 @@ def _normalize_status(raw: str | None) -> str:
 
 
 def _resolve_dispatch(db: Session, do_ref: str) -> DispatchOrder | None:
-    stmt = select(DispatchOrder).options(selectinload(DispatchOrder.items))
+    stmt = select(DispatchOrder).options(
+        selectinload(DispatchOrder.items), selectinload(DispatchOrder.order)
+    )
     row = db.scalar(stmt.where(DispatchOrder.do_number == do_ref))
     if row:
         return row
     if do_ref.isdigit():
         return db.scalar(stmt.where(DispatchOrder.id == int(do_ref)))
     return None
+
+
+@router.get("/pending-orders", response_model=StaffPendingDeliveryListResponse)
+def list_pending_online_orders(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_warehouse_staff),
+    page: tuple[int, int] = Depends(pagination),
+    search: str | None = Query(None, alias="q"),
+) -> StaffPendingDeliveryListResponse:
+    limit, offset = page
+    stmt, count_stmt = list_pending_deliveries_query(search=search)
+    total = db.scalar(count_stmt) or 0
+    rows = db.scalars(
+        stmt.order_by(Order.id.desc()).limit(limit).offset(offset)
+    ).all()
+    return StaffPendingDeliveryListResponse(
+        items=[StaffPendingDeliveryOut.model_validate(pending_delivery_row(o)) for o in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 def _decrement_inventory(
@@ -125,7 +159,7 @@ def list_dispatches(
     wid = _jwt_warehouse(db, principal).id
     stmt = (
         select(DispatchOrder)
-        .options(selectinload(DispatchOrder.items))
+        .options(selectinload(DispatchOrder.items), selectinload(DispatchOrder.order))
         .where(DispatchOrder.warehouse_id == wid)
     )
     count_stmt = (
@@ -168,14 +202,28 @@ def create_dispatch(
 
     dest_type = body.destination_type
     if dest_type not in ("store_replen", "d2c"):
-        # accept UI labels
         low = dest_type.lower()
-        if "replen" in low or "store" in low:
+        if "replen" in low or ("store" in low and "return" not in low):
             dest_type = "store_replen"
-        elif "d2c" in low:
+        elif "d2c" in low or "online" in low or "order" in low:
             dest_type = "d2c"
         else:
             raise HTTPException(status_code=422, detail="Invalid destination_type")
+
+    if dest_type == "d2c" and (body.order_ref or body.destination_id):
+        order_ref = body.order_ref or str(body.destination_id)
+        order = resolve_order(db, order_ref)
+        if not order:
+            raise HTTPException(status_code=404, detail="Online order not found")
+        dispatch = fulfill_online_order(
+            db,
+            warehouse_id=warehouse_id,
+            order=order,
+            carrier=body.carrier,
+            awb=body.awb,
+            mark_shipped=True,
+        )
+        return _dispatch_out(dispatch)
 
     destination_id = body.destination_id
     label = body.destination_label
@@ -199,18 +247,20 @@ def create_dispatch(
         else:
             raise HTTPException(status_code=422, detail="Select a store destination")
 
+    if not body.items:
+        raise HTTPException(
+            status_code=422,
+            detail="Select a SKU and quantity, or pick an online order to dispatch",
+        )
+
     for it in body.items:
         if not db.get(ProductVariant, it.variant_id):
             raise HTTPException(
                 status_code=404, detail=f"Variant {it.variant_id} not found"
             )
 
-    do_number = f"DO-{int(ist_now().timestamp()) % 100000}"
-    while db.scalar(select(DispatchOrder.id).where(DispatchOrder.do_number == do_number)):
-        do_number = f"DO-{int(ist_now().timestamp()) % 100000 + 1}"
-
     order = DispatchOrder(
-        do_number=do_number,
+        do_number=next_do_number(db),
         warehouse_id=warehouse_id,
         destination_type=dest_type,
         destination_id=destination_id,
@@ -236,13 +286,10 @@ def create_dispatch(
     loaded = db.scalar(
         select(DispatchOrder)
         .where(DispatchOrder.id == order.id)
-        .options(selectinload(DispatchOrder.items))
+        .options(selectinload(DispatchOrder.items), selectinload(DispatchOrder.order))
     )
     assert loaded
-    items_override = None
-    if not body.items and body.items_count is not None:
-        items_override = max(0, int(body.items_count))
-    return _dispatch_out(loaded, items_override=items_override)
+    return _dispatch_out(loaded)
 
 
 @router.patch("/{do_ref}/status", response_model=StaffDispatchOut)

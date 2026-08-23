@@ -30,9 +30,10 @@ class WarehouseCreate(BaseModel):
     capacity: int = 0
     staff: int = 0
     status: str = "Active"
-    # Manager portal login for this warehouse (required on create)
-    login_mobile: str
-    login_password: str
+    # Optional — warehouse can be created unassigned; admin operates it until a manager is linked.
+    login_mobile: str | None = None
+    login_password: str | None = None
+    user_id: int | None = None
 
 
 class WarehouseUpdate(BaseModel):
@@ -47,6 +48,7 @@ class WarehouseUpdate(BaseModel):
     # Optional — set later via edit
     login_mobile: str | None = None
     login_password: str | None = None
+    user_id: int | None = None
 
 
 class WarehouseListResponse(BaseModel):
@@ -160,8 +162,9 @@ class StoreCreate(BaseModel):
     today_revenue: float = 0
     today_orders: int = 0
     warehouse_id: int
-    login_mobile: str
-    login_password: str
+    login_mobile: str | None = None
+    login_password: str | None = None
+    user_id: int | None = None
 
 
 class StoreUpdate(BaseModel):
@@ -180,6 +183,7 @@ class StoreUpdate(BaseModel):
     warehouse_id: int | None = None
     login_mobile: str | None = None
     login_password: str | None = None
+    user_id: int | None = None
 
 
 class StoreListResponse(BaseModel):

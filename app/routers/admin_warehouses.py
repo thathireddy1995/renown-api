@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.ist import as_ist, today as ist_today
 from app.core.inventory_status import warehouse_stock_status
 from app.core.security import hash_password
+from app.core.staff_users import (
+    assign_user_location,
+    require_assignable_user,
+)
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.dto.location_dto import (
@@ -52,27 +56,36 @@ def _manager_for_warehouse(db: Session, warehouse_id: int) -> User | None:
     )
 
 
-def _login_mobiles_map(db: Session, warehouse_ids: list[int]) -> dict[int, str]:
+def _managers_map(db: Session, warehouse_ids: list[int]) -> dict[int, tuple[str, str | None]]:
     if not warehouse_ids:
         return {}
     rows = db.execute(
-        select(User.warehouse_id, User.phone)
+        select(User.warehouse_id, User.name, User.phone)
         .where(
             User.warehouse_id.in_(warehouse_ids),
             User.role == "warehouse_manager",
-            User.phone.isnot(None),
         )
         .order_by(User.id.asc())
     ).all()
-    out: dict[int, str] = {}
-    for wid, phone in rows:
-        if wid is not None and wid not in out and phone:
-            out[int(wid)] = phone
+    out: dict[int, tuple[str, str | None]] = {}
+    for wid, name, phone in rows:
+        if wid is not None and int(wid) not in out:
+            out[int(wid)] = ((name or "").strip(), phone)
     return out
 
 
+def _stored_manager_name(raw: str | None) -> str:
+    name = (raw or "").strip()
+    return name if name and not name.isdigit() else ""
+
+
 def _warehouse_out(
-    w: Warehouse, used: int = 0, skus: int = 0, *, login_mobile: str | None = None
+    w: Warehouse,
+    used: int = 0,
+    skus: int = 0,
+    *,
+    manager_name: str | None = None,
+    login_mobile: str | None = None,
 ) -> WarehouseOut:
     return WarehouseOut(
         id=f"w-{w.id:02d}" if w.id < 100 else f"w-{w.id}",
@@ -80,7 +93,7 @@ def _warehouse_out(
         name=w.name,
         city=w.city or "",
         country=w.country or "",
-        manager=w.manager or "",
+        manager=_stored_manager_name(w.manager),
         capacity=w.capacity or 0,
         used=int(used or 0),
         skus=int(skus or 0),
@@ -152,10 +165,16 @@ def list_warehouses(
     rows = db.execute(
         stmt.order_by(Warehouse.id.asc()).limit(limit).offset(offset)
     ).all()
-    mobiles = _login_mobiles_map(db, [w.id for w, _, _ in rows])
+    managers = _managers_map(db, [w.id for w, _, _ in rows])
     return WarehouseListResponse(
         items=[
-            _warehouse_out(w, used, skus, login_mobile=mobiles.get(w.id))
+            _warehouse_out(
+                w,
+                used,
+                skus,
+                manager_name=managers.get(w.id, ("", None))[0],
+                login_mobile=managers.get(w.id, ("", None))[1],
+            )
             for w, used, skus in rows
         ],
         total=total,
@@ -172,50 +191,32 @@ def create_warehouse(
     if existing:
         raise HTTPException(status_code=409, detail="Warehouse code already exists")
 
-    mobile = body.login_mobile.strip()
-    if len(mobile) != 10 or not mobile.isdigit():
-        raise HTTPException(status_code=400, detail="Login mobile must be a 10-digit number")
-    if len(body.login_password) < 4:
-        raise HTTPException(status_code=400, detail="Login password must be at least 4 characters")
-
-    phone_taken = db.scalar(select(User.id).where(User.phone == mobile))
-    if phone_taken:
-        raise HTTPException(status_code=409, detail="Login mobile is already registered")
+    assigned = None
+    if body.user_id:
+        assigned = require_assignable_user(db, body.user_id, "warehouse_manager")
 
     row = Warehouse(
         code=body.code.strip(),
         name=body.name.strip(),
         city=body.city,
         country=body.country,
-        manager=body.manager,
+        manager=assigned.name if assigned else None,
         capacity=body.capacity,
         staff=body.staff,
         status=body.status or "Active",
-        login_password=body.login_password,
     )
     db.add(row)
     db.flush()
+    if assigned:
+        assign_user_location(assigned, role="warehouse_manager", warehouse_id=row.id)
 
-    manager_name = (body.manager or "").strip() or f"{row.name} Manager"
-    email = f"wh-{row.code.lower().replace(' ', '-')}@renown.local"
-    email_taken = db.scalar(select(User.id).where(User.email == email))
-    if email_taken:
-        email = f"wh-{row.id}-{row.code.lower()}@renown.local"
-
-    db.add(
-        User(
-            name=manager_name,
-            email=email,
-            phone=mobile,
-            password_hash=hash_password(body.login_password),
-            role="warehouse_manager",
-            warehouse_id=row.id,
-            is_active=True,
-        )
-    )
     db.commit()
     db.refresh(row)
-    return _warehouse_out(row, login_mobile=mobile)
+    return _warehouse_out(
+        row,
+        manager_name=assigned.name if assigned else None,
+        login_mobile=assigned.phone if assigned else None,
+    )
 
 
 @router.get("/inventory", response_model=WhInventoryListResponse)
@@ -388,7 +389,11 @@ def get_warehouse(warehouse_id: int, db: Session = Depends(get_db)) -> Warehouse
     ).one()
     manager = _manager_for_warehouse(db, w.id)
     return _warehouse_out(
-        w, stats[0], stats[1], login_mobile=manager.phone if manager else None
+        w,
+        stats[0],
+        stats[1],
+        manager_name=manager.name if manager else None,
+        login_mobile=manager.phone if manager else None,
     )
 
 
@@ -402,6 +407,7 @@ def update_warehouse(
     data = body.model_dump(exclude_unset=True)
     login_mobile = data.pop("login_mobile", None)
     login_password = data.pop("login_password", None)
+    user_id = data.pop("user_id", None)
 
     if "code" in data and data["code"]:
         clash = db.scalar(
@@ -469,6 +475,14 @@ def update_warehouse(
                 w.login_password = login_password
             if w.manager:
                 manager.name = w.manager.strip()
+
+    if user_id:
+        assigned = require_assignable_user(db, int(user_id), "warehouse_manager")
+        previous = _manager_for_warehouse(db, warehouse_id)
+        if previous and previous.id != assigned.id:
+            previous.warehouse_id = None
+        assign_user_location(assigned, role="warehouse_manager", warehouse_id=w.id)
+        w.manager = assigned.name
 
     db.commit()
     db.refresh(w)

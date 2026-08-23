@@ -115,6 +115,7 @@ class StaffDispatchOut(BaseModel):
     awb: str
     items: int
     status: str
+    order: str | None = None
 
 
 class StaffDispatchItemIn(BaseModel):
@@ -127,11 +128,33 @@ class StaffDispatchCreate(BaseModel):
     destination_type: str = "store_replen"
     destination_id: int | None = None
     destination_label: str | None = None
+    order_ref: str | None = None
     carrier: str | None = None
     awb: str | None = None
     status: str = "Pending"
     items_count: int | None = None
     items: list[StaffDispatchItemIn] = Field(default_factory=list)
+
+
+class StaffPendingDeliveryOut(BaseModel):
+    id: str
+    order_id: int
+    customer: str
+    phone: str | None = None
+    city: str = ""
+    address: str = ""
+    items: int
+    qty: int
+    total: float
+    status: str
+    date: str = ""
+
+
+class StaffPendingDeliveryListResponse(BaseModel):
+    items: list[StaffPendingDeliveryOut]
+    total: int
+    limit: int
+    offset: int
 
 
 class StaffDispatchStatusUpdate(BaseModel):
@@ -191,6 +214,7 @@ class StaffStockTransferOut(BaseModel):
     qty: int
     requested: str
     status: str
+    direction: str = "wh_to_store"
 
 
 class StaffStockTransferItemIn(BaseModel):
@@ -200,11 +224,12 @@ class StaffStockTransferItemIn(BaseModel):
 
 class StaffStockTransferCreate(BaseModel):
     from_warehouse_id: int | None = None
+    from_store_id: int | None = None
     to_warehouse_id: int | None = None
     to_store_id: int | None = None
     from_label: str | None = None
     to_label: str | None = None
-    destination_type: str | None = None  # "store" | "warehouse"
+    destination_type: str | None = None  # "store" | "warehouse" | "store_return"
     status: str = "requested"
     items_count: int | None = None
     qty: int | None = None
