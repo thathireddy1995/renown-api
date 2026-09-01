@@ -65,3 +65,9 @@ S3_PUBLIC_BASE_URL = (
     or f"https://{S3_PUBLIC_BUCKET}.s3.{S3_PUBLIC_REGION}.amazonaws.com"
 )
 S3_PRESIGN_EXPIRES_SECONDS = int(os.getenv("S3_PRESIGN_EXPIRES_SECONDS", "600"))
+
+AWS_REGION = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "ap-south-2"
+ORDER_NOTIFY_QUEUE_URL = (
+    os.getenv("ORDER_NOTIFY_QUEUE_URL")
+    or "https://sqs.ap-south-2.amazonaws.com/021859651726/optimus-order-notify"
+)

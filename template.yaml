@@ -118,6 +118,7 @@ Resources:
           S3_PUBLIC_BUCKET: !Ref PublicImageBucket
           S3_PUBLIC_REGION: !Ref PublicImageRegion
           S3_PUBLIC_BASE_URL: !Sub "https://${PublicImageBucket}.s3.${PublicImageRegion}.amazonaws.com"
+          ORDER_NOTIFY_QUEUE_URL: "https://sqs.ap-south-2.amazonaws.com/021859651726/optimus-order-notify"
       Policies:
         - Statement:
             - Effect: Allow
@@ -129,6 +130,10 @@ Resources:
                 - !Sub "arn:aws:s3:::renown-api/*"
                 - !Sub "arn:aws:s3:::${PublicImageBucket}/catalog/*"
                 - !Sub "arn:aws:s3:::${PublicImageBucket}/homepage/*"
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource: arn:aws:sqs:ap-south-2:021859651726:optimus-order-notify
       Events:
         AnalyticsTrack:
           Type: HttpApi

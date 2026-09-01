@@ -30,6 +30,7 @@ from app.dto.order_dto import (
 )
 from app.schemas import Customer, Order, OrderItem, Product, ProductVariant, Store, StoreOrder
 from app.routers.customer_addresses import _out as _address_out
+from app.routers.telegram_notify import notify_order_placed
 
 router = APIRouter(prefix="/customer/orders", tags=["customer-orders"])
 
@@ -350,4 +351,5 @@ def create_order(
         payment_method="cod",
         payment_status="pending",
     )
+    notify_order_placed(order, customer)
     return _order_out(order, db)

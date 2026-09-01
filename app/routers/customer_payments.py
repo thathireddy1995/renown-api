@@ -31,6 +31,7 @@ from app.dto.payment_dto import (
     VerifyPaymentRequest,
 )
 from app.routers.customer_orders import _order_out
+from app.routers.telegram_notify import notify_order_placed
 from app.schemas import Customer
 
 router = APIRouter(prefix="/customer/payments", tags=["customer-payments"])
@@ -129,4 +130,5 @@ def verify_payment(
         razorpay_order_id=payload.razorpay_order_id,
         razorpay_payment_id=payload.razorpay_payment_id,
     )
+    notify_order_placed(order, customer)
     return _order_out(order, db)
