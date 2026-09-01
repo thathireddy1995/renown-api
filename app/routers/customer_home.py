@@ -214,6 +214,21 @@ _HOME_SQL = text(
             )
             FROM category_cards
         ),
+        'collections', (
+            SELECT coalesce(
+                json_agg(
+                    json_build_object(
+                        'id', id,
+                        'slug', slug,
+                        'name', name
+                    )
+                    ORDER BY id
+                ),
+                '[]'::json
+            )
+            FROM collections
+            WHERE status = 'active'
+        ),
         'products', (
             SELECT coalesce(
                 json_agg(

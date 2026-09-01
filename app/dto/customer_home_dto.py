@@ -38,6 +38,12 @@ class HomeCategoryTile(BaseModel):
     count: int = 0
 
 
+class HomeCollectionTile(BaseModel):
+    id: int
+    slug: str
+    name: str
+
+
 class HomeProductCard(BaseModel):
     id: str
     name: str
@@ -53,6 +59,7 @@ class HomeProductCard(BaseModel):
 class CustomerHomeResponse(BaseModel):
     banners: list[HomeBannerCard] = Field(default_factory=list)
     mobile_banners: list[MobileBannerCard] = Field(default_factory=list)
+    collections: list[HomeCollectionTile] = Field(default_factory=list)
     categories: list[HomeCategoryTile] = Field(default_factory=list)
     products: list[HomeProductCard] = Field(default_factory=list)
     featured: list[str] = Field(default_factory=list)

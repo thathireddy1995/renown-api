@@ -14,19 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.ist import format_ist_date
+from app.core.company_settings import seller_public
 from app.database import get_db
 from app.schemas import Order, OrderItem
 
 router = APIRouter(prefix="/public/invoice", tags=["public-invoice"])
-
-
-SELLER = {
-    "trade_name": "Renown Eye Wear",
-    "gstin": "37FQKPK5154A1ZV",
-    "state": "Andhra Pradesh",
-    "city": "Tirupati",
-    "website": "www.renowneyewear.com",
-}
 
 
 class PublicInvoiceItem(BaseModel):
@@ -114,6 +106,6 @@ def verify_invoice(
         payment_status=order.payment_status or "",
         total=float(order.total or 0),
         items=items,
-        seller=PublicInvoiceSeller(**SELLER),
+        seller=PublicInvoiceSeller(**seller_public(db)),
         customer_masked=_mask_name(order.customer.name if order.customer else None),
     )

@@ -1,9 +1,9 @@
-"""Resolve brand/category names via real brands/categories tables (Phase 3)."""
+"""Resolve brand/category/collection names via taxonomy tables."""
 
 from sqlalchemy import Integer, cast, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.schemas import Brand, Category, Product
+from app.schemas import Brand, Category, Collection, Product
 
 
 def brand_name(brand) -> str:
@@ -45,6 +45,40 @@ def category_id_for(db: Session, name: str | None) -> int | None:
         )
     )
     return row.id if row else None
+
+
+def collection_ids_for(db: Session, names: list[str] | set[str]) -> dict[str, int]:
+    """Map trimmed names/slugs → collection id in one query (no N+1)."""
+    cleaned = [n.strip() for n in names if n and str(n).strip()]
+    if not cleaned:
+        return {}
+    needles = {n.lower() for n in cleaned}
+    slugs = {n.replace(" ", "-") for n in needles}
+    rows = db.scalars(
+        select(Collection).where(
+            or_(
+                func.lower(Collection.name).in_(needles),
+                func.lower(Collection.slug).in_(slugs),
+            )
+        )
+    ).all()
+    by_key: dict[str, int] = {}
+    for row in rows:
+        by_key[row.name.lower()] = row.id
+        by_key[row.slug.lower()] = row.id
+    out: dict[str, int] = {}
+    for name in cleaned:
+        key = name.lower()
+        cid = by_key.get(key) or by_key.get(key.replace(" ", "-"))
+        if cid is not None:
+            out[name] = cid
+    return out
+
+
+def collection_id_for(db: Session, name: str | None) -> int | None:
+    if not name or not name.strip():
+        return None
+    return collection_ids_for(db, [name]).get(name.strip())
 
 
 SKU_START = 1001

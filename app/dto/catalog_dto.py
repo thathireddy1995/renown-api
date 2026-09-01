@@ -165,6 +165,8 @@ class ProductOut(BaseModel):
     discountPercentage: int = 0
     brand: str = ""
     brand_id: int | None = None
+    collection: str = ""
+    collection_id: int | None = None
     category: str = ""
     category_id: int | None = None
     gender: str | None = None
@@ -217,6 +219,8 @@ class ProductCreate(BaseModel):
     selling_price: Decimal | None = None
     brand: str | None = None
     brand_id: int | None = None
+    collection: str | None = None
+    collection_id: int | None = None
     category: str | None = None
     category_id: int | None = None
     gender: str | None = None
@@ -274,6 +278,8 @@ class ProductUpdate(BaseModel):
     selling_price: Decimal | None = None
     brand: str | None = None
     brand_id: int | None = None
+    collection: str | None = None
+    collection_id: int | None = None
     category: str | None = None
     category_id: int | None = None
     gender: str | None = None

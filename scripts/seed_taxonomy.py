@@ -94,16 +94,13 @@ BRANDS = [
 ]
 
 COLLECTIONS = [
-    ("Summer 2026", "active"),
-    ("Heritage Wire", "active"),
-    ("Optic Nordic", "active"),
-    ("Studio Minimal", "active"),
-    ("Travel Edit", "active"),
-    ("Boardroom", "active"),
-    ("Weekend", "active"),
-    ("Sport Performance", "active"),
-    ("Holiday Capsule", "active"),
-    ("Pre-Fall 2026", "draft"),
+    ("Classic", "active"),
+    ("Premium", "active"),
+    ("Signature", "active"),
+    ("Active", "active"),
+    ("Urban", "active"),
+    ("Minimal", "active"),
+    ("Kids", "active"),
 ]
 
 ATTRIBUTES = [

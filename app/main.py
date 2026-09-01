@@ -16,6 +16,7 @@ from app.routers import (
     admin_opticals,
     admin_orders,
     admin_reports,
+    admin_settings,
     admin_stock_allocation,
     admin_store_orders,
     admin_stores,
@@ -118,6 +119,7 @@ app.include_router(admin_orders.router)
 app.include_router(admin_customers.router)
 app.include_router(admin_employees.router)
 app.include_router(admin_users.router)
+app.include_router(admin_settings.router)
 app.include_router(admin_reports.router)
 app.include_router(admin_dashboard.router)
 app.include_router(admin_operations.router)

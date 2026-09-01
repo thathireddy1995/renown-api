@@ -24,6 +24,7 @@ class BulkUploadRow(BaseModel):
     brand: str = ""
     sku: str = ""
     category: str = ""
+    collection: str = ""
     price: float = 0
     stock: int = 0
     color: str = ""

@@ -10,6 +10,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -179,6 +180,7 @@ class Product(Base):
     __table_args__ = (
         Index("ix_products_brand_id", "brand_id"),
         Index("ix_products_category_id", "category_id"),
+        Index("ix_products_collection_id", "collection_id"),
         Index("ix_products_status", "status"),
     )
 
@@ -200,6 +202,9 @@ class Product(Base):
     category_id: Mapped[int | None] = mapped_column(
         ForeignKey("categories.id"), nullable=True
     )
+    collection_id: Mapped[int | None] = mapped_column(
+        ForeignKey("collections.id"), nullable=True
+    )
     gender: Mapped[str | None] = mapped_column(String(20), nullable=True)
     shape: Mapped[str | None] = mapped_column(String(30), nullable=True)
     material: Mapped[str | None] = mapped_column(String(30), nullable=True)
@@ -218,6 +223,7 @@ class Product(Base):
 
     brand: Mapped["Brand | None"] = relationship()
     category: Mapped["Category | None"] = relationship()
+    collection: Mapped["Collection | None"] = relationship()
     variants: Mapped[list["ProductVariant"]] = relationship(
         back_populates="product",
         cascade="all, delete-orphan",
@@ -1606,4 +1612,34 @@ class WebAnalyticsEvent(Base):
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         ISTDateTime(), server_default=func.now()
+    )
+
+
+class SystemSettings(Base):
+    """Singleton company profile (id=1) used on invoices and admin Settings."""
+
+    __tablename__ = "system_settings"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_system_settings_singleton"),)
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    brand_name: Mapped[str] = mapped_column(String(120), nullable=False, default="Renown Eye Wear")
+    legal_name: Mapped[str] = mapped_column(String(200), nullable=False, default="Renown Eye Wear")
+    phone: Mapped[str] = mapped_column(String(40), nullable=False, default="+91 96425 12952")
+    email: Mapped[str] = mapped_column(String(160), nullable=False, default="support@renowneyewear.com")
+    website: Mapped[str] = mapped_column(String(160), nullable=False, default="www.renowneyewear.com")
+    address_line1: Mapped[str] = mapped_column(String(160), nullable=False, default="4-88, Ramdas colony")
+    address_line2: Mapped[str] = mapped_column(String(160), nullable=False, default="Vedantha Puram, Tirupati")
+    city: Mapped[str] = mapped_column(String(80), nullable=False, default="Tirupati")
+    state: Mapped[str] = mapped_column(String(80), nullable=False, default="Andhra Pradesh")
+    postal_code: Mapped[str] = mapped_column(String(12), nullable=False, default="517508")
+    country: Mapped[str] = mapped_column(String(60), nullable=False, default="India")
+    gstin: Mapped[str] = mapped_column(String(15), nullable=False, default="37FQKPK5154A1ZV")
+    state_code: Mapped[str] = mapped_column(String(2), nullable=False, default="37")
+    gst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False, default=Decimal("5"))
+    sgst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False, default=Decimal("2.5"))
+    cgst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False, default=Decimal("2.5"))
+    igst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False, default=Decimal("5"))
+    created_at: Mapped[datetime] = mapped_column(ISTDateTime(), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
     )

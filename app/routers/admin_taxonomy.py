@@ -54,6 +54,15 @@ def _product_counts_by_brand(db: Session) -> dict[int, int]:
     return {int(bid): int(n) for bid, n in rows if bid is not None}
 
 
+def _product_counts_by_collection(db: Session) -> dict[int, int]:
+    rows = db.execute(
+        select(Product.collection_id, func.count())
+        .where(Product.collection_id.is_not(None), Product.status != "deleted")
+        .group_by(Product.collection_id)
+    ).all()
+    return {int(cid): int(n) for cid, n in rows if cid is not None}
+
+
 def _taxonomy_out(row, products: int = 0) -> TaxonomyOut:
     return TaxonomyOut(
         id=public_id(row.id),
@@ -305,21 +314,10 @@ def delete_brand(item_id: int, db: Session = Depends(get_db)) -> None:
 def list_collections(
     db: Session = Depends(get_db),
     page: tuple[int, int] = Depends(pagination),
+    include_counts: bool = Query(True, alias="counts"),
 ) -> TaxonomyListResponse:
     limit, offset = page
-    rows = db.execute(
-        select(Collection, func.count().over().label("total_count"))
-        .order_by(Collection.id.asc())
-        .limit(limit)
-        .offset(offset)
-    ).all()
-    total = int(rows[0].total_count) if rows else 0
-    return TaxonomyListResponse(
-        items=[_taxonomy_out(row[0], 0) for row in rows],
-        total=total,
-        limit=limit,
-        offset=offset,
-    )
+    return _list_taxonomy(db, Collection, Product.collection_id, limit, offset, include_counts)
 
 
 @router.post("/collections", response_model=TaxonomyOut, status_code=status.HTTP_201_CREATED)
@@ -358,7 +356,8 @@ def update_collection(
         db.rollback()
         raise
     db.refresh(row)
-    return _taxonomy_out(row, 0)
+    counts = _product_counts_by_collection(db)
+    return _taxonomy_out(row, counts.get(row.id, 0))
 
 
 @router.delete("/collections/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -366,6 +365,23 @@ def delete_collection(item_id: int, db: Session = Depends(get_db)) -> None:
     row = db.get(Collection, item_id)
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
+
+    active_products = db.scalar(
+        select(func.count())
+        .select_from(Product)
+        .where(Product.collection_id == item_id, Product.status != "deleted")
+    )
+    if active_products:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete a collection that still has products assigned to it.",
+        )
+
+    db.execute(
+        Product.__table__.update()
+        .where(Product.collection_id == item_id)
+        .values(collection_id=None)
+    )
     db.delete(row)
     try:
         db.commit()

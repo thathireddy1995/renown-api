@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class UserOut(BaseModel):
@@ -28,6 +28,11 @@ class TokenResponse(BaseModel):
 class AdminLoginRequest(BaseModel):
     mobile: str
     password: str
+
+
+class AdminChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=4, max_length=128)
 
 
 class StaffLoginRequest(BaseModel):

@@ -5,7 +5,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
-from app.core.catalog_lookups import brand_id_for, category_id_for, next_product_sku
+from app.core.catalog_lookups import brand_id_for, category_id_for, collection_id_for, next_product_sku
 from app.core.catalog_serialize import product_out, slugify
 from app.database import get_db
 from app.deps import pagination, require_role
@@ -37,6 +37,7 @@ def _load_product(db: Session, product_id: int) -> Product | None:
             selectinload(Product.images),
             selectinload(Product.brand),
             selectinload(Product.category),
+            selectinload(Product.collection),
         )
     )
 
@@ -79,6 +80,8 @@ def list_products(
     status_filter: str | None = Query(None, alias="status"),
     brand: str | None = None,
     brand_id: int | None = None,
+    collection: str | None = None,
+    collection_id: int | None = None,
     category: str | None = None,
     category_id: int | None = None,
     search: str | None = Query(None, alias="q"),
@@ -119,7 +122,11 @@ def list_products(
             and_(first_image.c.product_id == Product.id, first_image.c.rn == 1),
         )
         .outerjoin(stock_by_product, stock_by_product.c.product_id == Product.id)
-        .options(joinedload(Product.brand), joinedload(Product.category))
+        .options(
+            joinedload(Product.brand),
+            joinedload(Product.category),
+            joinedload(Product.collection),
+        )
     )
 
     if status_filter:
@@ -137,6 +144,12 @@ def list_products(
     )
     if resolved_category is not None:
         stmt = stmt.where(Product.category_id == resolved_category)
+
+    resolved_collection = (
+        collection_id if collection_id is not None else collection_id_for(db, collection)
+    )
+    if resolved_collection is not None:
+        stmt = stmt.where(Product.collection_id == resolved_collection)
 
     if search:
         like = f"%{search.strip()}%"
@@ -244,6 +257,11 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
     brand_id, category_id = _resolve_brand_category(
         db, payload.brand, payload.brand_id, payload.category, payload.category_id
     )
+    resolved_collection_id = (
+        payload.collection_id
+        if payload.collection_id is not None
+        else collection_id_for(db, payload.collection)
+    )
 
     product = Product(
         name=payload.name,
@@ -257,6 +275,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
         mrp=payload.mrp,
         selling_price=payload.selling_price,
         brand_id=brand_id,
+        collection_id=resolved_collection_id,
         category_id=category_id,
         gender=payload.gender,
         shape=payload.shape,
@@ -341,6 +360,7 @@ def update_product(
     data = payload.model_dump(exclude_unset=True)
     images = data.pop("images", None)
     brand = data.pop("brand", None)
+    collection = data.pop("collection", None)
     category = data.pop("category", None)
     old_view_360_key = product.view_360_key
 
@@ -368,6 +388,11 @@ def update_product(
         )
         data["brand_id"] = brand_id
         data["category_id"] = category_id
+
+    if "collection_id" in data:
+        pass
+    elif collection is not None:
+        data["collection_id"] = collection_id_for(db, collection)
 
     next_selling_price = data.get("selling_price", product.selling_price or product.price)
     next_mrp = data.get("mrp", product.mrp or product.compare_at_price)

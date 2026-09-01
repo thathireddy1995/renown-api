@@ -6,14 +6,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, load_only, selectinload
 
-from app.core.catalog_lookups import brand_id_for, category_id_for
+from app.core.catalog_lookups import brand_id_for, category_id_for, collection_id_for
 from app.core.catalog_serialize import product_cards_out, product_out
 from app.core.offer_pricing import _gender_key, offer_prices_for
 from app.core.review_aggregates import review_aggregates_for
 from app.database import get_db
 from app.deps import pagination
 from app.dto.catalog_dto import ProductListResponse, ProductOut
-from app.schemas import Brand, Category, Product, ProductVariant
+from app.schemas import Brand, Category, Collection, Product, ProductVariant
 
 router = APIRouter(prefix="/customer/products", tags=["customer-products"])
 
@@ -22,6 +22,7 @@ _PRODUCT_LOAD = (
     selectinload(Product.images),
     selectinload(Product.brand),
     selectinload(Product.category),
+    selectinload(Product.collection),
 )
 
 _CARD_LOAD = (
@@ -38,6 +39,7 @@ _CARD_LOAD = (
     selectinload(Product.images),
     selectinload(Product.brand),
     selectinload(Product.category),
+    selectinload(Product.collection),
 )
 
 
@@ -64,6 +66,8 @@ def list_products(
     page: tuple[int, int] = Depends(pagination),
     brand: str | None = None,
     brand_id: int | None = None,
+    collection: str | None = None,
+    collection_id: int | None = None,
     category: str | None = None,
     category_id: int | None = None,
     gender: str | None = None,
@@ -87,6 +91,18 @@ def list_products(
     if resolved_category is not None:
         stmt = stmt.where(Product.category_id == resolved_category)
         count_stmt = count_stmt.where(Product.category_id == resolved_category)
+
+    if collection_id is not None:
+        resolved_collection = collection_id
+    elif collection and collection.strip():
+        resolved_collection = collection_id_for(db, collection)
+        if resolved_collection is None:
+            return ProductListResponse(items=[], total=0, limit=limit, offset=offset)
+    else:
+        resolved_collection = None
+    if resolved_collection is not None:
+        stmt = stmt.where(Product.collection_id == resolved_collection)
+        count_stmt = count_stmt.where(Product.collection_id == resolved_collection)
 
     requested_gender = _gender_key(gender)
     if requested_gender:
@@ -121,6 +137,7 @@ def list_products(
             Product.description.ilike(like),
             Product.brand.has(Brand.name.ilike(like)),
             Product.category.has(Category.name.ilike(like)),
+            Product.collection.has(Collection.name.ilike(like)),
         )
         stmt = stmt.where(filt)
         count_stmt = count_stmt.where(filt)

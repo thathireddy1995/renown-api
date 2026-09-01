@@ -79,6 +79,12 @@ class CustomerCategoryOut(BaseModel):
     image: str | None = None
 
 
+class CustomerCollectionOut(BaseModel):
+    id: int
+    name: str
+    slug: str
+
+
 class CustomerBrandOut(BaseModel):
     id: int
     name: str

@@ -14,7 +14,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.core.ist import format_ist_datetime, naive_now
-from app.core.catalog_lookups import brand_id_for, category_id_for
+from app.core.catalog_lookups import brand_id_for, category_id_for, collection_ids_for
 from app.core.catalog_serialize import slugify
 from app.core.deps import TokenPrincipal, require_role
 from app.database import get_db
@@ -30,6 +30,7 @@ from app.dto.operations_dto import (
 from app.schemas import (
     Brand,
     Category,
+    Collection,
     Customer,
     ImportJob,
     Order,
@@ -164,23 +165,29 @@ def bulk_upload(
             status="Failed",
         )
 
-    # Resolve brands/categories once (batch), then bulk upsert
+    # Resolve brands/categories/collections once (batch), then bulk upsert
     brand_names = { (r.brand or "").strip() for r in valid_rows if (r.brand or "").strip() }
     cat_names = { (r.category or "").strip() for r in valid_rows if (r.category or "").strip() }
+    col_names = { (r.collection or "").strip() for r in valid_rows if (r.collection or "").strip() }
     brand_map = {n: brand_id_for(db, n) for n in brand_names}
     cat_map = {n: category_id_for(db, n) for n in cat_names}
+    col_map = collection_ids_for(db, col_names)
 
-    # Ensure missing brands/categories exist via bulk insert
+    # Ensure missing brands/categories/collections exist via bulk insert
     for n in brand_names:
         if brand_map[n] is None:
             db.add(Brand(name=n, slug=slugify(n)[:140], status="active"))
     for n in cat_names:
         if cat_map[n] is None:
             db.add(Category(name=n, slug=slugify(n)[:140], status="active"))
-    if brand_names or cat_names:
+    for n in col_names:
+        if n not in col_map:
+            db.add(Collection(name=n, slug=slugify(n)[:140], status="active"))
+    if brand_names or cat_names or col_names:
         db.flush()
         brand_map = {n: brand_id_for(db, n) for n in brand_names}
         cat_map = {n: category_id_for(db, n) for n in cat_names}
+        col_map = collection_ids_for(db, col_names)
 
     product_rows = []
     seen_skus: set[str] = set()
@@ -199,6 +206,7 @@ def bulk_upload(
                 "price": Decimal(str(r.price or 0)),
                 "brand_id": brand_map.get((r.brand or "").strip()),
                 "category_id": cat_map.get((r.category or "").strip()),
+                "collection_id": col_map.get((r.collection or "").strip()),
                 "status": "active",
             }
         )
@@ -212,6 +220,10 @@ def bulk_upload(
                 "price": stmt.excluded.price,
                 "brand_id": stmt.excluded.brand_id,
                 "category_id": stmt.excluded.category_id,
+                # Blank CSV collection must not wipe a collection already on the SKU.
+                "collection_id": func.coalesce(
+                    stmt.excluded.collection_id, Product.collection_id
+                ),
                 "status": "active",
             },
         )

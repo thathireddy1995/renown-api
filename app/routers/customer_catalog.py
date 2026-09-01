@@ -1,14 +1,31 @@
 """Customer taxonomy feed for storefront filters."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.company_settings import company_details
 from app.database import get_db
-from app.dto.taxonomy_dto import CustomerBrandOut, CustomerCategoryOut, CustomerStoreOut
-from app.schemas import Brand, Category, Store
+from app.dto.settings_dto import CompanyDetailsOut
+from app.dto.taxonomy_dto import (
+    CustomerBrandOut,
+    CustomerCategoryOut,
+    CustomerCollectionOut,
+    CustomerStoreOut,
+)
+from app.schemas import Brand, Category, Collection, Store
 
 router = APIRouter(prefix="/customer", tags=["customer-catalog"])
+
+
+@router.get("/company-details", response_model=CompanyDetailsOut)
+def get_company_details(
+    response: Response,
+    db: Session = Depends(get_db),
+) -> CompanyDetailsOut:
+    """Live seller snapshot for tax invoices. Read-only, never cached."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return company_details(db)
 
 
 @router.get("/categories", response_model=list[CustomerCategoryOut])
@@ -27,6 +44,16 @@ def list_categories(db: Session = Depends(get_db)) -> list[CustomerCategoryOut]:
         )
         for r in rows
     ]
+
+
+@router.get("/collections", response_model=list[CustomerCollectionOut])
+def list_collections(db: Session = Depends(get_db)) -> list[CustomerCollectionOut]:
+    rows = db.scalars(
+        select(Collection)
+        .where(Collection.status == "active")
+        .order_by(Collection.id.asc())
+    ).all()
+    return [CustomerCollectionOut(id=r.id, name=r.name, slug=r.slug) for r in rows]
 
 
 @router.get("/brands", response_model=list[CustomerBrandOut])

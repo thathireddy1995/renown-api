@@ -76,6 +76,7 @@ def product_out(
         stock = int(list_stock or 0)
         first = None
     brand = product.brand.name if product.brand else ""
+    collection = product.collection.name if product.collection else ""
     category = product.category.name if product.category else ""
 
     # Three-tier pricing: buying_price, mrp, selling_price
@@ -134,6 +135,8 @@ def product_out(
         discountPercentage=discount_pct,
         brand=brand,
         brand_id=product.brand_id,
+        collection=collection,
+        collection_id=product.collection_id,
         category=category,
         category_id=product.category_id,
         gender=product.gender,
