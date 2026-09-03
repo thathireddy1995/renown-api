@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.database import SessionLocal
 from app.schemas import ProductVariant, Store, StoreInventory, Warehouse, WarehouseInventory
@@ -116,7 +116,7 @@ def seed() -> None:
                 )
                 print(f"Created WH inv {wh.code} {variant.sku}")
 
-        store_slice = stores[:4]
+        store_slice = stores
         for sku, on_floor, backroom, reserved, reorder in STORE_INV:
             variant = _resolve_variant(by_sku, sku)
             if not variant:
@@ -152,6 +152,60 @@ def seed() -> None:
                         )
                     )
                     print(f"Created store inv {store.code} {variant.sku}")
+
+        db.commit()
+
+        # If mock SKUs aren't in this catalog, seed a slice of real variants
+        # onto every store so the tablet app has stock to sell.
+        real_variants = list(
+            db.scalars(select(ProductVariant).order_by(ProductVariant.id).limit(16)).all()
+        )
+        if real_variants:
+            for j, store in enumerate(stores):
+                existing = db.scalar(
+                    select(func.count())
+                    .select_from(StoreInventory)
+                    .where(StoreInventory.store_id == store.id)
+                ) or 0
+                if existing:
+                    continue
+                for i, variant in enumerate(real_variants):
+                    floor = max(2, 10 - (i % 5) - j)
+                    back = max(1, 6 - (i % 4))
+                    low = i % 7 == 0
+                    db.add(
+                        StoreInventory(
+                            store_id=store.id,
+                            variant_id=variant.id,
+                            on_floor=1 if low else floor,
+                            backroom=0 if low else back,
+                            on_hand=(1 if low else floor + back),
+                            reserved=0,
+                            reorder_point=3,
+                        )
+                    )
+                print(f"Seeded {len(real_variants)} live SKUs onto {store.code}")
+
+            for i, warehouse in enumerate(warehouses):
+                existing = db.scalar(
+                    select(func.count())
+                    .select_from(WarehouseInventory)
+                    .where(WarehouseInventory.warehouse_id == warehouse.id)
+                ) or 0
+                if existing:
+                    continue
+                for n, variant in enumerate(real_variants):
+                    db.add(
+                        WarehouseInventory(
+                            warehouse_id=warehouse.id,
+                            variant_id=variant.id,
+                            bin_location=f"A-{n+1:02d}",
+                            on_hand=40 + n * 3,
+                            reserved=2,
+                            reorder_point=10,
+                        )
+                    )
+                print(f"Seeded {len(real_variants)} live SKUs onto {warehouse.code}")
 
         db.commit()
         print("Inventory seed complete.")

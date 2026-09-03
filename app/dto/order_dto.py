@@ -71,6 +71,7 @@ class OrderItemOut(BaseModel):
     warranty: str | None = None
     description: str | None = None
     image: str | None = None
+    lensFit: dict | None = None
 
 
 class PickupStoreOut(BaseModel):

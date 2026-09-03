@@ -11,7 +11,6 @@ from app.core.staff_users import (
     assign_user_location,
     create_staff_user,
     digits_phone,
-    location_names,
     require_10_digit_phone,
 )
 from app.database import get_db
@@ -38,7 +37,28 @@ def _user_out(
     *,
     store_name: str | None = None,
     warehouse_name: str | None = None,
+    store_code: str | None = None,
+    warehouse_code: str | None = None,
+    store_address: str | None = None,
+    warehouse_address: str | None = None,
 ) -> AdminUserOut:
+    kind = None
+    loc_id = None
+    loc_code = None
+    loc_name = None
+    loc_address = None
+    if user.role == "store_manager" and user.store_id:
+        kind = "store"
+        loc_id = user.store_id
+        loc_code = store_code
+        loc_name = store_name
+        loc_address = store_address
+    elif user.role == "warehouse_manager" and user.warehouse_id:
+        kind = "warehouse"
+        loc_id = user.warehouse_id
+        loc_code = warehouse_code
+        loc_name = warehouse_name
+        loc_address = warehouse_address
     return AdminUserOut(
         id=user.id,
         name=user.name,
@@ -50,25 +70,49 @@ def _user_out(
         warehouse_id=user.warehouse_id,
         store_name=store_name,
         warehouse_name=warehouse_name,
+        location_kind=kind,
+        location_id=loc_id,
+        location_code=loc_code,
+        location_name=loc_name,
+        location_address=loc_address,
         last_login=user.last_login,
         created_at=user.created_at,
     )
 
 
 def _hydrate(db: Session, users: list[User]) -> list[AdminUserOut]:
-    stores, warehouses = location_names(
-        db,
-        [u.store_id for u in users if u.store_id is not None],
-        [u.warehouse_id for u in users if u.warehouse_id is not None],
-    )
-    return [
-        _user_out(
-            user,
-            store_name=stores.get(user.store_id) if user.store_id else None,
-            warehouse_name=warehouses.get(user.warehouse_id) if user.warehouse_id else None,
+    store_ids = [u.store_id for u in users if u.store_id is not None]
+    warehouse_ids = [u.warehouse_id for u in users if u.warehouse_id is not None]
+    stores: dict[int, tuple[str, str, str]] = {}
+    warehouses: dict[int, tuple[str, str, str]] = {}
+    if store_ids:
+        for sid, name, code, address in db.execute(
+            select(Store.id, Store.name, Store.code, Store.address).where(Store.id.in_(store_ids))
+        ):
+            stores[int(sid)] = (name, code or "", address or "")
+    if warehouse_ids:
+        for wid, name, code, address in db.execute(
+            select(Warehouse.id, Warehouse.name, Warehouse.code, Warehouse.address).where(
+                Warehouse.id.in_(warehouse_ids)
+            )
+        ):
+            warehouses[int(wid)] = (name, code or "", address or "")
+    out = []
+    for user in users:
+        s = stores.get(user.store_id) if user.store_id else None
+        w = warehouses.get(user.warehouse_id) if user.warehouse_id else None
+        out.append(
+            _user_out(
+                user,
+                store_name=s[0] if s else None,
+                store_code=s[1] if s else None,
+                store_address=s[2] if s else None,
+                warehouse_name=w[0] if w else None,
+                warehouse_code=w[1] if w else None,
+                warehouse_address=w[2] if w else None,
+            )
         )
-        for user in users
-    ]
+    return out
 
 
 def _list_columns():
@@ -84,11 +128,32 @@ def _list_columns():
         User.last_login,
         User.created_at,
         Store.name.label("store_name"),
+        Store.code.label("store_code"),
+        Store.address.label("store_address"),
         Warehouse.name.label("warehouse_name"),
+        Warehouse.code.label("warehouse_code"),
+        Warehouse.address.label("warehouse_address"),
     )
 
 
 def _row_out(row) -> AdminUserOut:
+    kind = None
+    loc_id = None
+    loc_code = None
+    loc_name = None
+    loc_address = None
+    if row.role == "store_manager" and row.store_id:
+        kind = "store"
+        loc_id = row.store_id
+        loc_code = row.store_code
+        loc_name = row.store_name
+        loc_address = row.store_address
+    elif row.role == "warehouse_manager" and row.warehouse_id:
+        kind = "warehouse"
+        loc_id = row.warehouse_id
+        loc_code = row.warehouse_code
+        loc_name = row.warehouse_name
+        loc_address = row.warehouse_address
     return AdminUserOut(
         id=row.id,
         name=row.name,
@@ -100,6 +165,11 @@ def _row_out(row) -> AdminUserOut:
         warehouse_id=row.warehouse_id,
         store_name=row.store_name,
         warehouse_name=row.warehouse_name,
+        location_kind=kind,
+        location_id=loc_id,
+        location_code=loc_code,
+        location_name=loc_name,
+        location_address=loc_address,
         last_login=row.last_login,
         created_at=row.created_at,
     )
@@ -288,6 +358,14 @@ def create_user(body: AdminUserCreate, db: Session = Depends(get_db)) -> AdminUs
         warehouse_id=warehouse_id,
         is_active=body.is_active,
     )
+    if role == "store_manager" and store_id:
+        store = db.get(Store, store_id)
+        if store:
+            store.login_password = body.password
+    if role == "warehouse_manager" and warehouse_id:
+        warehouse = db.get(Warehouse, warehouse_id)
+        if warehouse:
+            warehouse.login_password = body.password
     db.commit()
     db.refresh(user)
     return _hydrate(db, [user])[0]

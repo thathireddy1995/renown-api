@@ -18,6 +18,11 @@ class AdminUserOut(BaseModel):
     warehouse_id: int | None = None
     store_name: str | None = None
     warehouse_name: str | None = None
+    location_kind: str | None = None
+    location_id: int | None = None
+    location_code: str | None = None
+    location_name: str | None = None
+    location_address: str | None = None
     last_login: datetime | None = None
     created_at: datetime | None = None
 

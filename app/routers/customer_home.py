@@ -42,22 +42,22 @@ _HOME_SQL = text(
             p.id,
             p.name,
             round(
-                greatest(
-                    0,
-                    p.base_price - coalesce(
-                        least(
-                            p.base_price,
-                            CASE
-                                WHEN winner.discount_type = 'PERCENTAGE' THEN
-                                    least(
-                                        p.base_price * winner.discount_value / 100,
-                                        coalesce(winner.maximum_discount, p.base_price)
-                                    )
-                                ELSE winner.discount_value
-                            END
-                        ),
-                        0
-                    )
+                p.base_price - least(
+                    p.base_price,
+                    CASE
+                        WHEN winner.discount_type = 'PERCENTAGE'
+                            AND winner.discount_value > 0
+                            AND winner.discount_value < 100 THEN
+                            least(
+                                p.base_price * winner.discount_value / 100,
+                                coalesce(nullif(winner.maximum_discount, 0), p.base_price)
+                            )
+                        WHEN winner.discount_type = 'FLAT'
+                            AND winner.discount_value > 0
+                            AND winner.discount_value < p.base_price THEN
+                            winner.discount_value
+                        ELSE 0
+                    END
                 ),
                 2
             )::double precision AS price,
@@ -118,22 +118,32 @@ _HOME_SQL = text(
                 AND o.end_date >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')
                 AND (
                     (o.apply_on = 'PRODUCT' AND o.product_id = p.db_id)
-                    OR (o.apply_on = 'BRAND' AND o.brand_id = p.brand_id)
-                    OR (o.apply_on = 'CATEGORY' AND o.category_id = p.category_id)
+                    OR (
+                        o.apply_on = 'BRAND'
+                        AND o.brand_id IS NOT NULL
+                        AND o.brand_id = p.brand_id
+                    )
+                    OR (
+                        o.apply_on = 'CATEGORY'
+                        AND o.category_id IS NOT NULL
+                        AND o.category_id = p.category_id
+                    )
                     OR (
                         o.apply_on = 'GENDER'
-                        AND CASE upper(trim(coalesce(o.gender, '')))
+                        AND nullif(trim(coalesce(o.gender, '')), '') IS NOT NULL
+                        AND nullif(trim(coalesce(p.gender, '')), '') IS NOT NULL
+                        AND CASE upper(trim(o.gender))
                             WHEN 'MEN' THEN 'MALE'
                             WHEN 'MAN' THEN 'MALE'
                             WHEN 'WOMEN' THEN 'FEMALE'
                             WHEN 'WOMAN' THEN 'FEMALE'
-                            ELSE upper(trim(coalesce(o.gender, '')))
-                        END = CASE upper(trim(coalesce(p.gender, '')))
+                            ELSE upper(trim(o.gender))
+                        END = CASE upper(trim(p.gender))
                             WHEN 'MEN' THEN 'MALE'
                             WHEN 'MAN' THEN 'MALE'
                             WHEN 'WOMEN' THEN 'FEMALE'
                             WHEN 'WOMAN' THEN 'FEMALE'
-                            ELSE upper(trim(coalesce(p.gender, '')))
+                            ELSE upper(trim(p.gender))
                         END
                     )
                 )

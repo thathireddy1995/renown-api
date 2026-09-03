@@ -55,8 +55,9 @@ SEED_USERS = [
 def seed() -> None:
     db = SessionLocal()
     try:
+        hyd = db.scalar(select(Store).where(Store.code == "ST-HYD-01"))
         first_wh = db.scalar(select(Warehouse).order_by(Warehouse.id).limit(1))
-        first_store = db.scalar(select(Store).order_by(Store.id).limit(1))
+        first_store = hyd or db.scalar(select(Store).order_by(Store.id).limit(1))
 
         if first_store and first_wh and first_store.warehouse_id is None:
             first_store.warehouse_id = first_wh.id
@@ -107,6 +108,7 @@ def seed() -> None:
         if first_wh:
             print(f"Warehouse manager linked to: {first_wh.code} · {first_wh.name}")
         if first_store:
+            first_store.login_password = "demo1234"
             print(
                 f"Store manager linked to: {first_store.code} · {first_store.name}"
                 f" (warehouse_id={first_store.warehouse_id})"

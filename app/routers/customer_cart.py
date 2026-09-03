@@ -30,6 +30,7 @@ def _out(item: CartItem) -> CartItemOut:
         qty=item.qty,
         savedForLater=item.saved_for_later,
         variantId=item.variant_id,
+        lensFit=item.lens_fit,
     )
 
 
@@ -74,6 +75,8 @@ def add_to_cart(
     )
     if existing:
         existing.qty += payload.qty
+        if payload.lens_fit is not None:
+            existing.lens_fit = payload.lens_fit
         item = existing
     else:
         # Also merge into a saved-for-later row for the same product/variant.
@@ -89,6 +92,8 @@ def add_to_cart(
         if existing_any:
             existing_any.qty += payload.qty
             existing_any.saved_for_later = False
+            if payload.lens_fit is not None:
+                existing_any.lens_fit = payload.lens_fit
             item = existing_any
         else:
             item = CartItem(
@@ -97,6 +102,7 @@ def add_to_cart(
                 variant_id=payload.variant_id,
                 qty=payload.qty,
                 saved_for_later=False,
+                lens_fit=payload.lens_fit,
             )
             db.add(item)
 

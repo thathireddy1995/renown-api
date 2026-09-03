@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.ist import format_ist_datetime
+from app.core.customer_prescription import upsert_from_cart_lines
 from app.core.order_service import (
     create_order_record,
     load_cart_lines,
@@ -150,6 +151,7 @@ def _order_item_out(item: OrderItem) -> OrderItemOut:
         warranty=product.warranty if product else None,
         description=product.description if product else None,
         image=image,
+        lensFit=item.lens_fit,
     )
 
 
@@ -351,5 +353,7 @@ def create_order(
         payment_method="cod",
         payment_status="pending",
     )
+    upsert_from_cart_lines(db, customer.id, line_rows)
+    db.commit()
     notify_order_placed(order, customer)
     return _order_out(order, db)

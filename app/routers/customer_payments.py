@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import RAZORPAY_KEY_ID
+from app.core.customer_prescription import upsert_from_cart_lines
 from app.core.order_service import (
     compute_pricing,
     create_order_record,
@@ -130,5 +131,7 @@ def verify_payment(
         razorpay_order_id=payload.razorpay_order_id,
         razorpay_payment_id=payload.razorpay_payment_id,
     )
+    upsert_from_cart_lines(db, customer.id, line_rows)
+    db.commit()
     notify_order_placed(order, customer)
     return _order_out(order, db)

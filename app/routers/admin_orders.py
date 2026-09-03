@@ -172,6 +172,7 @@ def _detail_out(order: Order) -> AdminOrderDetailOut:
             name=i.name_snapshot or (i.product.name if i.product else ""),
             qty=i.qty,
             price=float(i.price_snapshot or 0),
+            lensFit=i.lens_fit,
         )
         for i in (order.items or [])
     ]

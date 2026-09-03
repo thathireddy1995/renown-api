@@ -505,6 +505,7 @@ class CartItem(Base):
     )
     qty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     saved_for_later: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    lens_fit: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         ISTDateTime(), server_default=func.now()
     )
@@ -652,6 +653,7 @@ class OrderItem(Base):
     name_snapshot: Mapped[str | None] = mapped_column(String(200), nullable=True)
     price_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     qty: Mapped[int] = mapped_column(Integer, nullable=False)
+    lens_fit: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     order: Mapped["Order"] = relationship(back_populates="items")
     product: Mapped["Product"] = relationship()
@@ -667,6 +669,7 @@ class Warehouse(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     city: Mapped[str | None] = mapped_column(String(80), nullable=True)
     country: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(200), nullable=True)
     manager: Mapped[str | None] = mapped_column(String(120), nullable=True)
     capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     staff: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -1148,13 +1151,19 @@ class StoreOrder(Base):
         ForeignKey("stores.id", ondelete="RESTRICT"), nullable=False
     )
     customer_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    customer_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customers.id", ondelete="SET NULL"), nullable=True
+    )
     channel: Mapped[str] = mapped_column(String(30), nullable=False, default="in_store")
     payment_method: Mapped[str] = mapped_column(String(20), nullable=False, default="cash")
     associate_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="Completed")
+    pickup_at: Mapped[datetime | None] = mapped_column(ISTDateTime(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         ISTDateTime(), server_default=func.now()
     )
@@ -1279,6 +1288,45 @@ class Prescription(Base):
 
     customer: Mapped["Customer"] = relationship()
     doctor: Mapped["Doctor | None"] = relationship()
+
+
+class CustomerPrescription(Base):
+    """One saved optical Rx (power) profile per customer for storefront / counter prefill."""
+
+    __tablename__ = "customer_prescriptions"
+    __table_args__ = (
+        Index("ix_customer_prescriptions_customer_id", "customer_id"),
+        CheckConstraint(
+            "power_mode IN ('powered', 'zero')",
+            name="customer_prescriptions_power_mode_check",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    power_mode: Mapped[str] = mapped_column(String(20), nullable=False, default="powered")
+    vision_type: Mapped[str] = mapped_column(String(40), nullable=False, default="single_vision")
+    lens_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    right_sph: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    right_cyl: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    right_axis: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    right_pd: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    right_add: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    left_sph: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    left_cyl: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    left_axis: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    left_pd: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    left_add: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        ISTDateTime(), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
+    )
+
+    customer: Mapped["Customer"] = relationship()
 
 
 class Employee(Base):

@@ -17,6 +17,8 @@ class UserOut(BaseModel):
     store_code: str | None = None
     store_name: str | None = None
     store_city: str | None = None
+    store_address: str | None = None
+    store_phone: str | None = None
 
 
 class TokenResponse(BaseModel):

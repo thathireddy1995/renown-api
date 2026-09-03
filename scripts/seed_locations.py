@@ -30,6 +30,7 @@ WAREHOUSES = [
         "capacity": 24000,
         "staff": 42,
         "status": "Active",
+        "address": "Whitefield Logistics Park, Bengaluru",
     },
     {
         "code": "WH-MUM",
@@ -40,6 +41,7 @@ WAREHOUSES = [
         "capacity": 18000,
         "staff": 34,
         "status": "Active",
+        "address": "Andheri logistics belt, Mumbai",
     },
     {
         "code": "WH-DEL",
@@ -50,6 +52,7 @@ WAREHOUSES = [
         "capacity": 22000,
         "staff": 28,
         "status": "Active",
+        "address": "Udyog Vihar, Gurugram",
     },
     {
         "code": "WH-DXB",
@@ -60,6 +63,7 @@ WAREHOUSES = [
         "capacity": 12000,
         "staff": 18,
         "status": "Maintenance",
+        "address": "Jebel Ali Free Zone, Dubai",
     },
     {
         "code": "WH-SIN",
@@ -70,6 +74,18 @@ WAREHOUSES = [
         "capacity": 15000,
         "staff": 22,
         "status": "Active",
+        "address": "Tuas Link, Singapore",
+    },
+    {
+        "code": "WH-HYD",
+        "name": "Hyderabad Hub",
+        "city": "Hyderabad",
+        "country": "India",
+        "manager": "Priya Sharma",
+        "capacity": 16000,
+        "staff": 20,
+        "status": "Active",
+        "address": "Gachibowli logistics park, Hyderabad",
     },
 ]
 
@@ -158,6 +174,20 @@ STORES = [
         "today_revenue": Decimal("198450"),
         "today_orders": 29,
     },
+    {
+        "code": "ST-HYD-01",
+        "name": "Hyderabad · Banjara Hills",
+        "city": "Hyderabad",
+        "country": "India",
+        "address": "Road No. 12, Banjara Hills, Hyderabad 500034",
+        "manager": "Priya Sharma",
+        "phone": "+91 40 4000 1234",
+        "hours": "10:00 – 21:00",
+        "staff": 10,
+        "status": "Open",
+        "today_revenue": Decimal("0"),
+        "today_orders": 0,
+    },
 ]
 
 
@@ -184,6 +214,25 @@ def seed() -> None:
                 db.add(Store(**spec))
                 print(f"Created store {spec['code']}")
 
+        db.commit()
+
+        code_to_wh = {
+            w.code: w.id
+            for w in db.scalars(select(Warehouse)).all()
+        }
+        store_wh = {
+            "ST-BLR-01": "WH-BLR",
+            "ST-BLR-02": "WH-BLR",
+            "ST-MUM-01": "WH-MUM",
+            "ST-DEL-01": "WH-DEL",
+            "ST-DXB-01": "WH-DXB",
+            "ST-SIN-01": "WH-SIN",
+            "ST-HYD-01": "WH-HYD",
+        }
+        for store in db.scalars(select(Store)).all():
+            wh_code = store_wh.get(store.code)
+            if wh_code and code_to_wh.get(wh_code):
+                store.warehouse_id = code_to_wh[wh_code]
         db.commit()
         print("Location seed complete.")
     except Exception:

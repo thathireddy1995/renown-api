@@ -11,6 +11,7 @@ class WarehouseOut(BaseModel):
     name: str
     city: str = ""
     country: str = ""
+    address: str = ""
     manager: str = ""
     capacity: int = 0
     used: int = 0
@@ -26,6 +27,7 @@ class WarehouseCreate(BaseModel):
     name: str
     city: str | None = None
     country: str | None = None
+    address: str | None = None
     manager: str | None = None
     capacity: int = 0
     staff: int = 0
@@ -41,6 +43,7 @@ class WarehouseUpdate(BaseModel):
     name: str | None = None
     city: str | None = None
     country: str | None = None
+    address: str | None = None
     manager: str | None = None
     capacity: int | None = None
     staff: int | None = None
@@ -229,6 +232,53 @@ class AdminInventoryAuditOut(BaseModel):
 
 class AdminInventoryAuditListResponse(BaseModel):
     items: list[AdminInventoryAuditOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminLocationOut(BaseModel):
+    """Unified store-or-warehouse row for admin Locations + user tagging."""
+
+    kind: str
+    id: int
+    location_id: str
+    code: str
+    name: str
+    address: str = ""
+    city: str = ""
+    country: str = ""
+    phone: str | None = None
+    status: str = ""
+    warehouse_id: int | None = None
+    manager_name: str | None = None
+
+
+class AdminLocationCreate(BaseModel):
+    kind: str
+    code: str
+    name: str
+    address: str | None = None
+    city: str | None = None
+    country: str | None = "India"
+    phone: str | None = None
+    status: str | None = None
+    warehouse_id: int | None = None
+
+
+class AdminLocationUpdate(BaseModel):
+    code: str | None = None
+    name: str | None = None
+    address: str | None = None
+    city: str | None = None
+    country: str | None = None
+    phone: str | None = None
+    status: str | None = None
+    warehouse_id: int | None = None
+
+
+class AdminLocationListResponse(BaseModel):
+    items: list[AdminLocationOut]
     total: int
     limit: int
     offset: int

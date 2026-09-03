@@ -41,6 +41,8 @@ def _user_out(
         store_code=store.code if store else None,
         store_name=store.name if store else None,
         store_city=store.city if store else None,
+        store_address=store.address if store else None,
+        store_phone=store.phone if store else None,
     )
 
 

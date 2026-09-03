@@ -295,6 +295,7 @@ def create_order_record(
                 name_snapshot=row.product.name,
                 price_snapshot=unit,
                 qty=row.qty,
+                lens_fit=getattr(row, "lens_fit", None),
             )
         )
     db.add_all(order_items)

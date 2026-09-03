@@ -21,6 +21,7 @@ class AdminOrderItemOut(BaseModel):
     name: str
     qty: int
     price: float
+    lensFit: dict | None = None
 
 
 class AdminOrderDetailOut(AdminOrderOut):

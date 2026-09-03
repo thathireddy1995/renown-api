@@ -11,6 +11,7 @@ from app.routers import (
     admin_customers,
     admin_dashboard,
     admin_employees,
+    admin_locations,
     admin_offers,
     admin_operations,
     admin_opticals,
@@ -37,6 +38,7 @@ from app.routers import (
     customer_home,
     customer_orders,
     customer_payments,
+    customer_prescriptions,
     customer_products,
     customer_reviews,
     customer_wishlist,
@@ -65,6 +67,7 @@ from app.routers import (
     staff_warehouse_settings,
     staff_warehouse_suppliers,
     staff_warehouse_transfers,
+    store_app,
     web_analytics,
 )
 
@@ -84,6 +87,7 @@ app.add_middleware(
 
 app.include_router(admin_auth.router)
 app.include_router(staff_auth.router)
+app.include_router(store_app.router)
 app.include_router(staff_warehouse_suppliers.router)
 app.include_router(staff_warehouse_receiving.router)
 app.include_router(staff_warehouse_picking.router)
@@ -108,6 +112,7 @@ app.include_router(staff_warehouse_audits.router)
 app.include_router(staff_warehouse_low_stock.router)
 app.include_router(staff_warehouse_settings.router)
 app.include_router(customer_auth.router)
+app.include_router(customer_prescriptions.router)
 app.include_router(customer_appointments.router)
 app.include_router(admin_catalog.router)
 app.include_router(admin_catalog_variants.router)
@@ -119,6 +124,7 @@ app.include_router(admin_orders.router)
 app.include_router(admin_customers.router)
 app.include_router(admin_employees.router)
 app.include_router(admin_users.router)
+app.include_router(admin_locations.router)
 app.include_router(admin_settings.router)
 app.include_router(admin_reports.router)
 app.include_router(admin_dashboard.router)

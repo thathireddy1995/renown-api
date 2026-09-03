@@ -9,12 +9,14 @@ class CartItemOut(BaseModel):
     qty: int = 1
     savedForLater: bool = False
     variantId: int | None = None
+    lensFit: dict | None = None
 
 
 class CartAddRequest(BaseModel):
     product_id: str = Field(description="Product slug or numeric id")
     variant_id: int | None = None
     qty: int = Field(default=1, ge=1)
+    lens_fit: dict | None = None
 
 
 class CartUpdateRequest(BaseModel):

@@ -98,9 +98,10 @@ def _customer_redemptions(db: Session, coupon_id: int, customer_id: int) -> int:
 
 
 def _load_live_coupon(db: Session, code: str, *, for_update: bool = False) -> Coupon:
+    normalized = (code or "").strip().upper()
     stmt = (
         select(Coupon)
-        .where(Coupon.code == code, Coupon.status != "deleted")
+        .where(func.upper(Coupon.code) == normalized, Coupon.status != "deleted")
         .options(selectinload(Coupon.brand), selectinload(Coupon.category))
     )
     if for_update:
