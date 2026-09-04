@@ -5,6 +5,8 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import S3_PUBLIC_BUCKET
+from app.core.s3_images import presign_taxonomy_puts
 from app.core.taxonomy_utils import (
     ensure_slug,
     format_updated,
@@ -16,6 +18,11 @@ from app.core.taxonomy_utils import (
 )
 from app.database import get_db
 from app.deps import pagination, require_role
+from app.dto.catalog_dto import (
+    ImagePresignItem,
+    ImagePresignRequest,
+    ImagePresignResponse,
+)
 from app.dto.taxonomy_dto import (
     AttributeCreate,
     AttributeListResponse,
@@ -71,6 +78,8 @@ def _taxonomy_out(row, products: int = 0) -> TaxonomyOut:
         products=products,
         status=status_label(row.status),
         updated=format_updated(row.updated_at),
+        image=getattr(row, "image", None),
+        sort_order=int(getattr(row, "sort_order", 0) or 0),
     )
 
 
@@ -90,7 +99,9 @@ def _list_taxonomy(
     limit: int,
     offset: int,
     include_counts: bool,
+    order_by=None,
 ) -> TaxonomyListResponse:
+    ordering = order_by if order_by is not None else (model.id.asc(),)
     if include_counts:
         rows = db.execute(
             select(
@@ -100,7 +111,7 @@ def _list_taxonomy(
             )
             .outerjoin(Product, and_(product_fk == model.id, Product.status != "deleted"))
             .group_by(model.id)
-            .order_by(model.id.asc())
+            .order_by(*ordering)
             .limit(limit)
             .offset(offset)
         ).all()
@@ -108,7 +119,7 @@ def _list_taxonomy(
     else:
         rows = db.execute(
             select(model, func.count().over().label("total_count"))
-            .order_by(model.id.asc())
+            .order_by(*ordering)
             .limit(limit)
             .offset(offset)
         ).all()
@@ -123,7 +134,15 @@ def list_categories(
     include_counts: bool = Query(True, alias="counts"),
 ) -> TaxonomyListResponse:
     limit, offset = page
-    return _list_taxonomy(db, Category, Product.category_id, limit, offset, include_counts)
+    return _list_taxonomy(
+        db,
+        Category,
+        Product.category_id,
+        limit,
+        offset,
+        include_counts,
+        order_by=(Category.sort_order.asc(), Category.name.asc(), Category.id.asc()),
+    )
 
 
 @router.post("/categories", response_model=TaxonomyOut, status_code=status.HTTP_201_CREATED)
@@ -131,7 +150,13 @@ def create_category(payload: TaxonomyCreate, db: Session = Depends(get_db)) -> T
     slug = ensure_slug(payload.name, payload.slug)
     if db.scalar(select(Category).where(Category.slug == slug)):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already exists.")
-    row = Category(name=payload.name, slug=slug, status=status_store(payload.status))
+    row = Category(
+        name=payload.name,
+        slug=slug,
+        status=status_store(payload.status),
+        image=(payload.image or None),
+        sort_order=int(payload.sort_order or 0),
+    )
     db.add(row)
     try:
         db.commit()
@@ -140,6 +165,26 @@ def create_category(payload: TaxonomyCreate, db: Session = Depends(get_db)) -> T
         raise
     db.refresh(row)
     return _taxonomy_out(row, 0)
+
+
+@router.post(
+    "/categories/images/presign",
+    response_model=ImagePresignResponse,
+)
+def presign_category_image(payload: ImagePresignRequest) -> ImagePresignResponse:
+    if len(payload.files) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Select exactly one category image.",
+        )
+    uploads = presign_taxonomy_puts(
+        "categories",
+        [(item.filename, item.content_type) for item in payload.files],
+    )
+    return ImagePresignResponse(
+        bucket=S3_PUBLIC_BUCKET,
+        uploads=[ImagePresignItem(**item) for item in uploads],
+    )
 
 
 @router.patch("/categories/{item_id}", response_model=TaxonomyOut)
@@ -152,6 +197,8 @@ def update_category(
     data = payload.model_dump(exclude_unset=True)
     if "status" in data:
         data["status"] = status_store(data["status"])
+    if "image" in data:
+        data["image"] = data["image"] or None
     if "slug" in data and data["slug"]:
         data["slug"] = ensure_slug(data.get("name") or row.name, data["slug"])
     elif "name" in data and "slug" not in data:
@@ -225,7 +272,12 @@ def create_brand(payload: TaxonomyCreate, db: Session = Depends(get_db)) -> Taxo
     # different labels both wanting a "sunglasses" slug) may share one.
     if db.scalar(select(Brand).where(Brand.name == payload.name, Brand.slug == slug)):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug already exists.")
-    row = Brand(name=payload.name, slug=slug, status=status_store(payload.status))
+    row = Brand(
+        name=payload.name,
+        slug=slug,
+        status=status_store(payload.status),
+        image=(payload.image or None),
+    )
     db.add(row)
     try:
         db.commit()
@@ -239,6 +291,26 @@ def create_brand(payload: TaxonomyCreate, db: Session = Depends(get_db)) -> Taxo
     return _taxonomy_out(row, 0)
 
 
+@router.post(
+    "/brands/images/presign",
+    response_model=ImagePresignResponse,
+)
+def presign_brand_image(payload: ImagePresignRequest) -> ImagePresignResponse:
+    if len(payload.files) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Select exactly one brand image.",
+        )
+    uploads = presign_taxonomy_puts(
+        "brands",
+        [(item.filename, item.content_type) for item in payload.files],
+    )
+    return ImagePresignResponse(
+        bucket=S3_PUBLIC_BUCKET,
+        uploads=[ImagePresignItem(**item) for item in uploads],
+    )
+
+
 @router.patch("/brands/{item_id}", response_model=TaxonomyOut)
 def update_brand(item_id: int, payload: TaxonomyUpdate, db: Session = Depends(get_db)) -> TaxonomyOut:
     row = db.get(Brand, item_id)
@@ -247,6 +319,8 @@ def update_brand(item_id: int, payload: TaxonomyUpdate, db: Session = Depends(ge
     data = payload.model_dump(exclude_unset=True)
     if "status" in data:
         data["status"] = status_store(data["status"])
+    if "image" in data:
+        data["image"] = data["image"] or None
     if "slug" in data and data["slug"]:
         data["slug"] = ensure_slug(data.get("name") or row.name, data["slug"])
     new_name = data.get("name", row.name)

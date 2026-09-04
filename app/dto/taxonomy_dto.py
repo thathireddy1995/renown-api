@@ -13,18 +13,24 @@ class TaxonomyOut(BaseModel):
     products: int = 0
     status: str = "Active"
     updated: str = ""
+    image: str | None = None
+    sort_order: int = 0
 
 
 class TaxonomyCreate(BaseModel):
     name: str = Field(max_length=120)
     slug: str | None = Field(default=None, max_length=140)
     status: str = "active"
+    image: str | None = Field(default=None, max_length=500)
+    sort_order: int | None = None
 
 
 class TaxonomyUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=120)
     slug: str | None = Field(default=None, max_length=140)
     status: str | None = None
+    image: str | None = Field(default=None, max_length=500)
+    sort_order: int | None = None
 
 
 class TaxonomyListResponse(BaseModel):
@@ -77,6 +83,7 @@ class CustomerCategoryOut(BaseModel):
     name: str
     slug: str
     image: str | None = None
+    sort_order: int = 0
 
 
 class CustomerCollectionOut(BaseModel):
@@ -89,6 +96,14 @@ class CustomerBrandOut(BaseModel):
     id: int
     name: str
     slug: str
+    image: str | None = None
+
+
+class CustomerLensTypeOut(BaseModel):
+    id: int
+    name: str
+    description: str = ""
+    price: float = 0
 
 
 class CustomerStoreOut(BaseModel):

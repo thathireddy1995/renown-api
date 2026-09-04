@@ -120,6 +120,13 @@ def banner_object_key(content_type: str) -> str:
     return f"homepage/banners/{uuid.uuid4().hex}.{ext}"
 
 
+def taxonomy_object_key(kind: str, content_type: str) -> str:
+    """kind is 'brands' or 'categories'."""
+    safe = "brands" if kind == "brands" else "categories"
+    ext = ALLOWED_CONTENT_TYPES[content_type]
+    return f"catalog/{safe}/{uuid.uuid4().hex}.{ext}"
+
+
 def resolve_mobile_media_type(filename: str, content_type: str) -> str:
     raw = (content_type or "").split(";")[0].strip().lower()
     if raw in ALLOWED_MOBILE_MEDIA_TYPES:
@@ -267,6 +274,10 @@ def presign_puts(
 
 def presign_banner_puts(files: list[tuple[str, str]]) -> list[dict[str, str]]:
     return _presign_puts(files, banner_object_key)
+
+
+def presign_taxonomy_puts(kind: str, files: list[tuple[str, str]]) -> list[dict[str, str]]:
+    return _presign_puts(files, lambda content_type: taxonomy_object_key(kind, content_type))
 
 
 def presign_mobile_banner_puts(files: list[tuple[str, str]]) -> list[dict[str, str]]:

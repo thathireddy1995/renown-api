@@ -11,9 +11,10 @@ from app.dto.taxonomy_dto import (
     CustomerBrandOut,
     CustomerCategoryOut,
     CustomerCollectionOut,
+    CustomerLensTypeOut,
     CustomerStoreOut,
 )
-from app.schemas import Brand, Category, Collection, Store
+from app.schemas import Brand, Category, Collection, LensType, Store
 
 router = APIRouter(prefix="/customer", tags=["customer-catalog"])
 
@@ -33,14 +34,15 @@ def list_categories(db: Session = Depends(get_db)) -> list[CustomerCategoryOut]:
     rows = db.scalars(
         select(Category)
         .where(Category.status == "active")
-        .order_by(Category.name.asc())
+        .order_by(Category.sort_order.asc(), Category.name.asc(), Category.id.asc())
     ).all()
     return [
         CustomerCategoryOut(
             id=r.id,
             name=r.name,
             slug=r.slug,
-            image=None,
+            image=r.image,
+            sort_order=int(r.sort_order or 0),
         )
         for r in rows
     ]
@@ -61,7 +63,24 @@ def list_brands(db: Session = Depends(get_db)) -> list[CustomerBrandOut]:
     rows = db.scalars(
         select(Brand).where(Brand.status == "active").order_by(Brand.name.asc())
     ).all()
-    return [CustomerBrandOut(id=r.id, name=r.name, slug=r.slug) for r in rows]
+    return [
+        CustomerBrandOut(id=r.id, name=r.name, slug=r.slug, image=r.image) for r in rows
+    ]
+
+
+@router.get("/lens-types", response_model=list[CustomerLensTypeOut])
+def list_lens_types(db: Session = Depends(get_db)) -> list[CustomerLensTypeOut]:
+    """Lens options for the product-page power / lens picker."""
+    rows = db.scalars(select(LensType).order_by(LensType.id.asc())).all()
+    return [
+        CustomerLensTypeOut(
+            id=r.id,
+            name=r.name,
+            description=r.description or "",
+            price=float(r.price or 0),
+        )
+        for r in rows
+    ]
 
 
 @router.get("/stores", response_model=list[CustomerStoreOut])
