@@ -18,8 +18,10 @@ from app.core.shiprocket import (
     ShiprocketError,
     configured as shiprocket_configured,
     normalize_tracking,
+    should_advance_status,
     track_by_awb,
 )
+from app.core.shiprocket_fulfill import assign_awb_if_missing, attach_shiprocket_shipment
 from app.dto.order_dto import (
     OrderCreateRequest,
     OrderItemOut,
@@ -207,6 +209,8 @@ def _order_out(order: Order, db: Session | None = None) -> OrderOut:
         awb_code=order.awb_code,
         courier_name=order.courier_name,
         tracking_url=order.tracking_url,
+        shiprocket_order_id=order.shiprocket_order_id,
+        shiprocket_shipment_id=order.shiprocket_shipment_id,
         verify_token=order.verify_token,
         items=items,
     )
@@ -278,17 +282,26 @@ def track_order(
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
 
+    if not order.awb_code and order.shiprocket_shipment_id:
+        assign_awb_if_missing(db, order)
+        db.refresh(order)
+
     base = OrderTrackingOut(
         order_id=order.order_number,
         status=_status_label(order.status),
         awb_code=order.awb_code,
         courier_name=order.courier_name,
         tracking_url=order.tracking_url,
+        shiprocket_order_id=order.shiprocket_order_id,
+        shiprocket_shipment_id=order.shiprocket_shipment_id,
         shiprocket=False,
     )
 
     if not order.awb_code:
-        base.message = "Shipment not handed to courier yet."
+        if order.shiprocket_shipment_id:
+            base.message = "Shipment booked. Courier AWB will appear once assigned."
+        else:
+            base.message = "Shipment not handed to courier yet."
         return base
 
     if not shiprocket_configured():
@@ -302,14 +315,22 @@ def track_order(
         base.message = str(err)
         return base
 
-    # Keep Renown order status in sync with courier when it advances.
+    if info.get("error"):
+        base.message = str(info["error"])
+        return base
+
+    dirty = False
     mapped = info.get("mapped_status") or ""
-    if mapped and mapped != (order.status or "").lower():
+    if should_advance_status(order.status, mapped):
         order.status = mapped
-        if info.get("courier") and not order.courier_name:
-            order.courier_name = info["courier"][:120]
-        if info.get("track_url"):
-            order.tracking_url = info["track_url"]
+        dirty = True
+    if info.get("courier") and not order.courier_name:
+        order.courier_name = str(info["courier"])[:120]
+        dirty = True
+    if info.get("track_url") and not order.tracking_url:
+        order.tracking_url = str(info["track_url"])
+        dirty = True
+    if dirty:
         db.commit()
 
     return OrderTrackingOut(
@@ -318,6 +339,8 @@ def track_order(
         awb_code=order.awb_code or info.get("awb") or None,
         courier_name=order.courier_name or info.get("courier") or None,
         tracking_url=order.tracking_url or info.get("track_url") or None,
+        shiprocket_order_id=order.shiprocket_order_id,
+        shiprocket_shipment_id=order.shiprocket_shipment_id,
         current_status=info.get("current_status") or None,
         edd=info.get("edd") or None,
         origin=info.get("origin") or None,
@@ -355,5 +378,7 @@ def create_order(
     )
     upsert_from_cart_lines(db, customer.id, line_rows)
     db.commit()
+    attach_shiprocket_shipment(db, order, customer)
+    db.refresh(order)
     notify_order_placed(order, customer)
     return _order_out(order, db)

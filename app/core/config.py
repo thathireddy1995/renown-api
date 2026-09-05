@@ -56,6 +56,12 @@ RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "EGGkPibPOmeLQN6fRTUpK7Qi
 # Shiprocket API user (Settings → API). Never commit real values to git.
 SHIPROCKET_EMAIL = os.getenv("SHIPROCKET_EMAIL", "")
 SHIPROCKET_PASSWORD = os.getenv("SHIPROCKET_PASSWORD", "")
+# Pickup nickname in Shiprocket (Settings → Pickup Address). Auto-created if missing.
+SHIPROCKET_PICKUP_LOCATION = (os.getenv("SHIPROCKET_PICKUP_LOCATION") or "Primary").strip() or "Primary"
+SHIPROCKET_DEFAULT_WEIGHT_KG = float(os.getenv("SHIPROCKET_DEFAULT_WEIGHT_KG") or "0.5")
+SHIPROCKET_DEFAULT_LENGTH_CM = float(os.getenv("SHIPROCKET_DEFAULT_LENGTH_CM") or "15")
+SHIPROCKET_DEFAULT_BREADTH_CM = float(os.getenv("SHIPROCKET_DEFAULT_BREADTH_CM") or "10")
+SHIPROCKET_DEFAULT_HEIGHT_CM = float(os.getenv("SHIPROCKET_DEFAULT_HEIGHT_CM") or "8")
 
 # Public product images — files live in S3; Postgres only stores the https URL.
 S3_PUBLIC_BUCKET = os.getenv("S3_PUBLIC_BUCKET", "renown-public")

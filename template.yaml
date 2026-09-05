@@ -111,6 +111,7 @@ Resources:
           CORS_ORIGIN_REGEX: !Ref CorsOriginRegex
           SHIPROCKET_EMAIL: !Ref ShiprocketEmail
           SHIPROCKET_PASSWORD: !Ref ShiprocketPassword
+          SHIPROCKET_PICKUP_LOCATION: Primary
           MSG91_AUTH_KEY: !Ref Msg91AuthKey
           MSG91_WA_NUMBER: !Ref Msg91WaNumber
           MSG91_WA_TEMPLATE: !Ref Msg91WaTemplate

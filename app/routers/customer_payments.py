@@ -31,6 +31,7 @@ from app.dto.payment_dto import (
     CreatePaymentOrderResponse,
     VerifyPaymentRequest,
 )
+from app.core.shiprocket_fulfill import attach_shiprocket_shipment
 from app.routers.customer_orders import _order_out
 from app.routers.telegram_notify import notify_order_placed
 from app.schemas import Customer
@@ -133,5 +134,7 @@ def verify_payment(
     )
     upsert_from_cart_lines(db, customer.id, line_rows)
     db.commit()
+    attach_shiprocket_shipment(db, order, customer)
+    db.refresh(order)
     notify_order_placed(order, customer)
     return _order_out(order, db)

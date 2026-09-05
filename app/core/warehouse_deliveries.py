@@ -1,8 +1,7 @@
 """Online (home-delivery) warehouse fulfillment — short DB transactions only.
 
-Shiprocket HTTP is intentionally not called here. Lambda/RDS stays healthy:
-persist the dispatch + deduct stock, then attach an AWB (typed or from
-Shiprocket) on a later request.
+Shiprocket booking happens at customer checkout. Dispatch only deducts
+stock, then requests pickup after the DB commit.
 """
 
 from __future__ import annotations
@@ -14,6 +13,7 @@ from fastapi import HTTPException
 
 from app.core.admin_order_status import admin_status_label
 from app.core.ist import format_ist_datetime, now as ist_now
+from app.core.shiprocket_fulfill import request_pickup_for_order
 from app.schemas import (
     DispatchOrder,
     DispatchOrderItem,
@@ -228,6 +228,8 @@ def fulfill_online_order(
 
     if (awb or "").strip():
         order.awb_code = awb.strip()
+    elif order.awb_code:
+        dispatch.awb = order.awb_code
     if carrier:
         order.courier_name = carrier.strip() or order.courier_name
     if mark_shipped and (order.status or "").lower() in ("placed", "verified", "packed"):
@@ -235,6 +237,7 @@ def fulfill_online_order(
         dispatch.status = "Processing"
 
     db.commit()
+    request_pickup_for_order(order)
     loaded = db.scalar(
         select(DispatchOrder)
         .where(DispatchOrder.id == dispatch.id)

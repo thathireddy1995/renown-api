@@ -102,6 +102,8 @@ class OrderOut(BaseModel):
     awb_code: str | None = None
     courier_name: str | None = None
     tracking_url: str | None = None
+    shiprocket_order_id: str | None = None
+    shiprocket_shipment_id: str | None = None
     verify_token: str | None = None
     items: list[OrderItemOut] = Field(default_factory=list)
 
@@ -118,6 +120,8 @@ class OrderTrackingOut(BaseModel):
     awb_code: str | None = None
     courier_name: str | None = None
     tracking_url: str | None = None
+    shiprocket_order_id: str | None = None
+    shiprocket_shipment_id: str | None = None
     current_status: str | None = None
     edd: str | None = None
     origin: str | None = None
