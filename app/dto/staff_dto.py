@@ -136,6 +136,12 @@ class StaffDispatchCreate(BaseModel):
     items: list[StaffDispatchItemIn] = Field(default_factory=list)
 
 
+class StaffPendingDeliveryLineOut(BaseModel):
+    name: str = ""
+    qty: int = 1
+    lensFit: dict | None = None
+
+
 class StaffPendingDeliveryOut(BaseModel):
     id: str
     order_id: int
@@ -148,6 +154,7 @@ class StaffPendingDeliveryOut(BaseModel):
     total: float
     status: str
     date: str = ""
+    line_items: list[StaffPendingDeliveryLineOut] = Field(default_factory=list)
 
 
 class StaffPendingDeliveryListResponse(BaseModel):

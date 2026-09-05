@@ -72,6 +72,7 @@ class StoreAppOrderOut(BaseModel):
     created_at: str
     pickup_at: str | None = None
     serial: str | None = None
+    lens_fit: dict | None = None
 
 
 class StoreAppOrderListOut(BaseModel):
@@ -129,3 +130,4 @@ class StoreAppPlaceOrderRequest(BaseModel):
 
 class StoreAppStatusPatch(BaseModel):
     status: str
+    otp: str | None = None

@@ -83,6 +83,7 @@ class StaffStoreOrderListResponse(BaseModel):
 
 class StaffStoreOrderStatusPatch(BaseModel):
     status: str
+    otp: str | None = None
 
 
 class StoreAnalyticsKpis(BaseModel):

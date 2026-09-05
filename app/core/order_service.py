@@ -202,6 +202,8 @@ def _create_pickup_store_order(
         order_number=order_number,
         store_id=store_id,
         customer_name=customer.name or customer.email or customer.phone or "Customer",
+        customer_phone=customer.phone,
+        customer_id=customer.id,
         channel="click_collect",
         payment_method=pay,
         associate_name=None,

@@ -178,6 +178,12 @@ class AdminStockAllocationListResponse(BaseModel):
     counts: dict[str, int] = Field(default_factory=dict)
 
 
+class AdminDeliveryLineOut(BaseModel):
+    name: str = ""
+    qty: int = 1
+    lensFit: dict | None = None
+
+
 class AdminDeliveryOut(BaseModel):
     id: str
     order_id: int
@@ -190,6 +196,7 @@ class AdminDeliveryOut(BaseModel):
     total: float
     status: str
     date: str = ""
+    line_items: list[AdminDeliveryLineOut] = Field(default_factory=list)
 
 
 class AdminDeliveryListResponse(BaseModel):

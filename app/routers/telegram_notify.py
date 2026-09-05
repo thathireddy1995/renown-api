@@ -1,7 +1,8 @@
-"""Enqueue new customer orders to Optimus SQS (Telegram worker).
+"""Enqueue Telegram alerts to Optimus SQS (orders + storefront contact).
 
 Checkout is not blocked on Telegram: send_message is a short SQS call, and a
-queue failure is logged without failing the order.
+queue failure is logged without failing the order. Contact form submissions
+do fail the HTTP request if the queue send fails so the customer can retry.
 """
 
 from __future__ import annotations
@@ -61,14 +62,26 @@ def _phone(order: Order, customer: Customer) -> str:
     return ""
 
 
-def notify_order_placed(order: Order, customer: Customer) -> None:
-    """Snapshot order fields and enqueue them for the Optimus Telegram worker."""
+def _enqueue(payload: dict, *, log_key: str) -> bool:
+    """Put a JSON payload on the Optimus notify queue. Returns False on skip/error."""
     queue_url = (ORDER_NOTIFY_QUEUE_URL or "").strip()
     if not queue_url:
-        logger.warning("Order notify skipped: ORDER_NOTIFY_QUEUE_URL is not set")
-        return
+        logger.warning("Notify skipped (%s): ORDER_NOTIFY_QUEUE_URL is not set", log_key)
+        return False
 
+    try:
+        _sqs_client().send_message(QueueUrl=queue_url, MessageBody=json.dumps(payload))
+        logger.info("Notify enqueued %s", log_key)
+        return True
+    except (BotoCoreError, ClientError):
+        logger.exception("Notify SQS send failed %s", log_key)
+        return False
+
+
+def notify_order_placed(order: Order, customer: Customer) -> None:
+    """Snapshot order fields and enqueue them for the Optimus Telegram worker."""
     payload = {
+        "type": "order",
         "order_id": order.order_number,
         "customer_name": customer.name or "",
         "total": float(order.total or 0),
@@ -88,8 +101,39 @@ def notify_order_placed(order: Order, customer: Customer) -> None:
         "discount": float(order.discount or 0),
         "coupon_code": order.coupon_code,
     }
-    try:
-        _sqs_client().send_message(QueueUrl=queue_url, MessageBody=json.dumps(payload))
-        logger.info("Order notify enqueued order_id=%s", payload["order_id"])
-    except (BotoCoreError, ClientError):
-        logger.exception("Order notify SQS send failed order_id=%s", payload["order_id"])
+    _enqueue(payload, log_key=f"order_id={payload['order_id']}")
+
+
+def _escape_html(text: str) -> str:
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def format_contact_telegram(*, name: str, phone: str, message: str) -> str:
+    """Same layout as Optimus order alerts: icon + title, then labelled fields."""
+    return (
+        "📩 <b>New user query</b>\n\n"
+        f"<b>Name:</b> {_escape_html(name or '—')}\n"
+        f"<b>Phone:</b> {_escape_html(phone or '—')}\n\n"
+        f"<b>Message:</b>\n{_escape_html(message or '—')}"
+    )
+
+
+def notify_contact_request(*, name: str, phone: str, message: str) -> bool:
+    """Enqueue a storefront contact form submission for the Optimus Telegram worker."""
+    html = format_contact_telegram(name=name, phone=phone, message=message)
+    return _enqueue(
+        {
+            "type": "contact",
+            "customer_name": name,
+            "phone": phone,
+            "message": message,
+            # Production Optimus still falls back to `text` until that worker is redeployed.
+            "text": html,
+        },
+        log_key=f"contact phone=…{phone[-4:] if len(phone) >= 4 else phone}",
+    )

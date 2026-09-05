@@ -10,6 +10,7 @@ from app.core.store_orders import (
     staff_order_row,
     store_order_eager,
 )
+from app.core.pickup_otp import consume_pickup_otp, send_pickup_otp
 from app.database import get_db
 from app.deps import pagination, require_role, TokenPrincipal
 from app.dto.store_order_dto import (
@@ -17,6 +18,7 @@ from app.dto.store_order_dto import (
     StaffStoreOrderOut,
     StaffStoreOrderStatusPatch,
 )
+from app.dto.store_app_dto import StoreAppOtpResponse
 from app.schemas import Store, StoreOrder
 from sqlalchemy import select
 
@@ -106,6 +108,23 @@ def get_order(
     return StaffStoreOrderOut(**staff_order_row(order))
 
 
+@router.post("/{order_ref}/pickup-otp", response_model=StoreAppOtpResponse)
+def send_pickup_otp_for_order(
+    order_ref: str,
+    db: Session = Depends(get_db),
+    _: TokenPrincipal = Depends(require_role("store_manager")),
+) -> StoreAppOtpResponse:
+    order = _load_order(db, order_ref)
+    if not order or order.channel != "click_collect":
+        raise HTTPException(status_code=404, detail="Order not found")
+    message, expires, debug = send_pickup_otp(db, order)
+    return StoreAppOtpResponse(
+        message=message,
+        expires_in_seconds=expires,
+        debug_otp=debug,
+    )
+
+
 @router.patch("/{order_ref}/status", response_model=StaffStoreOrderOut)
 def patch_status(
     order_ref: str,
@@ -134,6 +153,9 @@ def patch_status(
             status_code=409,
             detail=f"Cannot move click & collect order from '{order.status}' to '{body.status}'.",
         )
+
+    if target == "collected":
+        consume_pickup_otp(db, order, body.otp or "")
 
     order.status = CLICK_COLLECT_CANONICAL[target]
     db.commit()

@@ -22,6 +22,8 @@ from app.core.customer_prescription import (
     upsert_for_customer,
 )
 from app.core.ist import now as ist_now
+from app.core.order_lens_fit import labels_from_lens_fit, lens_fits_by_order_numbers
+from app.core.pickup_otp import consume_pickup_otp, send_pickup_otp
 from app.core.staff_users import digits_phone
 from app.core.whatsapp_otp import WhatsAppOtpError, send_whatsapp_otp
 from app.database import get_db
@@ -99,6 +101,22 @@ def _require_store(db: Session, principal: TokenPrincipal) -> Store:
     return store
 
 
+def _load_store_order(db: Session, store_id: int, order_ref: str) -> StoreOrder:
+    stmt = (
+        select(StoreOrder)
+        .options(
+            selectinload(StoreOrder.items).selectinload(StoreOrderItem.variant).selectinload(ProductVariant.product)
+        )
+        .where(StoreOrder.store_id == store_id)
+    )
+    order = db.scalar(stmt.where(StoreOrder.order_number == order_ref))
+    if not order and order_ref.isdigit():
+        order = db.scalar(stmt.where(StoreOrder.id == int(order_ref)))
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return order
+
+
 def _location_out(store: Store) -> StoreAppLocationOut:
     return StoreAppLocationOut(
         kind="store",
@@ -132,7 +150,7 @@ def _frame_name(order: StoreOrder) -> str:
     return product.name if product is not None else (variant.sku or "—")
 
 
-def _order_out(order: StoreOrder) -> StoreAppOrderOut:
+def _order_out(order: StoreOrder, lens_fit: dict | None = None) -> StoreAppOrderOut:
     notes = (order.notes or "").strip()
     lens = ""
     power = ""
@@ -140,6 +158,11 @@ def _order_out(order: StoreOrder) -> StoreAppOrderOut:
         lens, _, power = notes.partition(" · ")
     elif notes:
         lens = notes
+    fit_lens, fit_power = labels_from_lens_fit(lens_fit)
+    if fit_lens:
+        lens = fit_lens
+    if fit_power:
+        power = fit_power
     pickup = None
     if order.pickup_at:
         pickup = order.pickup_at.isoformat()
@@ -159,7 +182,14 @@ def _order_out(order: StoreOrder) -> StoreAppOrderOut:
         created_at=order.created_at.isoformat() if order.created_at else "",
         pickup_at=pickup,
         serial=None,
+        lens_fit=lens_fit,
     )
+
+
+def _order_outs(db: Session, orders: list[StoreOrder | None]) -> list[StoreAppOrderOut]:
+    rows = [o for o in orders if o is not None]
+    fits = lens_fits_by_order_numbers(db, [o.order_number for o in rows])
+    return [_order_out(o, fits.get(o.order_number)) for o in rows]
 
 
 def _get_or_create_customer(db: Session, phone: str) -> Customer:
@@ -278,7 +308,7 @@ def home(
         pickups_today=int(stats.pickups_today or 0),
         low_stock=int(inv_stats.low_stock or 0),
         sku_count=int(inv_stats.sku_count or 0),
-        pickups=[_order_out(o) for o in pickup_rows],
+        pickups=_order_outs(db, list(pickup_rows)),
         stock_alerts=[
             StoreAppStockOut(
                 id=str(r[0]),
@@ -406,7 +436,7 @@ def list_orders(
     total = db.scalar(count_stmt) or 0
     rows = db.scalars(stmt.order_by(StoreOrder.id.desc()).limit(limit).offset(offset)).all()
     return StoreAppOrderListOut(
-        items=[_order_out(o) for o in rows],
+        items=_order_outs(db, list(rows)),
         total=int(total),
         limit=limit,
         offset=offset,
@@ -420,19 +450,23 @@ def get_order(
     principal: TokenPrincipal = Depends(require_role("store_manager")),
 ) -> StoreAppOrderOut:
     store = _require_store(db, principal)
-    stmt = (
-        select(StoreOrder)
-        .options(
-            selectinload(StoreOrder.items).selectinload(StoreOrderItem.variant).selectinload(ProductVariant.product)
-        )
-        .where(StoreOrder.store_id == store.id)
+    return _order_outs(db, [_load_store_order(db, store.id, order_ref)])[0]
+
+
+@router.post("/orders/{order_ref}/pickup-otp", response_model=StoreAppOtpResponse)
+def send_order_pickup_otp(
+    order_ref: str,
+    db: Session = Depends(get_db),
+    principal: TokenPrincipal = Depends(require_role("store_manager")),
+) -> StoreAppOtpResponse:
+    store = _require_store(db, principal)
+    order = _load_store_order(db, store.id, order_ref)
+    message, expires, debug = send_pickup_otp(db, order)
+    return StoreAppOtpResponse(
+        message=message,
+        expires_in_seconds=expires,
+        debug_otp=debug,
     )
-    order = db.scalar(stmt.where(StoreOrder.order_number == order_ref))
-    if not order and order_ref.isdigit():
-        order = db.scalar(stmt.where(StoreOrder.id == int(order_ref)))
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    return _order_out(order)
 
 
 @router.get("/customers/{phone}", response_model=StoreAppCustomerOut)
@@ -651,7 +685,7 @@ def place_order(
         )
         .where(StoreOrder.id == order.id)
     )
-    return _order_out(order)
+    return _order_outs(db, [order])[0]
 
 
 @router.patch("/orders/{order_ref}/status", response_model=StoreAppOrderOut)
@@ -662,20 +696,12 @@ def patch_status(
     principal: TokenPrincipal = Depends(require_role("store_manager")),
 ) -> StoreAppOrderOut:
     store = _require_store(db, principal)
-    stmt = (
-        select(StoreOrder)
-        .options(
-            selectinload(StoreOrder.items).selectinload(StoreOrderItem.variant).selectinload(ProductVariant.product)
-        )
-        .where(StoreOrder.store_id == store.id)
-    )
-    order = db.scalar(stmt.where(StoreOrder.order_number == order_ref))
-    if not order and order_ref.isdigit():
-        order = db.scalar(stmt.where(StoreOrder.id == int(order_ref)))
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+    order = _load_store_order(db, store.id, order_ref)
     mapped = APP_TO_STATUS.get(body.status) or body.status
+    if mapped == "Collected" and (order.channel or "") == "click_collect":
+        consume_pickup_otp(db, order, body.otp or "")
     order.status = mapped
     db.commit()
-    db.refresh(order)
-    return _order_out(order)
+    # Re-load with item/variant/product eager options — refresh() alone can
+    # leave relationships expired and trigger lazy loads in _frame_name.
+    return _order_outs(db, [_load_store_order(db, store.id, order.order_number)])[0]

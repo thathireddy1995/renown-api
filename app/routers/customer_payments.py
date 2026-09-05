@@ -118,6 +118,9 @@ def verify_payment(
     delivery = payload.delivery or "ship"
     address_id = resolve_shipping_address(db, customer, payload.address_id, delivery)
 
+    # Snapshot Rx onto the customer profile before create_order_record commits
+    # and deletes cart rows (expired CartItem.lens_fit would fail after that).
+    upsert_from_cart_lines(db, customer.id, line_rows)
     order = create_order_record(
         db,
         customer,
@@ -132,8 +135,6 @@ def verify_payment(
         razorpay_order_id=payload.razorpay_order_id,
         razorpay_payment_id=payload.razorpay_payment_id,
     )
-    upsert_from_cart_lines(db, customer.id, line_rows)
-    db.commit()
     attach_shiprocket_shipment(db, order, customer)
     db.refresh(order)
     notify_order_placed(order, customer)

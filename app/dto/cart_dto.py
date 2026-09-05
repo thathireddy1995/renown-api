@@ -22,6 +22,7 @@ class CartAddRequest(BaseModel):
 class CartUpdateRequest(BaseModel):
     qty: int | None = Field(default=None, ge=1)
     saved_for_later: bool | None = None
+    lens_fit: dict | None = None
 
 
 class CartListResponse(BaseModel):

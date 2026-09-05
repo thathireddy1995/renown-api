@@ -13,6 +13,7 @@ from fastapi import HTTPException
 
 from app.core.admin_order_status import admin_status_label
 from app.core.ist import format_ist_datetime, now as ist_now
+from app.core.order_lens_fit import line_items_from_order
 from app.core.shiprocket_fulfill import request_pickup_for_order
 from app.schemas import (
     DispatchOrder,
@@ -30,6 +31,7 @@ SHIP_MODES = ("ship", "home", "delivery")
 
 def delivery_eager_options():
     return (
+        selectinload(Order.items).selectinload(OrderItem.product),
         selectinload(Order.items).selectinload(OrderItem.variant),
         selectinload(Order.customer),
         selectinload(Order.address),
@@ -101,6 +103,7 @@ def pending_delivery_row(order: Order) -> dict:
         "total": float(order.total or 0),
         "status": admin_status_label(order.status),
         "date": format_ist_datetime(order.created_at),
+        "line_items": line_items_from_order(order),
     }
 
 

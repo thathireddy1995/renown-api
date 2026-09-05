@@ -120,12 +120,22 @@ def upsert_from_lens_fit(db: Session, customer_id: int, lens_fit: Any) -> Custom
         return None
     lens_type = lens_fit.get("lensType") or lens_fit.get("lens_type")
     rx = lens_fit.get("prescription") or {}
+    file = lens_fit.get("prescriptionFile") or lens_fit.get("prescription_file")
+    source = str(lens_fit.get("source") or "").strip().lower()
+    has_file = isinstance(file, dict) and bool(file.get("url") or file.get("key"))
     right = rx.get("right") if isinstance(rx, dict) else {}
     left = rx.get("left") if isinstance(rx, dict) else {}
     if not isinstance(right, dict):
         right = {}
     if not isinstance(left, dict):
         left = {}
+    # Uploaded Rx without SPH/CYL must not overwrite a saved power profile.
+    if (
+        (has_file or source == "upload")
+        and power_mode == "powered"
+        and not str(right.get("sph") or "").strip()
+    ):
+        return None
 
     payload = CustomerPrescriptionUpsert(
         power_mode=power_mode,
@@ -150,16 +160,23 @@ def upsert_from_lens_fit(db: Session, customer_id: int, lens_fit: Any) -> Custom
 
 
 def upsert_from_cart_lines(db: Session, customer_id: int, line_rows: list[Any]) -> None:
-    """Save the first powered (else first zero) lens_fit found on cart lines."""
+    """Save the first usable powered (else first zero) lens_fit found on cart lines.
+
+    Accepts either CartItem/OrderItem rows or ``(item, unit_price)`` tuples from
+    ``load_cart_lines`` / checkout.
+    """
     zero_fit = None
     for row in line_rows:
-        fit = getattr(row, "lens_fit", None)
+        item = row[0] if isinstance(row, (tuple, list)) else row
+        fit = getattr(item, "lens_fit", None)
         if not isinstance(fit, dict):
             continue
         mode = str(fit.get("powerMode") or fit.get("power_mode") or "").strip().lower()
         if mode == "powered":
-            upsert_from_lens_fit(db, customer_id, fit)
-            return
+            # Upload-only fits return None — keep scanning for a typed Rx table.
+            if upsert_from_lens_fit(db, customer_id, fit) is not None:
+                return
+            continue
         if mode == "zero" and zero_fit is None:
             zero_fit = fit
     if zero_fit is not None:

@@ -38,6 +38,16 @@ EXT_TO_CONTENT_TYPE = {
     "gif": "image/gif",
 }
 
+ALLOWED_RX_TYPES = {
+    **ALLOWED_CONTENT_TYPES,
+    "application/pdf": "pdf",
+}
+
+RX_EXT_TO_CONTENT_TYPE = {
+    **EXT_TO_CONTENT_TYPE,
+    "pdf": "application/pdf",
+}
+
 ALLOWED_MOBILE_MEDIA_TYPES = {
     **ALLOWED_CONTENT_TYPES,
     "image/bmp": "bmp",
@@ -286,6 +296,44 @@ def presign_mobile_banner_puts(files: list[tuple[str, str]]) -> list[dict[str, s
         mobile_banner_object_key,
         resolve=resolve_mobile_media_type,
         empty_detail="Add a mobile banner image, GIF, or short video.",
+    )
+
+
+def resolve_prescription_type(filename: str, content_type: str) -> str:
+    raw = (content_type or "").split(";")[0].strip().lower()
+    if raw in ALLOWED_RX_TYPES:
+        return "image/jpeg" if raw == "image/jpg" else raw
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    mapped = RX_EXT_TO_CONTENT_TYPE.get(ext)
+    if mapped:
+        return mapped
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=(
+            f"Unsupported prescription file for {filename or 'file'}. "
+            "Use JPEG, PNG, WebP, GIF, or PDF."
+        ),
+    )
+
+
+def prescription_object_key(customer_id: int, content_type: str) -> str:
+    ext = ALLOWED_RX_TYPES[content_type]
+    return f"catalog/prescriptions/{customer_id}/{uuid.uuid4().hex}.{ext}"
+
+
+def presign_prescription_puts(
+    customer_id: int, files: list[tuple[str, str]]
+) -> list[dict[str, str]]:
+    if len(files) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Upload one prescription file at a time.",
+        )
+    return _presign_puts(
+        files,
+        lambda content_type: prescription_object_key(customer_id, content_type),
+        resolve=resolve_prescription_type,
+        empty_detail="Add a prescription image or PDF.",
     )
 
 

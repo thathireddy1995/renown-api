@@ -139,6 +139,8 @@ def update_cart_item(
         item.qty = data["qty"]
     if "saved_for_later" in data and data["saved_for_later"] is not None:
         item.saved_for_later = data["saved_for_later"]
+    if "lens_fit" in data:
+        item.lens_fit = data["lens_fit"]
 
     try:
         db.commit()
