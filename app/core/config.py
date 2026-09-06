@@ -49,10 +49,10 @@ MSG91_WA_TEMPLATE_NAME = os.getenv("MSG91_WA_TEMPLATE") or "verify_user_v1"
 MSG91_WA_TEMPLATE_LANG = os.getenv("MSG91_WA_LANG") or "en_US"
 MSG91_WA_NAMESPACE = (os.getenv("MSG91_WA_NAMESPACE") or "").strip()
 
-# Razorpay Standard Checkout keys (test mode defaults from local setup).
-# Override via env / SAM parameters for production live keys. Never expose KEY_SECRET to the frontend.
-RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID") or "rzp_test_TYGoJFOhlEqQ90"
-RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET") or "gxQZWoDH3Psm4Osldzabe5cz"
+# Razorpay Standard Checkout. Override via env / SAM parameters.
+# Prefer live keys in production (.env / deploy); never expose KEY_SECRET to the frontend.
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID") or "rzp_live_TYZikwbbGsP7pE"
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET") or "dmWAny26145LqUR6KXKDhpOJ"
 
 # Shiprocket API user (Settings → API). Never commit real values to git.
 SHIPROCKET_EMAIL = os.getenv("SHIPROCKET_EMAIL", "")
