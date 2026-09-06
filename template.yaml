@@ -22,12 +22,12 @@ Parameters:
     Description: "Gates dev-only behavior (e.g. the demo OTP bypass) — must stay 'production' for real deployments."
   RazorpayKeyId:
     Type: String
-    Default: "rzp_test_TFQQhSY0gwUMhs"
+    Default: "rzp_test_TYGoJFOhlEqQ90"
     Description: "Razorpay key id — test-mode default; pass a live key via --parameter-overrides for production."
   RazorpayKeySecret:
     Type: String
     NoEcho: true
-    Default: "EGGkPibPOmeLQN6fRTUpK7Qi"
+    Default: "gxQZWoDH3Psm4Osldzabe5cz"
     Description: "Razorpay key secret — test-mode default; pass a live secret via --parameter-overrides for production."
   CorsOriginRegex:
     Type: String
