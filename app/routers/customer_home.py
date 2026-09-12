@@ -12,7 +12,9 @@ from app.dto.customer_home_dto import CustomerHomeResponse
 
 router = APIRouter(prefix="/customer/home", tags=["customer-home"])
 
-_CACHE_CONTROL = "public, max-age=60, s-maxage=300, stale-while-revalidate=86400"
+# Never store this payload. A refresh after an admin save must hit the
+# database, not a browser or CDN copy. The query itself is one round-trip.
+_CACHE_CONTROL = "private, no-store"
 
 # The database is remote, so every SQL statement has a material latency cost.
 # This query returns the complete homepage in one round-trip and deliberately
@@ -156,19 +158,13 @@ _HOME_SQL = text(
             cat.id,
             cat.slug,
             cat.name,
+            cat.sort_order,
             count(p.id) FILTER (WHERE p.status = 'active')::integer AS count,
-            coalesce((
-                SELECT pi.url
-                FROM products p2
-                JOIN product_images pi ON pi.product_id = p2.id
-                WHERE p2.category_id = cat.id AND p2.status = 'active'
-                ORDER BY p2.id ASC, pi.sort_order ASC, pi.id ASC
-                LIMIT 1
-            ), '') AS image
+            coalesce(cat.image, '') AS image
         FROM categories cat
         LEFT JOIN products p ON p.category_id = cat.id
         WHERE cat.status = 'active'
-        GROUP BY cat.id, cat.slug, cat.name
+        GROUP BY cat.id, cat.slug, cat.name, cat.sort_order, cat.image
     )
     SELECT json_build_object(
         'banners', (
@@ -216,13 +212,30 @@ _HOME_SQL = text(
                         'slug', slug,
                         'name', name,
                         'image', image,
-                        'count', count
+                        'count', count,
+                        'sort_order', sort_order
+                    )
+                    ORDER BY sort_order, name
+                ),
+                '[]'::json
+            )
+            FROM category_cards
+        ),
+        'brands', (
+            SELECT coalesce(
+                json_agg(
+                    json_build_object(
+                        'id', id,
+                        'slug', slug,
+                        'name', name,
+                        'image', coalesce(image, '')
                     )
                     ORDER BY name
                 ),
                 '[]'::json
             )
-            FROM category_cards
+            FROM brands
+            WHERE status = 'active'
         ),
         'collections', (
             SELECT coalesce(
@@ -306,5 +319,4 @@ def customer_home(
     db: Session = Depends(get_db),
 ) -> CustomerHomeResponse:
     response.headers["Cache-Control"] = _CACHE_CONTROL
-    response.headers["CDN-Cache-Control"] = _CACHE_CONTROL
     return CustomerHomeResponse.model_validate(_payload(db.execute(_HOME_SQL).scalar()))

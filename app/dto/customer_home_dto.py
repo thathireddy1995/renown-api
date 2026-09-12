@@ -36,6 +36,14 @@ class HomeCategoryTile(BaseModel):
     name: str
     image: str = ""
     count: int = 0
+    sort_order: int = 0
+
+
+class HomeBrandTile(BaseModel):
+    id: int
+    slug: str
+    name: str
+    image: str = ""
 
 
 class HomeCollectionTile(BaseModel):
@@ -61,6 +69,7 @@ class CustomerHomeResponse(BaseModel):
     mobile_banners: list[MobileBannerCard] = Field(default_factory=list)
     collections: list[HomeCollectionTile] = Field(default_factory=list)
     categories: list[HomeCategoryTile] = Field(default_factory=list)
+    brands: list[HomeBrandTile] = Field(default_factory=list)
     products: list[HomeProductCard] = Field(default_factory=list)
     featured: list[str] = Field(default_factory=list)
     bestsellers: list[str] = Field(default_factory=list)

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.ist import naive_now
 from app.core.config import (
+    CUSTOMER_JWT_EXPIRE_MINUTES,
     IS_PRODUCTION,
     OTP_EXPIRY_MINUTES,
     OTP_MAX_ATTEMPTS,
@@ -56,7 +57,11 @@ def _now() -> datetime:
 
 
 def _token_response(customer: Customer) -> CustomerTokenResponse:
-    token = create_access_token(customer.id, "customer")
+    token = create_access_token(
+        customer.id,
+        "customer",
+        expire_minutes=CUSTOMER_JWT_EXPIRE_MINUTES,
+    )
     return CustomerTokenResponse(
         access_token=token,
         customer=CustomerOut.model_validate(customer),

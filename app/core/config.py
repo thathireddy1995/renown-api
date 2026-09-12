@@ -24,6 +24,8 @@ if not JWT_SECRET:
 
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "720"))
+# Customer storefront only. Staff and admin stay on JWT_EXPIRE_MINUTES.
+CUSTOMER_JWT_EXPIRE_MINUTES = int(os.getenv("CUSTOMER_JWT_EXPIRE_MINUTES", str(45 * 24 * 60)))
 
 CORS_ORIGIN_REGEX = os.getenv(
     "CORS_ORIGIN_REGEX",

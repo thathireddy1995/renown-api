@@ -20,8 +20,10 @@ def create_access_token(
     *,
     store_id: int | None = None,
     warehouse_id: int | None = None,
+    expire_minutes: int | None = None,
 ) -> str:
-    expires_at = int(time.time()) + JWT_EXPIRE_MINUTES * 60
+    minutes = JWT_EXPIRE_MINUTES if expire_minutes is None else expire_minutes
+    expires_at = int(time.time()) + minutes * 60
     payload: dict = {"sub": str(user_id), "role": role, "exp": expires_at}
     if store_id is not None:
         payload["store_id"] = store_id

@@ -58,11 +58,8 @@ def compute_pricing(
         discount = quoted.discount
         code = quoted.code
 
-    if delivery == "pickup":
-        shipping = Decimal("0")
-    else:
-        # Free standard shipping over ₹5,999 (matches storefront copy).
-        shipping = Decimal("0") if subtotal >= Decimal("5999") or subtotal == 0 else Decimal("99")
+    # Banner copy is unconditional: free shipping across India.
+    shipping = Decimal("0")
 
     # Tax disabled for now — all products are zero-rated.
     tax = Decimal("0")
