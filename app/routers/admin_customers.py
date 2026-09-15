@@ -32,6 +32,14 @@ def _order_stats_subq():
     )
 
 
+def _format_date(value) -> str:
+    if value is None:
+        return ""
+    if hasattr(value, "strftime"):
+        return format_ist_date(value)
+    return str(value)[:10]
+
+
 def _customer_out(
     *,
     customer_id: int,
@@ -41,14 +49,8 @@ def _customer_out(
     orders: int | None,
     spent,
     last_order,
+    joined=None,
 ) -> AdminCustomerOut:
-    last = ""
-    if last_order is not None:
-        last = (
-            format_ist_date(last_order)
-            if hasattr(last_order, "strftime")
-            else str(last_order)[:10]
-        )
     return AdminCustomerOut(
         id=f"C-{customer_id:03d}" if customer_id < 1000 else f"C-{customer_id}",
         name=name
@@ -57,7 +59,8 @@ def _customer_out(
         email=email or "",
         orders=int(orders or 0),
         spent=float(spent or 0),
-        lastOrder=last,
+        lastOrder=_format_date(last_order),
+        joined=_format_date(joined),
     )
 
 
@@ -75,6 +78,7 @@ def _customer_row(
         orders=orders,
         spent=spent,
         last_order=last_order,
+        joined=customer.created_at,
     )
 
 
@@ -95,6 +99,7 @@ def list_customers(
             Customer.name,
             Customer.email,
             Customer.phone,
+            Customer.created_at,
             stats.c.orders,
             stats.c.spent,
             stats.c.last_order,
@@ -143,6 +148,7 @@ def list_customers(
                 orders=row.orders,
                 spent=row.spent,
                 last_order=row.last_order,
+                joined=row.created_at,
             )
             for row in rows
         ],
@@ -194,6 +200,6 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)) -> AdminCustom
         **base.model_dump(),
         phone=customer.phone,
         is_active=customer.is_active,
-        created_at=format_ist_date(customer.created_at),
+        created_at=base.joined,
         recent_orders=recent_orders,
     )

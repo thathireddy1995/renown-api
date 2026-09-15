@@ -24,9 +24,10 @@ from app.schemas import Customer, Order, OrderItem
 router = APIRouter(prefix="/admin/orders", tags=["admin-orders"], dependencies=[Depends(require_role("admin"))])
 
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-    "placed": {"verified", "packed", "cancelled"},
-    "verified": {"packed", "cancelled"},
-    "packed": {"shipped", "cancelled"},
+    "placed": {"verified", "packed", "partner_assigned", "cancelled"},
+    "verified": {"packed", "partner_assigned", "cancelled"},
+    "packed": {"partner_assigned", "cancelled"},
+    "partner_assigned": {"shipped", "cancelled"},
     "shipped": {"out", "delivered"},
     "out": {"delivered"},
     "delivered": set(),
@@ -38,7 +39,14 @@ STATUS_ALIASES = {
     "processing": "placed",
     "order placed": "placed",
     "prescription verified": "verified",
+    "packed": "packed",
+    "partner assigned": "partner_assigned",
+    "delivery partner assigned": "partner_assigned",
+    "partner_assigned": "partner_assigned",
+    "shipped": "shipped",
     "out for delivery": "out",
+    "delivered": "delivered",
+    "cancelled": "cancelled",
 }
 
 
@@ -229,8 +237,13 @@ def update_order_shipment(
         order.shiprocket_shipment_id = body.shiprocket_shipment_id.strip() or None
     if body.tracking_url is not None:
         order.tracking_url = body.tracking_url.strip() or None
-    if body.mark_shipped and (order.status or "").lower() in ("placed", "verified", "packed"):
-        order.status = "shipped"
+    if body.mark_shipped and (order.status or "").lower() in (
+        "placed",
+        "verified",
+        "packed",
+    ):
+        order.status = "partner_assigned"
+
     db.commit()
 
     refreshed = _resolve_order(db, order_ref)

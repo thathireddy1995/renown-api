@@ -184,26 +184,85 @@ def request_pickup(shipment_id: str) -> dict[str, Any]:
     return raw if isinstance(raw, dict) else {}
 
 
+def generate_label(shipment_ids: list[str | int]) -> dict[str, Any]:
+    ids = [int(s) if str(s).isdigit() else s for s in shipment_ids if str(s).strip()]
+    if not ids:
+        raise ShiprocketError("shipment_id is required")
+    raw = _request("POST", "/courier/generate/label", json={"shipment_id": ids})
+    if not isinstance(raw, dict):
+        raise ShiprocketError("Shiprocket label response was empty")
+    label_url = str(raw.get("label_url") or "")
+    if not label_url and isinstance(raw.get("response"), dict):
+        label_url = str(raw["response"].get("label_url") or "")
+    return {"label_url": label_url, "raw": raw}
+
+
+def generate_manifest(shipment_ids: list[str | int]) -> dict[str, Any]:
+    ids = [int(s) if str(s).isdigit() else s for s in shipment_ids if str(s).strip()]
+    if not ids:
+        raise ShiprocketError("shipment_id is required")
+    try:
+        raw = _request("POST", "/manifests/generate", json={"shipment_id": ids})
+    except ShiprocketError as err:
+        msg = str(err).lower()
+        if "already" in msg and "manifest" in msg:
+            return {"already_generated": True, "raw": {}}
+        raise
+    if not isinstance(raw, dict):
+        raise ShiprocketError("Shiprocket manifest response was empty")
+    return raw if isinstance(raw, dict) else {}
+
+
+def print_manifest(order_ids: list[str | int] | None = None, shipment_ids: list[str | int] | None = None) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    if order_ids:
+        body["order_ids"] = [int(x) if str(x).isdigit() else x for x in order_ids]
+    if shipment_ids:
+        body["shipment_id"] = [int(x) if str(x).isdigit() else x for x in shipment_ids]
+    if not body:
+        raise ShiprocketError("order_ids or shipment_id required")
+    raw = _request("POST", "/manifests/print", json=body)
+    if not isinstance(raw, dict):
+        raise ShiprocketError("Shiprocket print-manifest response was empty")
+    url = str(raw.get("manifest_url") or raw.get("pdf_url") or "")
+    return {"manifest_url": url, "raw": raw}
+
+
+def print_invoice(order_ids: list[str | int]) -> dict[str, Any]:
+    ids = [int(s) if str(s).isdigit() else s for s in order_ids if str(s).strip()]
+    if not ids:
+        raise ShiprocketError("order_id is required")
+    raw = _request("POST", "/orders/print/invoice", json={"ids": ids})
+    if not isinstance(raw, dict):
+        raise ShiprocketError("Shiprocket invoice response was empty")
+    url = str(raw.get("invoice_url") or raw.get("pdf_url") or "")
+    if not url and isinstance(raw.get("response"), dict):
+        url = str(raw["response"].get("invoice_url") or "")
+    return {"invoice_url": url, "raw": raw}
+
+
 # Shiprocket shipment_status integers → Renown keys (when the string is missing).
 _SR_STATUS_CODE = {
-    3: "packed",
-    4: "packed",
+    3: "partner_assigned",  # Pickup Generated
+    4: "partner_assigned",
+    5: "partner_assigned",  # Manifested
     6: "shipped",
     7: "delivered",
     17: "out",
     18: "shipped",
-    26: "packed",
+    26: "partner_assigned",
     38: "shipped",
-    42: "shipped",
+    42: "shipped",  # Picked Up
 }
 
 _STATUS_RANK = {
     "placed": 0,
     "verified": 1,
     "packed": 2,
-    "shipped": 3,
-    "out": 4,
-    "delivered": 5,
+    "partner_assigned": 3,
+    "shipped": 4,
+    "out": 5,
+    "delivered": 6,
 }
 
 
@@ -216,23 +275,16 @@ def map_shiprocket_status(current_status: str | None) -> str:
         return _SR_STATUS_CODE.get(int(s), "shipped")
     if "undeliver" in s:
         return "shipped"
-    if "deliver" in s:
+    if "deliver" in s and "out" not in s:
         return "delivered"
     if "out for delivery" in s or s in ("ofd", "out_for_delivery"):
         return "out"
-    if any(
-        x in s
-        for x in (
-            "in transit",
-            "shipped",
-            "picked up",
-            "pickup",
-            "dispatched",
-            "in_transit",
-            "rto",
-        )
-    ):
+    if "picked up" in s or "in transit" in s or s in ("shipped", "dispatched", "in_transit") or "rto" in s:
         return "shipped"
+    if "pickup generated" in s or "manifest" in s or "awb" in s or "assigned" in s:
+        return "partner_assigned"
+    if "pickup" in s and "picked" not in s:
+        return "partner_assigned"
     if "pack" in s or "ready to ship" in s or "label" in s:
         return "packed"
     return "shipped"

@@ -593,7 +593,7 @@ class Order(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    order_number: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    order_number: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
     customer_id: Mapped[int] = mapped_column(
         ForeignKey("customers.id", ondelete="CASCADE"), nullable=False
     )

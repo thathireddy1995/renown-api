@@ -75,6 +75,7 @@ class AdminCustomerOut(BaseModel):
     orders: int
     spent: float
     lastOrder: str = ""
+    joined: str = ""
 
 
 class AdminCustomerDetailOut(AdminCustomerOut):
@@ -195,6 +196,7 @@ class AdminDeliveryOut(BaseModel):
     qty: int
     total: float
     status: str
+    status_key: str = "placed"
     date: str = ""
     line_items: list[AdminDeliveryLineOut] = Field(default_factory=list)
 
@@ -222,6 +224,10 @@ class AdminDispatchHistoryOut(BaseModel):
     awb: str = ""
     items: int
     status: str
+    order_status: str = "Delivery Partner Assigned"
+    order_status_key: str = "partner_assigned"
+    shiprocket_shipment_id: str | None = None
+    shiprocket_order_id: str | None = None
     warehouse_id: int
     date: str = ""
 
@@ -231,3 +237,9 @@ class AdminDispatchHistoryListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class AdminShiprocketDocOut(BaseModel):
+    kind: str
+    url: str = ""
+    message: str = ""

@@ -41,6 +41,7 @@ STATUS_LABEL = {
     "placed": "Order Placed",
     "verified": "Prescription Verified",
     "packed": "Packed",
+    "partner_assigned": "Delivery Partner Assigned",
     "shipped": "Shipped",
     "out": "Out for Delivery",
     "delivered": "Delivered",

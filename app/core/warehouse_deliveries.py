@@ -1,7 +1,7 @@
-"""Online (home-delivery) warehouse fulfillment — short DB transactions only.
+"""Online (home-delivery) warehouse fulfillment.
 
-Shiprocket booking happens at customer checkout. Dispatch only deducts
-stock, then requests pickup after the DB commit.
+Selecting Shipped deducts warehouse stock, ensures Shiprocket AWB, then
+requests pickup. Status updates before/after that are plain order status.
 """
 
 from __future__ import annotations
@@ -11,10 +11,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from fastapi import HTTPException
 
-from app.core.admin_order_status import admin_status_label
+from app.core.admin_order_status import track_status_label
 from app.core.ist import format_ist_datetime, now as ist_now
 from app.core.order_lens_fit import line_items_from_order
-from app.core.shiprocket_fulfill import request_pickup_for_order
 from app.schemas import (
     DispatchOrder,
     DispatchOrderItem,
@@ -101,7 +100,8 @@ def pending_delivery_row(order: Order) -> dict:
         "items": len(items),
         "qty": qty,
         "total": float(order.total or 0),
-        "status": admin_status_label(order.status),
+        "status": track_status_label(order.status),
+        "status_key": (order.status or "placed").lower(),
         "date": format_ist_datetime(order.created_at),
         "line_items": line_items_from_order(order),
     }
@@ -236,11 +236,31 @@ def fulfill_online_order(
     if carrier:
         order.courier_name = carrier.strip() or order.courier_name
     if mark_shipped and (order.status or "").lower() in ("placed", "verified", "packed"):
-        order.status = "shipped"
+        order.status = "partner_assigned"
         dispatch.status = "Processing"
 
     db.commit()
-    request_pickup_for_order(order)
+
+    # At ship time: ensure Shiprocket shipment + AWB, then request pickup.
+    from app.core.shiprocket_fulfill import (
+        assign_awb_if_missing,
+        attach_shiprocket_shipment,
+        request_pickup_for_order,
+    )
+
+    refreshed = resolve_order(db, order.order_number) or order
+    attach_shiprocket_shipment(db, refreshed)
+    assign_awb_if_missing(db, refreshed)
+    refreshed = resolve_order(db, order.order_number) or refreshed
+    if refreshed.awb_code and not dispatch.awb:
+        drow = db.get(DispatchOrder, dispatch.id)
+        if drow:
+            drow.awb = refreshed.awb_code
+            if refreshed.courier_name:
+                drow.carrier = refreshed.courier_name
+            db.commit()
+    request_pickup_for_order(refreshed)
+
     loaded = db.scalar(
         select(DispatchOrder)
         .where(DispatchOrder.id == dispatch.id)
@@ -253,14 +273,19 @@ def fulfill_online_order(
 def dispatch_history_row(d: DispatchOrder) -> dict:
     items = d.items or []
     order = d.order
+    order_key = (order.status or "partner_assigned").lower() if order else "partner_assigned"
     return {
         "id": d.do_number,
         "order": order.order_number if order else "",
         "destination": d.destination_label or "",
         "carrier": d.carrier or "",
-        "awb": d.awb or "",
+        "awb": d.awb or (order.awb_code if order else "") or "",
         "items": sum(i.qty for i in items),
         "status": d.status,
+        "order_status": track_status_label(order_key),
+        "order_status_key": order_key,
+        "shiprocket_shipment_id": (order.shiprocket_shipment_id if order else None) or None,
+        "shiprocket_order_id": (order.shiprocket_order_id if order else None) or None,
         "warehouse_id": d.warehouse_id,
         "date": format_ist_datetime(d.created_at),
     }

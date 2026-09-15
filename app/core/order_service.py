@@ -4,15 +4,17 @@ Kept in one place so the pricing rules and the "cart -> Order row" write path
 can never drift between the COD flow and the Razorpay flow.
 """
 
-import secrets
+import logging
 import uuid
 from decimal import Decimal
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.coupon_pricing import quote_coupon, redeem_coupon
+from app.core.ist import now as ist_now
 from app.core.offer_pricing import price_for_offer, winning_offers_for
 from app.schemas import (
     Address,
@@ -26,14 +28,41 @@ from app.schemas import (
     StoreOrderItem,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def next_order_number(db: Session) -> str:
-    for _ in range(8):
-        num = f"RO-{secrets.randbelow(90_000) + 10_000}"
-        exists = db.scalar(select(Order.id).where(Order.order_number == num))
-        if not exists:
-            return num
-    return f"RO-{secrets.randbelow(900_000) + 100_000}"
+    """Allocate the next ``RO-{YYYY}{NNNN}`` number (e.g. ``RO-20260001``).
+
+    Uses a per-year row in ``order_number_sequences`` with an atomic
+    ``UPDATE … RETURNING`` so concurrent Lambda invocations cannot mint
+    the same number even when two checkouts hit in the same millisecond.
+    """
+    year = ist_now().year
+    db.execute(
+        text(
+            """
+            INSERT INTO order_number_sequences (year, last_value)
+            VALUES (:year, 0)
+            ON CONFLICT (year) DO NOTHING
+            """
+        ),
+        {"year": year},
+    )
+    row = db.execute(
+        text(
+            """
+            UPDATE order_number_sequences
+            SET last_value = last_value + 1,
+                updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')
+            WHERE year = :year
+            RETURNING last_value
+            """
+        ),
+        {"year": year},
+    ).one()
+    seq = int(row[0])
+    return f"RO-{year}{seq:04d}"
 
 
 def compute_pricing(
@@ -256,27 +285,52 @@ def create_order_record(
     store_id = resolve_pickup_store(db, delivery or "ship", pickup_store_id)
     mode = "pickup" if store_id is not None else (delivery or "ship")
 
-    order = Order(
-        order_number=next_order_number(db),
-        customer_id=customer.id,
-        address_id=address_id,
-        delivery=mode,
-        pickup_store_id=store_id,
-        status="placed",
-        subtotal=subtotal,
-        discount=discount,
-        shipping_fee=shipping,
-        tax=tax,
-        total=total,
-        coupon_code=coupon,
-        payment_method=payment_method,
-        payment_status=payment_status,
-        razorpay_order_id=razorpay_order_id,
-        razorpay_payment_id=razorpay_payment_id,
-        verify_token=str(uuid.uuid4()),
-    )
-    db.add(order)
-    db.flush()
+    order: Order | None = None
+    last_err: Exception | None = None
+    # Sequence UPDATE … RETURNING serializes allocations across Lambdas.
+    # Savepoint retries cover the rare unique-index collision without
+    # aborting the outer checkout transaction.
+    for attempt in range(5):
+        try:
+            with db.begin_nested():
+                order = Order(
+                    order_number=next_order_number(db),
+                    customer_id=customer.id,
+                    address_id=address_id,
+                    delivery=mode,
+                    pickup_store_id=store_id,
+                    status="placed",
+                    subtotal=subtotal,
+                    discount=discount,
+                    shipping_fee=shipping,
+                    tax=tax,
+                    total=total,
+                    coupon_code=coupon,
+                    payment_method=payment_method,
+                    payment_status=payment_status,
+                    razorpay_order_id=razorpay_order_id,
+                    razorpay_payment_id=razorpay_payment_id,
+                    verify_token=str(uuid.uuid4()),
+                )
+                db.add(order)
+                db.flush()
+            break
+        except IntegrityError as err:
+            last_err = err
+            order = None
+            detail = str(getattr(err, "orig", None) or err).lower()
+            if "order_number" not in detail and "ux_orders_order_number" not in detail:
+                raise
+            logger.warning(
+                "Order number collision on attempt %s: %s",
+                attempt + 1,
+                err,
+            )
+    if order is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not allocate a unique order number. Please retry.",
+        ) from last_err
 
     order_items: list[OrderItem] = []
     for row, unit in line_rows:
