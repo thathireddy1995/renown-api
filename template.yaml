@@ -71,7 +71,7 @@ Parameters:
 Globals:
   Function:
     Timeout: 900
-    MemorySize: 1792
+    MemorySize: 1024
     Tags:
       project: "renown-api"
       environment: "production"
@@ -97,6 +97,9 @@ Resources:
         - x86_64
       Handler: app.main.handler
       CodeUri: .
+      AutoPublishAlias: live
+      SnapStart:
+        ApplyOn: PublishedVersions
       Environment:
         Variables:
           # Sourced from the DatabaseUrl parameter (.env), not hardcoded.

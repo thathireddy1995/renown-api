@@ -2,7 +2,7 @@ from collections.abc import Generator
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import certifi
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import DATABASE_URL
@@ -53,8 +53,11 @@ def _set_ist_timezone(dbapi_connection, *_args) -> None:
     cursor.close()
 
 
+# Only on connect. Firing this on checkout too meant an extra Mumbai round
+# trip on every single request, and it was always redundant: the server
+# defaults TimeZone to Asia/Kolkata (vps TZ env) and the renown role sets it
+# as well, so every server connection PgBouncer opens is already IST.
 event.listen(engine, "connect", _set_ist_timezone)
-event.listen(engine, "checkout", _set_ist_timezone)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -65,3 +68,33 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+def reopen_pool() -> None:
+    """Drop pooled connections and open a fresh one."""
+    engine.dispose()
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
+
+
+# A SnapStart snapshot preserves memory but not sockets, so the pooled
+# connection is already dead when Lambda resumes an environment. Left to
+# pool_pre_ping, the reconnect — TLS plus the PgBouncer handshake out to
+# Mumbai — lands on the first request's critical path and costs seconds.
+# Reconnecting here spends it during restore instead, which has its own
+# 10s budget and is invisible to the caller.
+try:
+    from snapshot_restore_py import register_after_restore
+except ImportError:
+    # Local dev and any non-SnapStart runtime: nothing to hook.
+    pass
+else:
+
+    @register_after_restore
+    def _reconnect_after_restore() -> None:
+        try:
+            reopen_pool()
+        except Exception:
+            # An exception here fails the restore outright. A still-dead pool
+            # is recoverable on its own via pool_pre_ping, so swallow it.
+            pass
