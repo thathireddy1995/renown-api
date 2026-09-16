@@ -8,12 +8,12 @@ from app.schemas import SystemSettings
 
 _FALLBACK = CompanyDetailsOut(
     brand_name="Renown Eye Wear",
-    legal_name="Renown Eye Wear",
+    legal_name="KOMMA CHANDRA SEKHAR",
     phone="+91 96425 12952",
     email="support@renowneyewear.com",
     website="www.renowneyewear.com",
     address_line1="4-88, Ramdas colony",
-    address_line2="Vedantha Puram, Tirupati",
+    address_line2="Nearby Overhead Tank, Vedantha Puram",
     city="Tirupati",
     state="Andhra Pradesh",
     postal_code="517508",

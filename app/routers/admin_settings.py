@@ -21,7 +21,7 @@ router = APIRouter(
 
 
 def _out(row) -> AdminSettingsOut:
-    return AdminSettingsOut.model_validate(from_settings_row(row))
+    return AdminSettingsOut.model_validate(from_settings_row(row).model_dump())
 
 
 @router.get("", response_model=AdminSettingsOut)
