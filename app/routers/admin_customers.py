@@ -57,6 +57,7 @@ def _customer_out(
         or (f"Customer {phone[-4:]}" if phone else None)
         or (email.split("@")[0].title() if email else "Customer"),
         email=email or "",
+        phone=phone or None,
         orders=int(orders or 0),
         spent=float(spent or 0),
         lastOrder=_format_date(last_order),

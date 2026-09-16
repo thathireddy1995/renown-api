@@ -72,6 +72,7 @@ class AdminCustomerOut(BaseModel):
     id: str
     name: str
     email: str
+    phone: str | None = None
     orders: int
     spent: float
     lastOrder: str = ""
@@ -79,7 +80,6 @@ class AdminCustomerOut(BaseModel):
 
 
 class AdminCustomerDetailOut(AdminCustomerOut):
-    phone: str | None = None
     is_active: bool = True
     created_at: str = ""
     recent_orders: list[AdminOrderOut] = Field(default_factory=list)
