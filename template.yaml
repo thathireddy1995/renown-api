@@ -42,6 +42,11 @@ Parameters:
     NoEcho: true
     Default: "bT*LOZ@i&hzssy&1Ii^v2SE7kLSk#sa$"
     Description: "Shiprocket API user password — pass via --parameter-overrides, never commit."
+  ShiprocketWebhookToken:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: "Shared secret for POST /courier/tracking-update. Paste the same value into Shiprocket Settings → API → Webhooks; empty disables the endpoint."
   Msg91AuthKey:
     Type: String
     NoEcho: true
@@ -114,6 +119,7 @@ Resources:
           CORS_ORIGIN_REGEX: !Ref CorsOriginRegex
           SHIPROCKET_EMAIL: !Ref ShiprocketEmail
           SHIPROCKET_PASSWORD: !Ref ShiprocketPassword
+          SHIPROCKET_WEBHOOK_TOKEN: !Ref ShiprocketWebhookToken
           SHIPROCKET_PICKUP_LOCATION: Primary
           MSG91_AUTH_KEY: !Ref Msg91AuthKey
           MSG91_WA_NUMBER: !Ref Msg91WaNumber

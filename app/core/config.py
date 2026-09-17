@@ -65,6 +65,11 @@ SHIPROCKET_DEFAULT_WEIGHT_KG = float(os.getenv("SHIPROCKET_DEFAULT_WEIGHT_KG") o
 SHIPROCKET_DEFAULT_LENGTH_CM = float(os.getenv("SHIPROCKET_DEFAULT_LENGTH_CM") or "15")
 SHIPROCKET_DEFAULT_BREADTH_CM = float(os.getenv("SHIPROCKET_DEFAULT_BREADTH_CM") or "10")
 SHIPROCKET_DEFAULT_HEIGHT_CM = float(os.getenv("SHIPROCKET_DEFAULT_HEIGHT_CM") or "8")
+# Shared secret for the courier tracking webhook. Shiprocket sends it back as
+# the x-api-key header (Settings → API → Webhooks). Without it the endpoint
+# refuses every call, since it writes order status from an unauthenticated
+# caller otherwise.
+SHIPROCKET_WEBHOOK_TOKEN = (os.getenv("SHIPROCKET_WEBHOOK_TOKEN") or "").strip()
 
 # Public product images — files live in S3; Postgres only stores the https URL.
 S3_PUBLIC_BUCKET = os.getenv("S3_PUBLIC_BUCKET", "renown-public")

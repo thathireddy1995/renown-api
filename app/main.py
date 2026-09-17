@@ -43,6 +43,7 @@ from app.routers import (
     customer_products,
     customer_reviews,
     customer_wishlist,
+    courier_tracking,
     home_banners,
     mobile_banners,
     public_invoice,
@@ -156,6 +157,7 @@ app.include_router(customer_contact.router)
 app.include_router(home_banners.customer_router)
 app.include_router(mobile_banners.customer_router)
 app.include_router(public_invoice.router)
+app.include_router(courier_tracking.router)
 
 
 @app.get("/health")

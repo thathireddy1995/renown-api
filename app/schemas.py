@@ -15,6 +15,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -590,6 +591,16 @@ class Order(Base):
         Index("ix_orders_created_at", "created_at"),
         Index("ix_orders_delivery_status_created", "delivery", "status", "created_at"),
         Index("ix_orders_awb_code", "awb_code"),
+        Index(
+            "ix_orders_shiprocket_order_id",
+            "shiprocket_order_id",
+            postgresql_where=text("shiprocket_order_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_orders_shiprocket_shipment_id",
+            "shiprocket_shipment_id",
+            postgresql_where=text("shiprocket_shipment_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
