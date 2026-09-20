@@ -22,6 +22,7 @@ from app.core.shiprocket import (
     ShiprocketError,
     add_pickup_location,
     assign_awb,
+    check_serviceability,
     configured,
     create_adhoc_order,
     list_pickup_locations,
@@ -200,21 +201,12 @@ def attach_shiprocket_shipment(
 
     order.shiprocket_order_id = created["order_id"] or None
     order.shiprocket_shipment_id = created["shipment_id"]
+    # AWB / courier are chosen later by warehouse (admin partner assign).
+    # Stash any courier Shiprocket may have echoed, but do not auto-assign here.
     if created.get("awb_code"):
         order.awb_code = created["awb_code"][:80]
     if created.get("courier_name") and not order.courier_name:
         order.courier_name = created["courier_name"][:120]
-
-    if not order.awb_code:
-        try:
-            assigned = assign_awb(created["shipment_id"])
-            order.awb_code = assigned["awb_code"][:80]
-            if assigned.get("courier_name"):
-                order.courier_name = assigned["courier_name"][:120]
-        except ShiprocketError as err:
-            logger.warning("Shiprocket AWB assign failed for %s: %s", order.order_number, err)
-        except Exception:
-            logger.exception("Shiprocket AWB assign failed for %s", order.order_number)
 
     if order.awb_code and not order.tracking_url:
         order.tracking_url = f"https://shiprocket.co/tracking/{order.awb_code}"
@@ -224,6 +216,7 @@ def attach_shiprocket_shipment(
     except Exception:
         db.rollback()
         logger.exception("Shiprocket ids could not be saved for %s", order.order_number)
+        return
 
 
 def _order_query(order_id: int):
@@ -239,6 +232,51 @@ def _order_query(order_id: int):
     )
 
 
+def pickup_postcode(db: Session) -> str:
+    """Pin for the configured Shiprocket pickup nickname (Store / Primary)."""
+    wanted = SHIPROCKET_PICKUP_LOCATION
+    try:
+        for row in list_pickup_locations():
+            if _pickup_nickname(row) == wanted:
+                pin = _pincode(str(row.get("pin_code") or row.get("pickup_code") or ""))
+                if len(pin) == 6:
+                    return pin
+    except ShiprocketError:
+        pass
+    try:
+        company = company_details(db)
+        pin = _pincode(company.postal_code)
+        if len(pin) == 6:
+            return pin
+    except Exception:
+        pass
+    return "517501" if wanted == "Store" else "517508"
+
+
+def list_couriers_for_order(db: Session, order: Order) -> list[dict[str, Any]]:
+    """Serviceable couriers for an order's ship-to pin (COD-aware)."""
+    if not configured():
+        raise ShiprocketError("Shiprocket credentials are not configured")
+    address = order.address
+    if address is None:
+        raise ShiprocketError("Order has no shipping address")
+    delivery = _pincode(address.postal_code)
+    if len(delivery) != 6:
+        raise ShiprocketError("A 6-digit delivery pincode is required")
+    prepaid = (order.payment_method or "").lower() == "razorpay" and (
+        order.payment_status or ""
+    ).lower() == "paid"
+    return check_serviceability(
+        pickup_postcode=pickup_postcode(db),
+        delivery_postcode=delivery,
+        weight_kg=SHIPROCKET_DEFAULT_WEIGHT_KG,
+        cod=not prepaid,
+        length_cm=SHIPROCKET_DEFAULT_LENGTH_CM,
+        breadth_cm=SHIPROCKET_DEFAULT_BREADTH_CM,
+        height_cm=SHIPROCKET_DEFAULT_HEIGHT_CM,
+    )
+
+
 def request_pickup_for_order(order: Order) -> None:
     if not configured() or not order.shiprocket_shipment_id:
         return
@@ -250,11 +288,16 @@ def request_pickup_for_order(order: Order) -> None:
         logger.exception("Shiprocket pickup failed for %s", order.order_number)
 
 
-def assign_awb_if_missing(db: Session, order: Order) -> None:
+def assign_awb_if_missing(
+    db: Session,
+    order: Order,
+    *,
+    courier_id: int | str | None = None,
+) -> None:
     if not configured() or order.awb_code or not order.shiprocket_shipment_id:
         return
     try:
-        assigned = assign_awb(order.shiprocket_shipment_id)
+        assigned = assign_awb(order.shiprocket_shipment_id, courier_id=courier_id)
     except ShiprocketError as err:
         logger.warning("Shiprocket AWB retry failed for %s: %s", order.order_number, err)
         return

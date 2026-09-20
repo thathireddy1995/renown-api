@@ -11,7 +11,9 @@ from app.core.shiprocket import (
     print_invoice,
     print_manifest,
 )
+from app.core.shiprocket_fulfill import list_couriers_for_order, pickup_postcode
 from app.core.warehouse_deliveries import (
+    delivery_eager_options,
     dispatch_history_row,
     fulfill_online_order,
     list_pending_deliveries_query,
@@ -21,6 +23,8 @@ from app.core.warehouse_deliveries import (
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.dto.admin_dto import (
+    AdminCourierOptionOut,
+    AdminCourierOptionsOut,
     AdminDeliveryFulfill,
     AdminDeliveryListResponse,
     AdminDeliveryOut,
@@ -66,7 +70,10 @@ def list_dispatch_history(
     limit, offset = page
     stmt = (
         select(DispatchOrder)
-        .options(selectinload(DispatchOrder.items), selectinload(DispatchOrder.order))
+        .options(
+            selectinload(DispatchOrder.items),
+            selectinload(DispatchOrder.order).options(*delivery_eager_options()),
+        )
         .where(DispatchOrder.destination_type == "d2c")
     )
     count_stmt = (
@@ -104,6 +111,7 @@ def fulfill_delivery(
         order=order,
         carrier=body.carrier,
         awb=body.awb,
+        courier_id=body.courier_id,
         mark_shipped=body.mark_shipped,
     )
     return AdminDispatchHistoryOut.model_validate(dispatch_history_row(dispatch))
@@ -115,6 +123,39 @@ def _order_for_docs(db: Session, order_ref: str) -> Order:
         raise HTTPException(status_code=404, detail="Order not found")
     return order
 
+
+@router.get("/{order_ref}/couriers", response_model=AdminCourierOptionsOut)
+def list_delivery_couriers(
+    order_ref: str, db: Session = Depends(get_db)
+) -> AdminCourierOptionsOut:
+    """Shiprocket serviceability options for warehouse partner selection."""
+    order = resolve_order(db, order_ref)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    try:
+        # Ensure address / items are loaded for pin + COD check.
+        loaded = db.scalar(
+            select(Order)
+            .where(Order.id == order.id)
+            .options(*delivery_eager_options())
+        )
+        order = loaded or order
+        rows = list_couriers_for_order(db, order)
+    except ShiprocketError as err:
+        raise HTTPException(status_code=502, detail=str(err)) from err
+    prepaid = (order.payment_method or "").lower() == "razorpay" and (
+        order.payment_status or ""
+    ).lower() == "paid"
+    delivery = ""
+    if order.address and order.address.postal_code:
+        delivery = "".join(c for c in order.address.postal_code if c.isdigit())[:6]
+    return AdminCourierOptionsOut(
+        order_ref=order.order_number,
+        pickup_postcode=pickup_postcode(db),
+        delivery_postcode=delivery,
+        cod=not prepaid,
+        items=[AdminCourierOptionOut.model_validate(r) for r in rows],
+    )
 
 @router.get("/{order_ref}/label", response_model=AdminShiprocketDocOut)
 def download_label(order_ref: str, db: Session = Depends(get_db)) -> AdminShiprocketDocOut:

@@ -213,7 +213,29 @@ class AdminDeliveryFulfill(BaseModel):
     order_ref: str
     carrier: str | None = None
     awb: str | None = None
+    courier_id: int | None = None
     mark_shipped: bool = True
+
+
+class AdminCourierOptionOut(BaseModel):
+    courier_id: int
+    courier_name: str
+    rate: float | None = None
+    cod_charges: float | None = None
+    freight_charge: float | None = None
+    etd: str = ""
+    estimated_days: str = ""
+    cod: bool = False
+    is_surface: bool = False
+    rating: float | None = None
+
+
+class AdminCourierOptionsOut(BaseModel):
+    order_ref: str
+    pickup_postcode: str = ""
+    delivery_postcode: str = ""
+    cod: bool = False
+    items: list[AdminCourierOptionOut] = Field(default_factory=list)
 
 
 class AdminDispatchHistoryOut(BaseModel):
@@ -230,6 +252,8 @@ class AdminDispatchHistoryOut(BaseModel):
     shiprocket_order_id: str | None = None
     warehouse_id: int
     date: str = ""
+    address: str = ""
+    line_items: list[AdminDeliveryLineOut] = Field(default_factory=list)
 
 
 class AdminDispatchHistoryListResponse(BaseModel):

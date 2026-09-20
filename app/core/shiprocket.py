@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from typing import Any
@@ -147,15 +148,17 @@ def create_adhoc_order(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def assign_awb(shipment_id: str) -> dict[str, Any]:
+def assign_awb(shipment_id: str, courier_id: int | str | None = None) -> dict[str, Any]:
     sid = str(shipment_id).strip()
     if not sid:
         raise ShiprocketError("shipment_id is required")
-    raw = _request(
-        "POST",
-        "/courier/assign/awb",
-        json={"shipment_id": int(sid) if sid.isdigit() else sid},
-    )
+    body: dict[str, Any] = {
+        "shipment_id": int(sid) if sid.isdigit() else sid,
+    }
+    if courier_id is not None and str(courier_id).strip():
+        cid = str(courier_id).strip()
+        body["courier_id"] = int(cid) if cid.isdigit() else cid
+    raw = _request("POST", "/courier/assign/awb", json=body)
     if not isinstance(raw, dict):
         raise ShiprocketError("Shiprocket assign-AWB returned an empty response")
     data = raw
@@ -168,8 +171,89 @@ def assign_awb(shipment_id: str) -> dict[str, Any]:
     return {
         "awb_code": awb,
         "courier_name": str(data.get("courier_name") or raw.get("courier_name") or ""),
+        "courier_id": data.get("courier_company_id") or data.get("courier_id") or courier_id,
         "raw": raw,
     }
+
+
+def check_serviceability(
+    *,
+    pickup_postcode: str,
+    delivery_postcode: str,
+    weight_kg: float,
+    cod: bool,
+    length_cm: float = 15,
+    breadth_cm: float = 10,
+    height_cm: float = 8,
+) -> list[dict[str, Any]]:
+    """Return available couriers for a lane, cheapest first."""
+    pickup = re.sub(r"\D", "", pickup_postcode or "")[:6]
+    delivery = re.sub(r"\D", "", delivery_postcode or "")[:6]
+    if len(pickup) != 6 or len(delivery) != 6:
+        raise ShiprocketError("Pickup and delivery pincodes must be 6 digits")
+    raw = _request(
+        "GET",
+        "/courier/serviceability/",
+        params={
+            "pickup_postcode": pickup,
+            "delivery_postcode": delivery,
+            "cod": 1 if cod else 0,
+            "weight": max(float(weight_kg or 0.5), 0.1),
+            "length": length_cm,
+            "breadth": breadth_cm,
+            "height": height_cm,
+        },
+    )
+    data = raw.get("data") if isinstance(raw, dict) else None
+    if not isinstance(data, dict):
+        data = raw if isinstance(raw, dict) else {}
+    rows = data.get("available_courier_companies") or data.get("couriers") or []
+    if not isinstance(rows, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cid = row.get("courier_company_id") or row.get("id")
+        name = str(row.get("courier_name") or "").strip()
+        if cid is None or not name:
+            continue
+        rate = row.get("rate")
+        if rate is None:
+            rate = row.get("freight_charge")
+        try:
+            rate_f = float(rate) if rate is not None and rate != "" else None
+        except (TypeError, ValueError):
+            rate_f = None
+        try:
+            rating = float(row.get("rating")) if row.get("rating") not in (None, "") else None
+        except (TypeError, ValueError):
+            rating = None
+        out.append(
+            {
+                "courier_id": int(cid) if str(cid).isdigit() else cid,
+                "courier_name": name,
+                "rate": rate_f,
+                "cod_charges": _as_float(row.get("cod_charges")),
+                "freight_charge": _as_float(row.get("freight_charge")),
+                "etd": str(row.get("etd") or row.get("estimated_delivery_days") or ""),
+                "estimated_days": str(row.get("estimated_delivery_days") or ""),
+                "cod": bool(row.get("cod")),
+                "is_surface": bool(row.get("is_surface")),
+                "rating": rating,
+            }
+        )
+    out.sort(key=lambda c: (c["rate"] is None, c["rate"] if c["rate"] is not None else 0))
+    return out
+
+
+def _as_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def request_pickup(shipment_id: str) -> dict[str, Any]:

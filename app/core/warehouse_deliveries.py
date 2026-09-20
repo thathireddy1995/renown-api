@@ -172,6 +172,7 @@ def fulfill_online_order(
     order: Order,
     carrier: str | None = None,
     awb: str | None = None,
+    courier_id: int | str | None = None,
     mark_shipped: bool = True,
 ) -> DispatchOrder:
     if not db.get(Warehouse, warehouse_id):
@@ -250,15 +251,41 @@ def fulfill_online_order(
 
     refreshed = resolve_order(db, order.order_number) or order
     attach_shiprocket_shipment(db, refreshed)
-    assign_awb_if_missing(db, refreshed)
-    refreshed = resolve_order(db, order.order_number) or refreshed
-    if refreshed.awb_code and not dispatch.awb:
+    if courier_id is not None and not refreshed.awb_code:
+        from app.core.shiprocket import ShiprocketError, assign_awb
+
+        if not refreshed.shiprocket_shipment_id:
+            raise HTTPException(
+                status_code=502,
+                detail="Shiprocket shipment was not created — cannot assign courier",
+            )
+        try:
+            assigned = assign_awb(refreshed.shiprocket_shipment_id, courier_id=courier_id)
+        except ShiprocketError as err:
+            raise HTTPException(status_code=502, detail=str(err)) from err
+        refreshed.awb_code = assigned["awb_code"][:80]
+        if assigned.get("courier_name"):
+            refreshed.courier_name = assigned["courier_name"][:120]
+        elif carrier:
+            refreshed.courier_name = carrier.strip()[:120]
+        if not refreshed.tracking_url:
+            refreshed.tracking_url = f"https://shiprocket.co/tracking/{refreshed.awb_code}"
+        db.commit()
+    else:
+        assign_awb_if_missing(db, refreshed, courier_id=courier_id)
+        refreshed = resolve_order(db, order.order_number) or refreshed
+    if refreshed.awb_code:
         drow = db.get(DispatchOrder, dispatch.id)
         if drow:
             drow.awb = refreshed.awb_code
             if refreshed.courier_name:
                 drow.carrier = refreshed.courier_name
             db.commit()
+    elif courier_id is not None:
+        raise HTTPException(
+            status_code=502,
+            detail="Courier selected but Shiprocket did not return an AWB",
+        )
     request_pickup_for_order(refreshed)
 
     loaded = db.scalar(
@@ -288,4 +315,6 @@ def dispatch_history_row(d: DispatchOrder) -> dict:
         "shiprocket_order_id": (order.shiprocket_order_id if order else None) or None,
         "warehouse_id": d.warehouse_id,
         "date": format_ist_datetime(d.created_at),
+        "address": _address_line(order.address) if order else "",
+        "line_items": line_items_from_order(order) if order else [],
     }

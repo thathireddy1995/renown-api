@@ -60,7 +60,7 @@ RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET") or "dmWAny26145LqUR6KXKDh
 SHIPROCKET_EMAIL = os.getenv("SHIPROCKET_EMAIL", "")
 SHIPROCKET_PASSWORD = os.getenv("SHIPROCKET_PASSWORD", "")
 # Pickup nickname in Shiprocket (Settings → Pickup Address). Auto-created if missing.
-SHIPROCKET_PICKUP_LOCATION = (os.getenv("SHIPROCKET_PICKUP_LOCATION") or "Primary").strip() or "Primary"
+SHIPROCKET_PICKUP_LOCATION = (os.getenv("SHIPROCKET_PICKUP_LOCATION") or "Store").strip() or "Store"
 SHIPROCKET_DEFAULT_WEIGHT_KG = float(os.getenv("SHIPROCKET_DEFAULT_WEIGHT_KG") or "0.5")
 SHIPROCKET_DEFAULT_LENGTH_CM = float(os.getenv("SHIPROCKET_DEFAULT_LENGTH_CM") or "15")
 SHIPROCKET_DEFAULT_BREADTH_CM = float(os.getenv("SHIPROCKET_DEFAULT_BREADTH_CM") or "10")
