@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.company_settings import _FALLBACK, company_details
-from app.core.ist import format_ist_datetime, now
+from app.core.ist import format_ist_datetime, naive_now, now
 from app.core.config import (
     SHIPROCKET_DEFAULT_BREADTH_CM,
     SHIPROCKET_DEFAULT_HEIGHT_CM,
@@ -25,6 +26,8 @@ from app.core.shiprocket import (
     check_serviceability,
     configured,
     create_adhoc_order,
+    get_order,
+    get_shipment,
     list_pickup_locations,
     request_pickup,
 )
@@ -277,7 +280,81 @@ def list_couriers_for_order(db: Session, order: Order) -> list[dict[str, Any]]:
     )
 
 
-def request_pickup_for_order(order: Order) -> None:
+def _parse_shiprocket_dt(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw or raw.upper() in ("NA", "N/A", "-"):
+        return None
+    for fmt in (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S.%fZ",
+        "%d-%b-%Y %H:%M",
+        "%d %b %Y %I:%M %p",
+        "%d %b %Y",
+        "%d-%b-%Y",
+    ):
+        try:
+            return datetime.strptime(raw.replace("st ", " ").replace("nd ", " ").replace("rd ", " ").replace("th ", " "), fmt)
+        except ValueError:
+            continue
+    # Fall back: date-only like "22-Sep-2026"
+    for fmt in ("%d-%b-%Y", "%d %b %Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def sync_pickup_meta_for_order(db: Session, order: Order) -> None:
+    """Pull pickup scheduled / generated timestamps from Shiprocket onto the order."""
+    if not configured():
+        return
+    scheduled = None
+    generated = None
+    try:
+        if order.shiprocket_order_id:
+            data = get_order(order.shiprocket_order_id)
+            ship = data.get("shipments") if isinstance(data, dict) else None
+            if isinstance(ship, dict):
+                scheduled = (
+                    str(ship.get("pickup_scheduled_date") or "").strip() or None
+                )
+            if isinstance(data, dict) and not scheduled:
+                scheduled = (
+                    str(data.get("pickup_scheduled_date") or "").strip() or None
+                )
+        if order.shiprocket_shipment_id:
+            ship = get_shipment(order.shiprocket_shipment_id)
+            if isinstance(ship, dict):
+                generated = _parse_shiprocket_dt(ship.get("pickup_generated_date"))
+                if not scheduled:
+                    scheduled = (
+                        str(ship.get("pickup_scheduled_date") or "").strip() or None
+                    )
+    except ShiprocketError as err:
+        logger.warning("Shiprocket pickup meta failed for %s: %s", order.order_number, err)
+        return
+    except Exception:
+        logger.exception("Shiprocket pickup meta failed for %s", order.order_number)
+        return
+
+    dirty = False
+    if scheduled and scheduled != (order.pickup_scheduled_date or ""):
+        order.pickup_scheduled_date = scheduled[:40]
+        dirty = True
+    if generated and order.pickup_generated_at != generated:
+        order.pickup_generated_at = generated
+        dirty = True
+    if dirty:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("Could not save pickup meta for %s", order.order_number)
+
+
+def request_pickup_for_order(db: Session, order: Order) -> None:
     if not configured() or not order.shiprocket_shipment_id:
         return
     try:
@@ -286,6 +363,15 @@ def request_pickup_for_order(order: Order) -> None:
         logger.warning("Shiprocket pickup failed for %s: %s", order.order_number, err)
     except Exception:
         logger.exception("Shiprocket pickup failed for %s", order.order_number)
+        return
+    # Persist schedule so Online deliveries can show it without live SR calls.
+    if not order.pickup_generated_at:
+        order.pickup_generated_at = naive_now()
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+    sync_pickup_meta_for_order(db, order)
 
 
 def assign_awb_if_missing(

@@ -250,6 +250,8 @@ class AdminDispatchHistoryOut(BaseModel):
     order_status_key: str = "partner_assigned"
     shiprocket_shipment_id: str | None = None
     shiprocket_order_id: str | None = None
+    pickup_scheduled: str | None = None
+    pickup_generated: str | None = None
     warehouse_id: int
     date: str = ""
     address: str = ""

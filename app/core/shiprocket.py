@@ -102,6 +102,29 @@ def track_by_awb(awb_code: str) -> dict[str, Any]:
     return _request("GET", f"/courier/track/awb/{awb}")
 
 
+def get_order(order_id: str | int) -> dict[str, Any]:
+    """Fetch a Shiprocket order by id. Returns the `data` object when present."""
+    oid = str(order_id).strip()
+    if not oid:
+        raise ShiprocketError("order_id is required")
+    raw = _request("GET", f"/orders/show/{oid}")
+    if not isinstance(raw, dict):
+        return {}
+    data = raw.get("data")
+    return data if isinstance(data, dict) else raw
+
+
+def get_shipment(shipment_id: str | int) -> dict[str, Any]:
+    sid = str(shipment_id).strip()
+    if not sid:
+        raise ShiprocketError("shipment_id is required")
+    raw = _request("GET", f"/shipments/{sid}")
+    if not isinstance(raw, dict):
+        return {}
+    data = raw.get("data")
+    return data if isinstance(data, dict) else raw
+
+
 def list_pickup_locations() -> list[dict[str, Any]]:
     raw = _request("GET", "/settings/company/pickup")
     data = raw.get("data") if isinstance(raw, dict) else raw

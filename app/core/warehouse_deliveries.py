@@ -286,7 +286,7 @@ def fulfill_online_order(
             status_code=502,
             detail="Courier selected but Shiprocket did not return an AWB",
         )
-    request_pickup_for_order(refreshed)
+    request_pickup_for_order(db, refreshed)
 
     loaded = db.scalar(
         select(DispatchOrder)
@@ -297,10 +297,25 @@ def fulfill_online_order(
     return loaded
 
 
+def _pickup_generated_label(dt) -> str:
+    """Human label for warehouse UI — 'Today 21:10' when same IST day."""
+    if dt is None:
+        return ""
+    from app.core.ist import as_ist, now as ist_now
+
+    local = as_ist(dt)
+    stamp = local.strftime("%H:%M")
+    if local.date() == ist_now().date():
+        return f"Today {stamp}"
+    return f"{local.strftime('%-d %b')} {stamp}"
+
+
 def dispatch_history_row(d: DispatchOrder) -> dict:
     items = d.items or []
     order = d.order
     order_key = (order.status or "partner_assigned").lower() if order else "partner_assigned"
+    scheduled = (order.pickup_scheduled_date if order else None) or None
+    generated_raw = order.pickup_generated_at if order else None
     return {
         "id": d.do_number,
         "order": order.order_number if order else "",
@@ -313,6 +328,8 @@ def dispatch_history_row(d: DispatchOrder) -> dict:
         "order_status_key": order_key,
         "shiprocket_shipment_id": (order.shiprocket_shipment_id if order else None) or None,
         "shiprocket_order_id": (order.shiprocket_order_id if order else None) or None,
+        "pickup_scheduled": scheduled,
+        "pickup_generated": _pickup_generated_label(generated_raw) if generated_raw else None,
         "warehouse_id": d.warehouse_id,
         "date": format_ist_datetime(d.created_at),
         "address": _address_line(order.address) if order else "",
