@@ -1,5 +1,6 @@
 """Admin warehouse online deliveries — /admin/warehouse/deliveries."""
 
+import requests
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -8,6 +9,7 @@ from app.core.shiprocket import (
     ShiprocketError,
     generate_label,
     generate_manifest,
+    get_wallet_balance,
     print_invoice,
     print_manifest,
 )
@@ -31,6 +33,7 @@ from app.dto.admin_dto import (
     AdminDispatchHistoryListResponse,
     AdminDispatchHistoryOut,
     AdminShiprocketDocOut,
+    AdminShiprocketWalletOut,
 )
 from app.schemas import DispatchOrder, Order, Warehouse
 
@@ -59,6 +62,15 @@ def list_pending_deliveries(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get("/wallet", response_model=AdminShiprocketWalletOut)
+def shiprocket_wallet() -> AdminShiprocketWalletOut:
+    try:
+        balance = get_wallet_balance()
+    except (ShiprocketError, requests.RequestException) as err:
+        raise HTTPException(status_code=502, detail=f"Shiprocket wallet unavailable: {err}") from err
+    return AdminShiprocketWalletOut(balance=balance)
 
 
 @router.get("/history", response_model=AdminDispatchHistoryListResponse)

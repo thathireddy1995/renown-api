@@ -114,6 +114,22 @@ def get_order(order_id: str | int) -> dict[str, Any]:
     return data if isinstance(data, dict) else raw
 
 
+def get_wallet_balance() -> float | None:
+    """Current Shiprocket wallet balance in INR.
+
+    The dedicated /account/details/wallet-balance endpoint resets the
+    connection, so read it from the statement's balance row instead.
+    """
+    raw = _request("GET", "/account/details/statement")
+    rows = raw.get("data") if isinstance(raw, dict) else None
+    if not isinstance(rows, list):
+        return None
+    for row in rows:
+        if isinstance(row, dict) and str(row.get("balance_amount") or "").strip():
+            return _as_float(row.get("balance_amount"))
+    return None
+
+
 def get_shipment(shipment_id: str | int) -> dict[str, Any]:
     sid = str(shipment_id).strip()
     if not sid:

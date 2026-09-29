@@ -265,6 +265,11 @@ class AdminDispatchHistoryListResponse(BaseModel):
     offset: int
 
 
+class AdminShiprocketWalletOut(BaseModel):
+    balance: float | None = None
+    currency: str = "INR"
+
+
 class AdminShiprocketDocOut(BaseModel):
     kind: str
     url: str = ""
