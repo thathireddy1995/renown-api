@@ -43,14 +43,14 @@ OTP_RATE_LIMIT_WINDOW_MINUTES = 10
 OTP_RATE_LIMIT_MAX = 5
 OTP_MAX_ATTEMPTS = 5
 
-# MSG91 WhatsApp Authentication OTP (meta-apis/login_code.py).
-# Hardcoded for now — move to secrets / env later.
+# Meta WhatsApp Cloud API — Authentication template OTP (meta-apis/renown/check_and_send.py).
+# The access token is a secret: set it in .env / deploy, never in source.
 # Use `or` so empty Lambda env vars don't wipe the defaults.
-MSG91_AUTH_KEY = os.getenv("MSG91_AUTH_KEY") or "554114Avcg6BwNFF6a65c35aP1"
-MSG91_WA_INTEGRATED_NUMBER = os.getenv("MSG91_WA_NUMBER") or "919642512952"
-MSG91_WA_TEMPLATE_NAME = os.getenv("MSG91_WA_TEMPLATE") or "verify_user_v1"
-MSG91_WA_TEMPLATE_LANG = os.getenv("MSG91_WA_LANG") or "en_US"
-MSG91_WA_NAMESPACE = (os.getenv("MSG91_WA_NAMESPACE") or "").strip()
+WHATSAPP_ACCESS_TOKEN = (os.getenv("WHATSAPP_ACCESS_TOKEN") or "").strip()
+WHATSAPP_PHONE_NUMBER_ID = (os.getenv("WHATSAPP_PHONE_NUMBER_ID") or "1328705783660234").strip()
+WHATSAPP_OTP_TEMPLATE = (os.getenv("WHATSAPP_OTP_TEMPLATE") or "verify_v1").strip()
+WHATSAPP_OTP_LANG = (os.getenv("WHATSAPP_OTP_LANG") or "en_US").strip()
+WHATSAPP_GRAPH_VERSION = (os.getenv("WHATSAPP_GRAPH_VERSION") or "v25.0").strip()
 
 # Razorpay Standard Checkout. Override via env / SAM parameters.
 # Prefer live keys in production (.env / deploy); never expose KEY_SECRET to the frontend.

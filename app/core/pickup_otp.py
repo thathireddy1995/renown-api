@@ -1,6 +1,6 @@
 """WhatsApp OTP for click-and-collect handover.
 
-Same MSG91 `verify_user_v1` template as login. The store manager can mark a
+Same Meta WhatsApp OTP template as login. The store manager can mark a
 package collected only after this code matches.
 """
 

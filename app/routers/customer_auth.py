@@ -83,7 +83,7 @@ def _recent_otp_count(db: Session, phone: str, now: datetime) -> int:
 
 
 def _issue_and_send_otp(db: Session, phone: str, purpose: str, now: datetime) -> OtpRequestResponse:
-    """Create OTP row, send via WhatsApp, commit after MSG91 accepts."""
+    """Create OTP row, send via WhatsApp, commit after Meta accepts."""
     if purpose not in {"login", "register", "reset_password"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -199,7 +199,7 @@ def _otp_request_with_customer(
 
 @router.post("/otp/request", response_model=OtpRequestResponse)
 def request_otp(payload: OtpRequest, db: Session = Depends(get_db)) -> OtpRequestResponse:
-    """Passwordless login: send a WhatsApp OTP via MSG91. Verify creates/logs in the customer."""
+    """Passwordless login: send a WhatsApp OTP via Meta. Verify creates/logs in the customer."""
     phone = _normalize_phone(payload.phone)
     now = _now()
 

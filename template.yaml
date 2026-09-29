@@ -47,23 +47,23 @@ Parameters:
     NoEcho: true
     Default: ""
     Description: "Shared secret for POST /courier/tracking-update. Paste the same value into Shiprocket Settings → API → Webhooks; empty disables the endpoint."
-  Msg91AuthKey:
+  WhatsappAccessToken:
     Type: String
     NoEcho: true
-    Default: "554114Avcg6BwNFF6a65c35aP1"
-    Description: "MSG91 auth key for WhatsApp OTP — move to secrets later."
-  Msg91WaNumber:
+    Default: ""
+    Description: "Meta WhatsApp Cloud API access token for OTP — pass via --parameter-overrides, never commit."
+  WhatsappPhoneNumberId:
     Type: String
-    Default: "919642512952"
-    Description: "MSG91 WhatsApp integrated sender number (country code, no +)."
-  Msg91WaTemplate:
+    Default: "1328705783660234"
+    Description: "Meta WhatsApp phone number id of the Renown sender (+91 96425 12952)."
+  WhatsappOtpTemplate:
     Type: String
-    Default: "verify_user_v1"
-    Description: "MSG91 WhatsApp Authentication template name."
-  Msg91WaLang:
+    Default: "verify_v1"
+    Description: "Meta WhatsApp Authentication template name."
+  WhatsappOtpLang:
     Type: String
     Default: "en_US"
-    Description: "MSG91 WhatsApp template language code."
+    Description: "Meta WhatsApp template language code."
   PublicImageBucket:
     Type: String
     Default: "renown-public"
@@ -121,10 +121,10 @@ Resources:
           SHIPROCKET_PASSWORD: !Ref ShiprocketPassword
           SHIPROCKET_WEBHOOK_TOKEN: !Ref ShiprocketWebhookToken
           SHIPROCKET_PICKUP_LOCATION: Store
-          MSG91_AUTH_KEY: !Ref Msg91AuthKey
-          MSG91_WA_NUMBER: !Ref Msg91WaNumber
-          MSG91_WA_TEMPLATE: !Ref Msg91WaTemplate
-          MSG91_WA_LANG: !Ref Msg91WaLang
+          WHATSAPP_ACCESS_TOKEN: !Ref WhatsappAccessToken
+          WHATSAPP_PHONE_NUMBER_ID: !Ref WhatsappPhoneNumberId
+          WHATSAPP_OTP_TEMPLATE: !Ref WhatsappOtpTemplate
+          WHATSAPP_OTP_LANG: !Ref WhatsappOtpLang
           S3_PUBLIC_BUCKET: !Ref PublicImageBucket
           S3_PUBLIC_REGION: !Ref PublicImageRegion
           S3_PUBLIC_BASE_URL: !Sub "https://${PublicImageBucket}.s3.${PublicImageRegion}.amazonaws.com"
