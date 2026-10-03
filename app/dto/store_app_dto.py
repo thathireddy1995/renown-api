@@ -1,5 +1,7 @@
 """Store manager tablet app DTOs — /store/app."""
 
+from datetime import date
+
 from pydantic import BaseModel, Field
 
 from app.dto.prescription_dto import CustomerPrescriptionOut
@@ -126,6 +128,7 @@ class StoreAppPlaceOrderRequest(BaseModel):
     power_mode: str = "powered"
     vision_type: str = "single_vision"
     prescription: dict | None = None  # { right: EyeRx, left: EyeRx }
+    order_date: date | None = None  # IST calendar date; defaults to today
 
 
 class StoreAppStatusPatch(BaseModel):

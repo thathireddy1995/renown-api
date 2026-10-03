@@ -7,7 +7,7 @@ store_manager JWT from POST /staff/auth/login.
 from __future__ import annotations
 
 import secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -548,6 +548,12 @@ def place_order(
     principal: TokenPrincipal = Depends(require_role("store_manager")),
 ) -> StoreAppOrderOut:
     store = _require_store(db, principal)
+    now = ist_now()
+    created_at = None
+    if body.order_date and body.order_date != now.date():
+        if body.order_date > now.date():
+            raise HTTPException(status_code=400, detail="Order date cannot be in the future")
+        created_at = datetime.combine(body.order_date, now.timetz())
     phone = _phone10(body.customer_phone)
     customer = db.scalar(select(Customer).where(Customer.phone == phone, Customer.is_active.is_(True)))
     if not customer:
@@ -559,7 +565,7 @@ def place_order(
         .where(ProductVariant.id == body.variant_id)
     )
     if not variant:
-        raise HTTPException(status_code=404, detail="Frame not found")
+        raise HTTPException(status_code=404, detail="Product not found")
 
     inv = db.scalar(
         select(StoreInventory).where(
@@ -571,7 +577,7 @@ def place_order(
     if inv and on_hand < 1:
         on_hand = int(inv.on_floor or 0) + int(inv.backroom or 0)
     if not inv or on_hand < 1:
-        raise HTTPException(status_code=400, detail="Insufficient stock for this frame")
+        raise HTTPException(status_code=400, detail="Insufficient stock for this product")
 
     price = Decimal(
         str(
@@ -640,6 +646,8 @@ def place_order(
         status="Pending",
         pickup_at=pickup_at,
     )
+    if created_at:
+        order.created_at = created_at
     db.add(order)
     db.flush()
     db.add(
@@ -675,7 +683,7 @@ def place_order(
         )
     )
     if depleted.rowcount != 1:
-        raise HTTPException(status_code=400, detail="Insufficient stock for this frame")
+        raise HTTPException(status_code=400, detail="Insufficient stock for this product")
     db.commit()
     db.refresh(order)
     order = db.scalar(
