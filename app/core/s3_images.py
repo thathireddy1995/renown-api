@@ -290,6 +290,15 @@ def presign_taxonomy_puts(kind: str, files: list[tuple[str, str]]) -> list[dict[
     return _presign_puts(files, lambda content_type: taxonomy_object_key(kind, content_type))
 
 
+def push_image_object_key(content_type: str) -> str:
+    ext = ALLOWED_CONTENT_TYPES[content_type]
+    return f"homepage/push/{uuid.uuid4().hex}.{ext}"
+
+
+def presign_push_image_puts(files: list[tuple[str, str]]) -> list[dict[str, str]]:
+    return _presign_puts(files, push_image_object_key)
+
+
 def presign_mobile_banner_puts(files: list[tuple[str, str]]) -> list[dict[str, str]]:
     return _presign_puts(
         files,

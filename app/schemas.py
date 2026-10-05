@@ -539,6 +539,46 @@ class WishlistItem(Base):
     product: Mapped["Product"] = relationship()
 
 
+class CustomerPushToken(Base):
+    __tablename__ = "customer_push_tokens"
+    __table_args__ = (Index("ix_customer_push_tokens_customer_id", "customer_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id", ondelete="CASCADE"), nullable=False
+    )
+    token: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    platform: Mapped[str] = mapped_column(String(20), nullable=False, default="android")
+    created_at: Mapped[datetime] = mapped_column(
+        ISTDateTime(), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class PushNotificationLog(Base):
+    __tablename__ = "push_notification_log"
+    __table_args__ = (Index("ix_push_notification_log_created_at", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    body: Mapped[str] = mapped_column(String(500), nullable=False)
+    image_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    audience: Mapped[str] = mapped_column(String(20), nullable=False)
+    customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customers.id", ondelete="SET NULL"), nullable=True
+    )
+    sent: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        ISTDateTime(), server_default=func.now()
+    )
+
+
 class CompareItem(Base):
     __tablename__ = "compare_items"
     __table_args__ = (Index("ix_compare_items_customer_id", "customer_id"),)

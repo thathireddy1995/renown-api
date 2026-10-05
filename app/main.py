@@ -2,9 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 
-from app.core.config import CORS_ORIGIN_REGEX
+from app.core.config import CORS_ORIGIN_REGEX, IS_PRODUCTION
 from app.routers import (
     admin_auth,
+    admin_push,
     admin_catalog,
     admin_catalog_variants,
     admin_coupons,
@@ -41,6 +42,7 @@ from app.routers import (
     customer_payments,
     customer_prescriptions,
     customer_products,
+    customer_push,
     customer_reviews,
     customer_wishlist,
     courier_tracking,
@@ -158,6 +160,10 @@ app.include_router(home_banners.customer_router)
 app.include_router(mobile_banners.customer_router)
 app.include_router(public_invoice.router)
 app.include_router(courier_tracking.router)
+app.include_router(customer_push.router)
+app.include_router(admin_push.router)
+if not IS_PRODUCTION:
+    app.include_router(admin_push.dev_router)
 
 
 @app.get("/health")

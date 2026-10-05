@@ -129,6 +129,8 @@ Resources:
           S3_PUBLIC_REGION: !Ref PublicImageRegion
           S3_PUBLIC_BASE_URL: !Sub "https://${PublicImageBucket}.s3.${PublicImageRegion}.amazonaws.com"
           ORDER_NOTIFY_QUEUE_URL: "https://sqs.ap-south-2.amazonaws.com/021859651726/optimus-order-notify"
+          # Gitignored key file shipped in the package (too large for the 4 KB env limit).
+          FIREBASE_SERVICE_ACCOUNT_FILE: firebase-service-account.json
       Policies:
         - Statement:
             - Effect: Allow

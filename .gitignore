@@ -35,3 +35,7 @@ samconfig.toml
 .vscode/
 *.swp
 *.swo
+
+# Firebase service account keys
+firebase-*.json
+*-firebase-adminsdk-*.json

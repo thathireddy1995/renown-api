@@ -81,6 +81,11 @@ S3_PUBLIC_BASE_URL = (
 )
 S3_PRESIGN_EXPIRES_SECONDS = int(os.getenv("S3_PRESIGN_EXPIRES_SECONDS", "600"))
 
+# Firebase service account (project renown-apk) for FCM HTTP v1 pushes.
+# Either a path to the JSON key file, or the raw JSON in the env var (Lambda).
+FIREBASE_SERVICE_ACCOUNT_FILE = (os.getenv("FIREBASE_SERVICE_ACCOUNT_FILE") or "").strip()
+FIREBASE_SERVICE_ACCOUNT_JSON = (os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON") or "").strip()
+
 AWS_REGION = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "ap-south-2"
 ORDER_NOTIFY_QUEUE_URL = (
     os.getenv("ORDER_NOTIFY_QUEUE_URL")
