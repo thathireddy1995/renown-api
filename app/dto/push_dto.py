@@ -67,3 +67,17 @@ class PushLogOut(BaseModel):
 
 class PushLogListResponse(BaseModel):
     items: list[PushLogOut]
+
+
+class CustomerNotificationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    body: str
+    image_url: str | None
+    created_at: datetime
+
+
+class CustomerNotificationListResponse(BaseModel):
+    items: list[CustomerNotificationOut]

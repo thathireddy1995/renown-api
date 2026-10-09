@@ -41,6 +41,7 @@ from app.dto.payment_dto import (
     VerifyPaymentRequest,
 )
 from app.routers.customer_orders import _order_items_eager, _order_out
+from app.core.whatsapp_orders import send_order_placed
 from app.routers.telegram_notify import notify_order_placed
 from app.schemas import Customer, Order
 
@@ -205,6 +206,7 @@ def verify_payment(
     attach_shiprocket_shipment(db, order, customer)
     db.refresh(order)
     notify_order_placed(order, customer)
+    send_order_placed(order, customer)
 
     # Re-load with eager options for a stable OrderOut (items/products).
     order = db.scalar(

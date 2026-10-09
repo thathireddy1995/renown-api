@@ -11,6 +11,7 @@ from app.core.store_orders import (
     store_order_eager,
 )
 from app.core.pickup_otp import consume_pickup_otp, send_pickup_otp
+from app.core.whatsapp_orders import notify_store_order_status
 from app.database import get_db
 from app.deps import pagination, require_role, TokenPrincipal
 from app.dto.store_order_dto import (
@@ -157,7 +158,9 @@ def patch_status(
     if target == "collected":
         consume_pickup_otp(db, order, body.otp or "")
 
+    previous_status = order.status
     order.status = CLICK_COLLECT_CANONICAL[target]
     db.commit()
     db.refresh(order)
+    notify_store_order_status(order, previous_status)
     return StaffStoreOrderOut(**staff_order_row(order))

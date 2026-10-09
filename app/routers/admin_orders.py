@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.admin_order_status import STATUS_LABEL, admin_status_label
 from app.core.ist import end_of_day, format_ist_datetime, start_of_day
 from app.core.product_resolve import public_product_id
+from app.core.whatsapp_orders import notify_order_status
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.dto.admin_dto import (
@@ -276,4 +277,5 @@ def update_order_status(
     refreshed = _resolve_order(db, order_ref)
     if not refreshed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+    notify_order_status(refreshed, current)
     return _detail_out(refreshed)

@@ -51,6 +51,19 @@ WHATSAPP_PHONE_NUMBER_ID = (os.getenv("WHATSAPP_PHONE_NUMBER_ID") or "1328705783
 WHATSAPP_OTP_TEMPLATE = (os.getenv("WHATSAPP_OTP_TEMPLATE") or "verify_v1").strip()
 WHATSAPP_OTP_LANG = (os.getenv("WHATSAPP_OTP_LANG") or "en_US").strip()
 WHATSAPP_GRAPH_VERSION = (os.getenv("WHATSAPP_GRAPH_VERSION") or "v25.0").strip()
+# Utility templates for order messages (approved in WhatsApp Manager).
+WHATSAPP_ORDER_PLACED_TEMPLATE = (
+    os.getenv("WHATSAPP_ORDER_PLACED_TEMPLATE") or "order_placed"
+).strip()
+WHATSAPP_ORDER_UPDATE_TEMPLATE = (
+    os.getenv("WHATSAPP_ORDER_UPDATE_TEMPLATE") or "order_update"
+).strip()
+WHATSAPP_ORDER_LANG = (os.getenv("WHATSAPP_ORDER_LANG") or "en_US").strip()
+WHATSAPP_ORDER_NOTIFY = (os.getenv("WHATSAPP_ORDER_NOTIFY") or "true").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 # Razorpay Standard Checkout. Override via env / SAM parameters.
 # Prefer live keys in production (.env / deploy); never expose KEY_SECRET to the frontend.

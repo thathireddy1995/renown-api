@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.shiprocket import map_shiprocket_status, should_advance_status
+from app.core.whatsapp_orders import notify_order_status
 from app.schemas import Order
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,7 @@ def apply_tracking_update(db: Session, payload: dict[str, Any]) -> dict[str, Any
     label = courier_status_label(payload)
     lowered = label.lower()
     dirty = False
+    previous_status = order.status
 
     # Courier metadata is safe to backfill regardless of the status decision.
     courier = _clean(payload.get("courier_name"))
@@ -139,4 +141,6 @@ def apply_tracking_update(db: Session, payload: dict[str, Any]) -> dict[str, Any
                 "courier webhook commit failed: order=%s", order.order_number
             )
             raise
+        if result["changed"]:
+            notify_order_status(order, previous_status)
     return result

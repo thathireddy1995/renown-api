@@ -24,6 +24,7 @@ from app.core.customer_prescription import (
 from app.core.ist import now as ist_now
 from app.core.order_lens_fit import labels_from_lens_fit, lens_fits_by_order_numbers
 from app.core.pickup_otp import consume_pickup_otp, send_pickup_otp
+from app.core.whatsapp_orders import notify_store_order_status
 from app.core.staff_users import digits_phone
 from app.core.whatsapp_otp import WhatsAppOtpError, send_whatsapp_otp
 from app.database import get_db
@@ -708,8 +709,11 @@ def patch_status(
     mapped = APP_TO_STATUS.get(body.status) or body.status
     if mapped == "Collected" and (order.channel or "") == "click_collect":
         consume_pickup_otp(db, order, body.otp or "")
+    previous_status = order.status
     order.status = mapped
     db.commit()
     # Re-load with item/variant/product eager options — refresh() alone can
     # leave relationships expired and trigger lazy loads in _frame_name.
-    return _order_outs(db, [_load_store_order(db, store.id, order.order_number)])[0]
+    reloaded = _load_store_order(db, store.id, order.order_number)
+    notify_store_order_status(reloaded, previous_status)
+    return _order_outs(db, [reloaded])[0]

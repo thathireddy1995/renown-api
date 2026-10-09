@@ -33,6 +33,7 @@ from app.dto.order_dto import (
 )
 from app.schemas import Customer, Order, OrderItem, Product, ProductVariant, Store, StoreOrder
 from app.routers.customer_addresses import _out as _address_out
+from app.core.whatsapp_orders import notify_order_status, send_order_placed
 from app.routers.telegram_notify import notify_order_placed
 
 router = APIRouter(prefix="/customer/orders", tags=["customer-orders"])
@@ -321,6 +322,7 @@ def track_order(
         return base
 
     dirty = False
+    previous_status = order.status
     mapped = info.get("mapped_status") or ""
     if should_advance_status(order.status, mapped):
         order.status = mapped
@@ -333,6 +335,7 @@ def track_order(
         dirty = True
     if dirty:
         db.commit()
+        notify_order_status(order, previous_status)
 
     return OrderTrackingOut(
         order_id=order.order_number,
@@ -383,4 +386,5 @@ def create_order(
     attach_shiprocket_shipment(db, order, customer)
     db.refresh(order)
     notify_order_placed(order, customer)
+    send_order_placed(order, customer)
     return _order_out(order, db)

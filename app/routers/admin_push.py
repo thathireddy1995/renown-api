@@ -73,9 +73,26 @@ def _send(
     audience = _resolve_audience(payload)
     tokens = _target_tokens(payload, audience, db)
 
+    log: PushNotificationLog | None = None
+    data = dict(payload.data or {})
+    if audience != "token":
+        log = PushNotificationLog(
+            title=payload.title,
+            body=payload.body,
+            image_url=payload.image,
+            audience=audience,
+            customer_id=payload.customer_id if audience == "customer" else None,
+            sent=0,
+            failed=0,
+            created_by=actor_id,
+        )
+        db.add(log)
+        db.flush()
+        data["notification_id"] = str(log.id)
+
     def _one(token: str) -> tuple[str, str | None, bool]:
         try:
-            send_to_token(token, payload.title, payload.body, payload.data, payload.image)
+            send_to_token(token, payload.title, payload.body, data or None, payload.image)
             return token, None, False
         except PushTokenInvalid as exc:
             return token, str(exc), True
@@ -88,6 +105,7 @@ def _send(
         with ThreadPoolExecutor(max_workers=min(_SEND_WORKERS, len(tokens))) as pool:
             results = list(pool.map(_one, tokens))
     except PushNotConfigured as exc:
+        db.rollback()
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
 
     errors = [err for _, err, _ in results if err]
@@ -96,20 +114,10 @@ def _send(
 
     if dead:
         db.execute(delete(CustomerPushToken).where(CustomerPushToken.token.in_(dead)))
-    if audience != "token":
-        db.add(
-            PushNotificationLog(
-                title=payload.title,
-                body=payload.body,
-                image_url=payload.image,
-                audience=audience,
-                customer_id=payload.customer_id if audience == "customer" else None,
-                sent=sent,
-                failed=len(errors),
-                created_by=actor_id,
-            )
-        )
-    if dead or audience != "token":
+    if log is not None:
+        log.sent = sent
+        log.failed = len(errors)
+    if dead or log is not None:
         db.commit()
     return PushSendResult(sent=sent, failed=len(errors), removed=len(dead), errors=errors[:10])
 

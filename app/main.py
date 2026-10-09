@@ -161,6 +161,7 @@ app.include_router(mobile_banners.customer_router)
 app.include_router(public_invoice.router)
 app.include_router(courier_tracking.router)
 app.include_router(customer_push.router)
+app.include_router(customer_push.inbox_router)
 app.include_router(admin_push.router)
 if not IS_PRODUCTION:
     app.include_router(admin_push.dev_router)
