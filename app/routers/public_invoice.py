@@ -15,8 +15,16 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.ist import format_ist_date
 from app.core.company_settings import seller_public
+from app.core.store_order_customer import (
+    store_order_eager,
+    store_order_id_from_token,
+    store_order_out,
+    store_payment_label,
+    store_status_label,
+)
 from app.database import get_db
-from app.schemas import Order, OrderItem
+from app.dto.order_dto import OrderOut
+from app.schemas import Order, OrderItem, StoreOrder
 
 router = APIRouter(prefix="/public/invoice", tags=["public-invoice"])
 
@@ -61,6 +69,47 @@ def _mask_name(name: str | None) -> str | None:
     return f"{first[:1].upper()}. {initials}."
 
 
+def _not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Invoice not found or link is invalid.",
+    )
+
+
+def _store_order_for(db: Session, token: str) -> StoreOrder | None:
+    order_id = store_order_id_from_token(token)
+    if order_id is None:
+        return None
+    order = db.scalar(select(StoreOrder).where(StoreOrder.id == order_id).options(*store_order_eager()))
+    if order is None:
+        raise _not_found()
+    return order
+
+
+@router.get("/{token}/order", response_model=OrderOut)
+def invoice_order(token: str, db: Session = Depends(get_db)) -> OrderOut:
+    """Order + invoice data for the WhatsApp link — the token is the credential.
+
+    Phone numbers are left out; everything else is already printed on the invoice.
+    """
+    token = (token or "").strip()
+    if not token or len(token) < 8 or len(token) > 64:
+        raise _not_found()
+    store_order = _store_order_for(db, token)
+    if store_order is not None:
+        return store_order_out(store_order, include_phone=False)
+
+    from app.routers.customer_orders import _order_items_eager, _order_out
+
+    order = db.scalar(select(Order).where(Order.verify_token == token).options(*_order_items_eager()))
+    if not order:
+        raise _not_found()
+    out = _order_out(order, db)
+    if out.address:
+        out.address.phone = ""
+    return out
+
+
 @router.get("/{token}", response_model=PublicInvoiceResponse)
 def verify_invoice(
     token: str,
@@ -73,6 +122,27 @@ def verify_invoice(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Invoice not found or link is invalid.",
+        )
+
+    store_order = _store_order_for(db, token)
+    if store_order is not None:
+        return PublicInvoiceResponse(
+            order_number=store_order.order_number,
+            date=format_ist_date(store_order.created_at),
+            status=store_status_label(store_order),
+            delivery="pickup" if store_order.channel == "click_collect" else "store",
+            payment_method=store_payment_label(store_order),
+            payment_status="paid",
+            total=float(store_order.total or 0),
+            items=[
+                PublicInvoiceItem(
+                    name=(i.variant.product.name if i.variant and i.variant.product else "Item"),
+                    qty=int(i.qty or 0),
+                )
+                for i in store_order.items or []
+            ],
+            seller=PublicInvoiceSeller(**seller_public(db)),
+            customer_masked=_mask_name(store_order.customer_name),
         )
 
     order = db.scalar(

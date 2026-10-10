@@ -1,3 +1,4 @@
+import os
 from collections.abc import Generator
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -35,8 +36,15 @@ def _database_url() -> str:
 # container has silently dropped, and transparently reconnects before reuse.
 # pool_recycle proactively refreshes connections before idle timeouts can
 # kill them mid-request.
+
+# True = local docker renown_db, False = live DB from .env
+USE_LOCAL_DB = False
+LOCAL_DATABASE_URL = "postgresql+psycopg://postgres:123456@localhost:5432/renown_db"
+# Lambda always uses the live DB, even if this file is deployed with True.
+_use_local = USE_LOCAL_DB and not os.getenv("AWS_LAMBDA_FUNCTION_NAME")
+
 engine = create_engine(
-    _database_url(),
+    LOCAL_DATABASE_URL if _use_local else _database_url(),
     pool_size=1,
     max_overflow=0,
     pool_pre_ping=True,

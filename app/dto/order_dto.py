@@ -110,6 +110,9 @@ class OrderOut(BaseModel):
     shiprocket_order_id: str | None = None
     shiprocket_shipment_id: str | None = None
     verify_token: str | None = None
+    channel: str = "online"  # online | store (placed at the counter)
+    fulfillment: str | None = None  # store orders: store_pickup | home_delivery
+    store_name: str | None = None
     items: list[OrderItemOut] = Field(default_factory=list)
 
 

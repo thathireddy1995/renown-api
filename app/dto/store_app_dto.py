@@ -59,6 +59,16 @@ class StoreAppStockListOut(BaseModel):
     store_name: str = ""
 
 
+class StoreAppOrderLineOut(BaseModel):
+    item_id: int
+    name: str
+    sku: str = ""
+    price: float = 0
+    lens_type: str = ""
+    power: str = ""
+    lens_fit: dict | None = None
+
+
 class StoreAppOrderOut(BaseModel):
     id: str
     db_id: int
@@ -75,6 +85,7 @@ class StoreAppOrderOut(BaseModel):
     pickup_at: str | None = None
     serial: str | None = None
     lens_fit: dict | None = None
+    items: list[StoreAppOrderLineOut] = Field(default_factory=list)
 
 
 class StoreAppOrderListOut(BaseModel):
@@ -92,6 +103,19 @@ class StoreAppCustomerOut(BaseModel):
     saved_rx: str | None = None
     past_order_count: int = 0
     prescription: CustomerPrescriptionOut | None = None
+    recent_fits: list[dict] = Field(default_factory=list)
+
+
+class StoreAppLensTypeOut(BaseModel):
+    id: int
+    name: str
+    description: str = ""
+    price: float = 0
+
+
+class StoreAppLensFitPatch(BaseModel):
+    lens_fit: dict
+    item_id: int | None = None  # which line; defaults to the line waiting for power
 
 
 class StoreAppOtpRequest(BaseModel):
@@ -101,6 +125,7 @@ class StoreAppOtpRequest(BaseModel):
 class StoreAppOtpVerify(BaseModel):
     phone: str
     otp: str
+    name: str | None = Field(default=None, max_length=120)
 
 
 class StoreAppOtpResponse(BaseModel):
@@ -117,9 +142,16 @@ class StoreAppEyeRx(BaseModel):
     add: str = ""
 
 
+class StoreAppOrderLineIn(BaseModel):
+    variant_id: int
+    amount: float | None = Field(default=None, ge=0)  # frame + lens for this line
+    lens_fit: dict | None = None
+
+
 class StoreAppPlaceOrderRequest(BaseModel):
     customer_phone: str
-    variant_id: int
+    variant_id: int | None = None
+    items: list[StoreAppOrderLineIn] | None = Field(default=None, max_length=10)  # cart; wins over variant_id
     lens_type: str = ""
     power: str = ""
     fulfillment: str = "store_pickup"
@@ -128,6 +160,7 @@ class StoreAppPlaceOrderRequest(BaseModel):
     power_mode: str = "powered"
     vision_type: str = "single_vision"
     prescription: dict | None = None  # { right: EyeRx, left: EyeRx }
+    lens_fit: dict | None = None  # same shape as web order lens_fit; wins over the fields above
     order_date: date | None = None  # IST calendar date; defaults to today
 
 

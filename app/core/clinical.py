@@ -117,6 +117,12 @@ def staff_prescription_row(row: Prescription) -> dict:
         "cylL": row.left_cyl or "0",
         "pd": row.pd or "—",
         "doctor": row.doctor.name if row.doctor else "—",
+        "phone": row.customer.phone if row.customer and (row.customer.phone or "").isdigit() else "",
+        "axisR": row.right_axis or "",
+        "axisL": row.left_axis or "",
+        "addR": row.right_add or "",
+        "addL": row.left_add or "",
+        "visionType": row.vision_type or "single_vision",
     }
 
 

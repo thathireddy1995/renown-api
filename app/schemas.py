@@ -1216,6 +1216,7 @@ class StoreOrder(Base):
     payment_method: Mapped[str] = mapped_column(String(20), nullable=False, default="cash")
     associate_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    lens_fit: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
@@ -1249,6 +1250,7 @@ class StoreOrderItem(Base):
     price_snapshot: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=0
     )
+    lens_fit: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     store_order: Mapped["StoreOrder"] = relationship(back_populates="items")
     variant: Mapped["ProductVariant"] = relationship()
@@ -1337,6 +1339,11 @@ class Prescription(Base):
     right_cyl: Mapped[str | None] = mapped_column(String(20), nullable=True)
     left_sph: Mapped[str | None] = mapped_column(String(20), nullable=True)
     left_cyl: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    right_axis: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    left_axis: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    right_add: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    left_add: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    vision_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
     pd: Mapped[str | None] = mapped_column(String(20), nullable=True)
     recorded_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

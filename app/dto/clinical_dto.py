@@ -81,6 +81,12 @@ class StaffPrescriptionOut(BaseModel):
     cylL: str
     pd: str
     doctor: str
+    phone: str = ""
+    axisR: str = ""
+    axisL: str = ""
+    addR: str = ""
+    addL: str = ""
+    visionType: str = "single_vision"
 
 
 class StaffPrescriptionListResponse(BaseModel):
@@ -101,4 +107,10 @@ class StaffPrescriptionCreate(BaseModel):
     sphL: str = Field(default="0")
     cylL: str = Field(default="0")
     pd: str = Field(default="62")
+    axisR: str = Field(default="", max_length=20)
+    axisL: str = Field(default="", max_length=20)
+    addR: str = Field(default="", max_length=20)
+    addL: str = Field(default="", max_length=20)
+    visionType: str = "single_vision"
+    saveToProfile: bool = True
     date: str | None = None

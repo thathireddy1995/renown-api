@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.core.ist import as_ist, format_ist_datetime, now as ist_now
 from app.core.customer_prescription import upsert_from_cart_lines, upsert_from_lens_fit
@@ -23,7 +23,19 @@ from app.core.shiprocket import (
     should_advance_status,
     track_by_awb,
 )
-from app.core.s3_images import public_url_for
+from app.core.order_lens_fit import (
+    clean_eye,
+    clean_patient,
+    own_prescription_file,
+    store_item_fits,
+    store_order_notes,
+)
+from app.core.store_order_customer import (
+    customer_store_orders_filter,
+    load_customer_store_order,
+    store_order_eager,
+    store_order_out,
+)
 from app.core.shiprocket_fulfill import assign_awb_if_missing, attach_shiprocket_shipment
 from app.dto.order_dto import (
     OrderCreateRequest,
@@ -230,7 +242,7 @@ def list_orders(
     page: tuple[int, int] = Depends(pagination),
 ) -> OrderListResponse:
     limit, offset = page
-    total = (
+    web_total = (
         db.scalar(
             select(func.count())
             .select_from(Order)
@@ -238,17 +250,37 @@ def list_orders(
         )
         or 0
     )
-    rows = db.scalars(
+    store_filter = customer_store_orders_filter(customer.id)
+    store_total = db.scalar(select(func.count()).select_from(StoreOrder).where(*store_filter)) or 0
+    # Merge both sources newest-first; each side needs at most offset+limit rows.
+    window = offset + limit
+    web_rows = db.scalars(
         select(Order)
         .where(Order.customer_id == customer.id)
         .options(*_order_items_eager())
-        .order_by(Order.id.desc())
-        .limit(limit)
-        .offset(offset)
+        .order_by(Order.created_at.desc(), Order.id.desc())
+        .limit(window)
     ).all()
+    store_rows = (
+        db.scalars(
+            select(StoreOrder)
+            .where(*store_filter)
+            .options(*store_order_eager())
+            .order_by(StoreOrder.created_at.desc(), StoreOrder.id.desc())
+            .limit(window)
+        ).all()
+        if store_total
+        else []
+    )
+    merged = sorted(
+        [(r.created_at, _order_out(r, db)) for r in web_rows]
+        + [(r.created_at, store_order_out(r)) for r in store_rows],
+        key=lambda pair: pair[0] or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
     return OrderListResponse(
-        items=[_order_out(r, db) for r in rows],
-        total=total,
+        items=[out for _, out in merged[offset:window]],
+        total=web_total + store_total,
         limit=limit,
         offset=offset,
     )
@@ -269,33 +301,15 @@ def get_order(
         .options(*_order_items_eager())
     )
     if not order:
+        store_order = load_customer_store_order(db, customer.id, order_number)
+        if store_order:
+            return store_order_out(store_order)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
     return _order_out(order, db)
 
 
 POWER_LATER_DAYS = 15
 POWER_LATER_STATUSES = ("placed", "verified")
-EYE_FIELDS = ("sph", "cyl", "axis", "pd", "add")
-
-
-def _clean_eye(raw: object) -> dict[str, str]:
-    src = raw if isinstance(raw, dict) else {}
-    return {k: str(src.get(k) or "").strip()[:20] for k in EYE_FIELDS}
-
-
-def _own_prescription_file(raw: object, customer_id: int) -> dict[str, str] | None:
-    """Only accept files this customer uploaded through our presign flow."""
-    if not isinstance(raw, dict):
-        return None
-    key = str(raw.get("key") or "").strip()
-    if not key.startswith(f"catalog/prescriptions/{customer_id}/") or ".." in key:
-        return None
-    return {
-        "url": public_url_for(key),
-        "key": key,
-        "name": str(raw.get("name") or "prescription").strip()[:200],
-        "contentType": str(raw.get("contentType") or "").strip()[:80],
-    }
 
 
 @router.patch("/{order_number}/items/{item_id}/lens-fit", response_model=OrderOut)
@@ -314,21 +328,50 @@ def submit_item_power(
         .with_for_update(of=Order)
     )
     if not order:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
-    if (order.status or "").lower() not in POWER_LATER_STATUSES:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This order is already being processed. Please call support to update power.",
-        )
-    if order.created_at and ist_now() - as_ist(order.created_at) > timedelta(days=POWER_LATER_DAYS):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Power can only be added within {POWER_LATER_DAYS} days of ordering.",
-        )
+        store_order = load_customer_store_order(db, customer.id, order_number, for_update=True)
+        if not store_order:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+        _check_power_window(store_order.created_at, (store_order.status or "").lower() == "pending")
+        fits = store_item_fits(store_order)
+        line, current = next(((i, f) for i, f in fits if i.id == item_id), (None, None))
+        if line is None or current is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
+        updated = _merged_power(current, payload, customer.id)
+        line.lens_fit = updated
+        if store_order.lens_fit and fits[0][0].id == line.id:
+            store_order.lens_fit = updated
+        store_order.notes = store_order_notes([updated if i.id == line.id else f for i, f in fits])
+        upsert_from_lens_fit(db, customer.id, updated)
+        db.commit()
+        return store_order_out(load_customer_store_order(db, customer.id, order_number))
+
+    _check_power_window(order.created_at, (order.status or "").lower() in POWER_LATER_STATUSES)
     item = next((i for i in order.items or [] if i.id == item_id), None)
     current = item.lens_fit if item is not None and isinstance(item.lens_fit, dict) else None
     if item is None or current is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
+    updated = _merged_power(current, payload, customer.id)
+    item.lens_fit = updated
+    upsert_from_lens_fit(db, customer.id, updated)
+    db.commit()
+    db.refresh(order)
+    return _order_out(order, db)
+
+
+def _check_power_window(created_at, status_ok: bool) -> None:
+    if not status_ok:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This order is already being processed. Please call support to update power.",
+        )
+    if created_at and ist_now() - as_ist(created_at) > timedelta(days=POWER_LATER_DAYS):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Power can only be added within {POWER_LATER_DAYS} days of ordering.",
+        )
+
+
+def _merged_power(current: dict, payload: OrderItemLensFitIn, customer_id: int) -> dict:
     if str(current.get("source") or "").lower() != "later":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Power is already on file for this item."
@@ -336,9 +379,9 @@ def submit_item_power(
 
     incoming = payload.lensFit
     rx = incoming.get("prescription") if isinstance(incoming.get("prescription"), dict) else {}
-    right = _clean_eye(rx.get("right"))
-    left = _clean_eye(rx.get("left"))
-    file = _own_prescription_file(incoming.get("prescriptionFile"), customer.id)
+    right = clean_eye(rx.get("right"))
+    left = clean_eye(rx.get("left"))
+    file = own_prescription_file(incoming.get("prescriptionFile"), customer_id)
     has_file = file is not None
     has_rx = bool(right["sph"] and left["sph"])
     if not has_file and not has_rx:
@@ -353,21 +396,14 @@ def submit_item_power(
         "lensType": current.get("lensType") or "",
         "source": source if source in ("manual", "saved", "upload") else ("upload" if has_file else "manual"),
     }
-    patient = incoming.get("patient") or current.get("patient")
-    if isinstance(patient, dict) and str(patient.get("name") or "").strip():
-        updated["patient"] = {
-            "name": str(patient.get("name")).strip()[:120],
-            **({"phone": str(patient["phone"]).strip()[:20]} if patient.get("phone") else {}),
-        }
+    patient = clean_patient(incoming.get("patient") or current.get("patient"))
+    if patient:
+        updated["patient"] = patient
     if has_rx:
         updated["prescription"] = {"right": right, "left": left}
     if has_file:
         updated["prescriptionFile"] = file
-    item.lens_fit = updated
-    upsert_from_lens_fit(db, customer.id, updated)
-    db.commit()
-    db.refresh(order)
-    return _order_out(order, db)
+    return updated
 
 
 @router.get("/{order_number}/tracking", response_model=OrderTrackingOut)

@@ -11,6 +11,7 @@ from app.core.store_orders import (
     store_order_eager,
 )
 from app.core.pickup_otp import consume_pickup_otp, send_pickup_otp
+from app.core.store_order_customer import invoice_token_for
 from app.core.whatsapp_orders import notify_store_order_status
 from app.database import get_db
 from app.deps import pagination, require_role, TokenPrincipal
@@ -162,5 +163,5 @@ def patch_status(
     order.status = CLICK_COLLECT_CANONICAL[target]
     db.commit()
     db.refresh(order)
-    notify_store_order_status(order, previous_status)
+    notify_store_order_status(order, previous_status, invoice_token_for(db, order))
     return StaffStoreOrderOut(**staff_order_row(order))

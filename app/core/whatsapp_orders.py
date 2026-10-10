@@ -2,9 +2,9 @@
 
 Two Utility templates (WhatsApp Manager):
   order_placed — body {{1}} name, {{2}} order no, {{3}} amount, {{4}} payment;
-                 URL button suffix {{1}} = order no.
+                 URL button suffix {{1}} = "<order no>&inv=<invoice token>".
   order_update — body {{1}} name, {{2}} order no, {{3}} status, {{4}} message;
-                 URL button suffix {{1}} = order no.
+                 URL button suffix {{1}} = "<order no>&inv=<invoice token>".
 
 Sends never raise: an order or status change must not fail because WhatsApp
 did. Call these only after the DB commit so a rollback cannot leave the
@@ -40,7 +40,19 @@ def _amount(value: Decimal | float | int | None) -> str:
     return f"{total:,.0f}" if total == int(total) else f"{total:,.2f}"
 
 
-def _send_template(phone: str | None, template: str, body: list[str], order_number: str) -> bool:
+def track_link_suffix(order_number: str, invoice_token: str | None) -> str:
+    """URL button suffix after .../track-order?id= — the invoice token lets the
+    customer open the order and invoice from WhatsApp without signing in."""
+    return f"{order_number}&inv={invoice_token}" if invoice_token else order_number
+
+
+def _send_template(
+    phone: str | None,
+    template: str,
+    body: list[str],
+    order_number: str,
+    invoice_token: str | None = None,
+) -> bool:
     if not app_config.WHATSAPP_ORDER_NOTIFY:
         return False
     token = app_config.WHATSAPP_ACCESS_TOKEN
@@ -71,7 +83,9 @@ def _send_template(phone: str | None, template: str, body: list[str], order_numb
                     "type": "button",
                     "sub_type": "url",
                     "index": "0",
-                    "parameters": [{"type": "text", "text": order_number}],
+                    "parameters": [
+                        {"type": "text", "text": track_link_suffix(order_number, invoice_token)}
+                    ],
                 },
             ],
         },
@@ -138,6 +152,26 @@ def send_order_placed(order: Order, customer: Customer) -> bool:
             _payment_label(order),
         ],
         order.order_number,
+        order.verify_token,
+    )
+
+
+def send_store_order_placed(order: StoreOrder, invoice_token: str) -> bool:
+    """order_placed for an order a store manager placed on the customer's behalf."""
+    method = (order.payment_method or "cash").lower()
+    method_label = {"upi": "UPI", "card": "Card", "cash": "Cash", "online": "Online"}.get(method, method.title())
+    store = order.store.name if order.store else "store"
+    return _send_template(
+        order.customer_phone,
+        app_config.WHATSAPP_ORDER_PLACED_TEMPLATE,
+        [
+            _first_name(order.customer_name),
+            order.order_number,
+            _amount(order.total),
+            f"Paid at {store} ({method_label})",
+        ],
+        order.order_number,
+        invoice_token,
     )
 
 
@@ -199,21 +233,30 @@ def notify_order_status(order: Order, previous_status: str | None) -> bool:
         app_config.WHATSAPP_ORDER_UPDATE_TEMPLATE,
         [_first_name(customer.name if customer else None), order.order_number, label, message],
         order.order_number,
+        order.verify_token,
     )
 
 
 def _store_update(order: StoreOrder) -> tuple[str, str] | None:
     key = (order.status or "").lower()
     store = order.store.name if order.store else "our store"
+    pickup = (order.channel or "") == "click_collect"
     if key == "preparing":
         return ("Being Prepared", f"Your order is being prepared at {store}.")
     if key == "ready":
+        if not pickup:
+            return (
+                "Ready for Dispatch",
+                f"Your order is ready at {store} and will be delivered to you soon.",
+            )
         return (
             "Ready for Pickup",
             f"Your order is ready for pickup at {store}. "
             "Please show the OTP we send you at the counter to collect it.",
         )
-    if key == "collected":
+    if key in ("collected", "delivered"):
+        if not pickup:
+            return ("Delivered", "Your order has been delivered. We hope you love your new eyewear!")
         return (
             "Collected",
             f"Your order has been collected from {store}. We hope you love your new eyewear!",
@@ -223,9 +266,12 @@ def _store_update(order: StoreOrder) -> tuple[str, str] | None:
     return None
 
 
-def notify_store_order_status(order: StoreOrder, previous_status: str | None) -> bool:
-    """Send order_update for click & collect orders placed online."""
-    if (order.channel or "") != "click_collect":
+def notify_store_order_status(
+    order: StoreOrder, previous_status: str | None, invoice_token: str | None = None
+) -> bool:
+    """Send order_update for store orders that belong to a customer
+    (click & collect from the website, or counter orders placed for them)."""
+    if (order.channel or "") not in ("click_collect", "home_delivery"):
         return False
     if (order.status or "").lower() == (previous_status or "").lower():
         return False
@@ -238,4 +284,5 @@ def notify_store_order_status(order: StoreOrder, previous_status: str | None) ->
         app_config.WHATSAPP_ORDER_UPDATE_TEMPLATE,
         [_first_name(order.customer_name), order.order_number, label, message],
         order.order_number,
+        invoice_token,
     )

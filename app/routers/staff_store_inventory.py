@@ -12,8 +12,11 @@ from app.deps import pagination, require_role, TokenPrincipal
 from app.routers.admin_warehouses import case_dot_color
 from app.schemas import (
     Category,
+    Color,
     Product,
+    ProductImage,
     ProductVariant,
+    Size,
     Store,
     StoreInventory,
     TransferRequest,
@@ -36,6 +39,14 @@ class StaffStoreInventoryOut(BaseModel):
     bin: str
     status: str
     variant_id: int = 0
+    product_id: str = ""
+    price: float = 0
+    product_key: int = 0
+    name: str = ""
+    size: str = ""
+    color: str = ""
+    color_hex: str | None = None
+    image: str | None = None
 
 
 class StaffStoreInventoryListResponse(BaseModel):
@@ -125,10 +136,24 @@ def list_inventory(
             cat_expr,
             health_col,
             ProductVariant.id,
+            func.coalesce(Product.product_id, Product.sku, ""),
+            func.coalesce(ProductVariant.price, Product.selling_price, Product.price, 0),
+            Product.id,
+            Product.name,
+            func.coalesce(Size.name, ProductVariant.size, ""),
+            func.coalesce(Color.name, ProductVariant.color, ""),
+            func.coalesce(Color.hex, ProductVariant.color_hex),
+            select(ProductImage.url)
+            .where(ProductImage.product_id == Product.id)
+            .order_by(ProductImage.sort_order.asc(), ProductImage.id.asc())
+            .limit(1)
+            .scalar_subquery(),
         )
         .join(ProductVariant, ProductVariant.id == StoreInventory.variant_id)
         .join(Product, Product.id == ProductVariant.product_id)
         .outerjoin(Category, Category.id == Product.category_id)
+        .outerjoin(Size, Size.id == ProductVariant.size_id)
+        .outerjoin(Color, Color.id == ProductVariant.color_id)
         .where(StoreInventory.store_id == store.id)
     )
     count_stmt = (
@@ -163,8 +188,31 @@ def list_inventory(
                 str(health or "Healthy"),
             ),
             variant_id=int(variant_id),
+            product_id=product_id or "",
+            price=float(price or 0),
+            product_key=int(product_key),
+            name=name or "",
+            size="" if size == "__deleted__" else (size or ""),
+            color="" if color == "__deleted__" else (color or ""),
+            color_hex=color_hex,
+            image=image,
         )
-        for inv, sku, product, category, health, variant_id in rows
+        for (
+            inv,
+            sku,
+            product,
+            category,
+            health,
+            variant_id,
+            product_id,
+            price,
+            product_key,
+            name,
+            size,
+            color,
+            color_hex,
+            image,
+        ) in rows
     ]
 
     return StaffStoreInventoryListResponse(

@@ -14,7 +14,9 @@ from app.core.clinical import (
     prescription_eager,
     staff_prescription_row,
 )
+from app.core.customer_prescription import upsert_for_customer
 from app.database import get_db
+from app.dto.prescription_dto import CustomerPrescriptionUpsert, EyeRxIn
 from app.deps import pagination, require_role, TokenPrincipal
 from app.dto.clinical_dto import (
     StaffPrescriptionCreate,
@@ -136,17 +138,51 @@ def create_prescription(
     else:
         recorded = ist_today()
 
+    vision = "progressive" if payload.visionType == "progressive" else "single_vision"
+    progressive = vision == "progressive"
+
+    def v(raw: str | None) -> str | None:
+        return (raw or "").strip()[:20] or None
+
     row = Prescription(
         customer_id=customer.id,
         doctor_id=doctor.id if doctor else None,
-        right_sph=payload.sphR,
-        right_cyl=payload.cylR,
-        left_sph=payload.sphL,
-        left_cyl=payload.cylL,
-        pd=payload.pd,
+        right_sph=v(payload.sphR),
+        right_cyl=v(payload.cylR),
+        right_axis=v(payload.axisR),
+        right_add=v(payload.addR) if progressive else None,
+        left_sph=v(payload.sphL),
+        left_cyl=v(payload.cylL),
+        left_axis=v(payload.axisL),
+        left_add=v(payload.addL) if progressive else None,
+        vision_type=vision,
+        pd=v(payload.pd),
         recorded_at=recorded,
     )
     db.add(row)
+    if payload.saveToProfile:
+        upsert_for_customer(
+            db,
+            customer.id,
+            CustomerPrescriptionUpsert(
+                power_mode="powered",
+                vision_type=vision,
+                right=EyeRxIn(
+                    sph=row.right_sph or "",
+                    cyl=row.right_cyl or "",
+                    axis=row.right_axis or "",
+                    pd=row.pd or "",
+                    add=row.right_add or "",
+                ),
+                left=EyeRxIn(
+                    sph=row.left_sph or "",
+                    cyl=row.left_cyl or "",
+                    axis=row.left_axis or "",
+                    pd=row.pd or "",
+                    add=row.left_add or "",
+                ),
+            ),
+        )
     try:
         db.commit()
     except Exception:

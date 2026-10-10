@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.customer_name import has_real_name
 from app.core.ist import naive_now
 from app.core.config import (
     CUSTOMER_JWT_EXPIRE_MINUTES,
@@ -189,11 +190,14 @@ def _otp_request_with_customer(
     """Send WhatsApp OTP and report whether this phone already has a customer."""
     response = _issue_and_send_otp(db, phone, purpose, now)
     customer = db.scalar(select(Customer).where(Customer.phone == phone))
+    # A store may have created this customer at the counter without a real name;
+    # treat them as new here so the website asks for it.
+    named = customer is not None and has_real_name(customer.name)
     return OtpRequestResponse(
         message=response.message,
         expires_in_seconds=response.expires_in_seconds,
-        is_existing_customer=customer is not None,
-        customer_name=(customer.name.strip() if customer and customer.name else None),
+        is_existing_customer=named,
+        customer_name=customer.name.strip() if named else None,
     )
 
 
@@ -242,7 +246,7 @@ def verify_otp(payload: OtpVerifyRequest, db: Session = Depends(get_db)) -> Cust
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account is inactive.",
         )
-    elif name and not customer.name:
+    elif name and not has_real_name(customer.name):
         customer.name = name
 
     db.commit()
