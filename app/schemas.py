@@ -176,6 +176,27 @@ class MobileBanner(Base):
     )
 
 
+class HomeSection(Base):
+    __tablename__ = "home_sections"
+    __table_args__ = (
+        CheckConstraint(
+            "item_type IN ('product', 'brand', 'category')",
+            name="home_sections_item_type_check",
+        ),
+    )
+
+    key: Mapped[str] = mapped_column(String(40), primary_key=True)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    subtitle: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    item_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    items: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    updated_at: Mapped[datetime] = mapped_column(
+        ISTDateTime(), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Product(Base):
     __tablename__ = "products"
     __table_args__ = (
@@ -1758,6 +1779,9 @@ class SystemSettings(Base):
     privacy_policy_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
     terms_of_service_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
     refund_policy_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    app_contact_lens_images: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
     created_at: Mapped[datetime] = mapped_column(ISTDateTime(), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         ISTDateTime(), server_default=func.now(), onupdate=func.now()

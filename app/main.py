@@ -48,6 +48,7 @@ from app.routers import (
     customer_wishlist,
     courier_tracking,
     home_banners,
+    home_sections,
     mobile_banners,
     public_invoice,
     staff_auth,
@@ -146,6 +147,8 @@ app.include_router(admin_web_analytics.router)
 app.include_router(web_analytics.router)
 app.include_router(home_banners.admin_router)
 app.include_router(mobile_banners.admin_router)
+app.include_router(home_sections.admin_router)
+app.include_router(home_sections.customer_router)
 app.include_router(customer_home.router)
 app.include_router(customer_products.router)
 app.include_router(customer_reviews.router)

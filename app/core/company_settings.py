@@ -3,7 +3,7 @@
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 
-from app.dto.settings_dto import CompanyDetailsOut
+from app.dto.settings_dto import CONTACT_LENS_SLOTS, CompanyDetailsOut
 from app.schemas import SystemSettings
 
 _FALLBACK = CompanyDetailsOut(
@@ -56,6 +56,15 @@ def _normalize_website(url: str) -> str:
     return f"https://{raw.lstrip('/')}"
 
 
+def contact_lens_images(row: SystemSettings) -> dict[str, str]:
+    raw = getattr(row, "app_contact_lens_images", None) or {}
+    return {
+        slot: raw[slot]
+        for slot in CONTACT_LENS_SLOTS
+        if isinstance(raw.get(slot), str) and raw[slot]
+    }
+
+
 def app_status_public(db: Session) -> dict[str, object]:
     try:
         row = get_or_create_settings(db)
@@ -66,12 +75,14 @@ def app_status_public(db: Session) -> dict[str, object]:
             "message": "",
             "website_url": "https://renowneyewear.com",
             "support_phone": _FALLBACK.phone,
+            "contact_lens_images": {},
         }
     return {
         "maintenance_enabled": bool(getattr(row, "app_maintenance_enabled", False)),
         "message": (getattr(row, "app_maintenance_message", None) or "").strip(),
         "website_url": _normalize_website(row.website),
         "support_phone": row.phone or _FALLBACK.phone,
+        "contact_lens_images": contact_lens_images(row),
     }
 
 

@@ -35,6 +35,21 @@ class AdminSettingsOut(CompanyDetailsOut):
     privacy_policy_url: str = ""
     terms_of_service_url: str = ""
     refund_policy_url: str = ""
+    app_contact_lens_images: dict[str, str] = Field(default_factory=dict)
+
+
+CONTACT_LENS_SLOTS = ("clear", "color", "solution")
+
+
+class AdminContactLensImagesUpdate(BaseModel):
+    clear: str = Field(default="", max_length=500)
+    color: str = Field(default="", max_length=500)
+    solution: str = Field(default="", max_length=500)
+
+    @field_validator(*CONTACT_LENS_SLOTS, mode="before")
+    @classmethod
+    def strip_urls(cls, value: str | None) -> str:
+        return _strip(value)
 
 
 class AdminAppMaintenanceUpdate(BaseModel):

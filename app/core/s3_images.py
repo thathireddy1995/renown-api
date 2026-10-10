@@ -299,6 +299,22 @@ def presign_push_image_puts(files: list[tuple[str, str]]) -> list[dict[str, str]
     return _presign_puts(files, push_image_object_key)
 
 
+APP_TILE_PREFIX = "homepage/app-tiles/"
+
+
+def app_tile_object_key(content_type: str) -> str:
+    ext = ALLOWED_CONTENT_TYPES[content_type]
+    return f"{APP_TILE_PREFIX}{uuid.uuid4().hex}.{ext}"
+
+
+def presign_app_tile_puts(files: list[tuple[str, str]]) -> list[dict[str, str]]:
+    return _presign_puts(files, app_tile_object_key)
+
+
+def is_app_tile_url(url: str) -> bool:
+    return url.startswith(public_url_for(APP_TILE_PREFIX))
+
+
 def presign_mobile_banner_puts(files: list[tuple[str, str]]) -> list[dict[str, str]]:
     return _presign_puts(
         files,
