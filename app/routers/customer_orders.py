@@ -4,8 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.ist import format_ist_datetime
-from app.core.customer_prescription import upsert_from_cart_lines
+from datetime import timedelta
+
+from app.core.ist import as_ist, format_ist_datetime, now as ist_now
+from app.core.customer_prescription import upsert_from_cart_lines, upsert_from_lens_fit
 from app.core.order_service import (
     create_order_record,
     load_cart_lines,
@@ -21,9 +23,11 @@ from app.core.shiprocket import (
     should_advance_status,
     track_by_awb,
 )
+from app.core.s3_images import public_url_for
 from app.core.shiprocket_fulfill import assign_awb_if_missing, attach_shiprocket_shipment
 from app.dto.order_dto import (
     OrderCreateRequest,
+    OrderItemLensFitIn,
     OrderItemOut,
     OrderListResponse,
     OrderOut,
@@ -136,6 +140,7 @@ def _order_item_out(item: OrderItem) -> OrderItemOut:
         image = product.images[0].url
     compare = float(product.compare_at_price) if product and product.compare_at_price is not None else None
     return OrderItemOut(
+        itemId=item.id,
         productId=public_product_id(product) if product else str(item.product_id),
         name=item.name_snapshot or (product.name if product else ""),
         qty=item.qty,
@@ -265,6 +270,103 @@ def get_order(
     )
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+    return _order_out(order, db)
+
+
+POWER_LATER_DAYS = 15
+POWER_LATER_STATUSES = ("placed", "verified")
+EYE_FIELDS = ("sph", "cyl", "axis", "pd", "add")
+
+
+def _clean_eye(raw: object) -> dict[str, str]:
+    src = raw if isinstance(raw, dict) else {}
+    return {k: str(src.get(k) or "").strip()[:20] for k in EYE_FIELDS}
+
+
+def _own_prescription_file(raw: object, customer_id: int) -> dict[str, str] | None:
+    """Only accept files this customer uploaded through our presign flow."""
+    if not isinstance(raw, dict):
+        return None
+    key = str(raw.get("key") or "").strip()
+    if not key.startswith(f"catalog/prescriptions/{customer_id}/") or ".." in key:
+        return None
+    return {
+        "url": public_url_for(key),
+        "key": key,
+        "name": str(raw.get("name") or "prescription").strip()[:200],
+        "contentType": str(raw.get("contentType") or "").strip()[:80],
+    }
+
+
+@router.patch("/{order_number}/items/{item_id}/lens-fit", response_model=OrderOut)
+def submit_item_power(
+    order_number: str,
+    item_id: int,
+    payload: OrderItemLensFitIn,
+    db: Session = Depends(get_db),
+    customer: Customer = Depends(get_current_customer),
+) -> OrderOut:
+    """Attach power to a line ordered with "send power later"."""
+    order = db.scalar(
+        select(Order)
+        .where(Order.order_number == order_number, Order.customer_id == customer.id)
+        .options(*_order_items_eager())
+        .with_for_update(of=Order)
+    )
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+    if (order.status or "").lower() not in POWER_LATER_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This order is already being processed. Please call support to update power.",
+        )
+    if order.created_at and ist_now() - as_ist(order.created_at) > timedelta(days=POWER_LATER_DAYS):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Power can only be added within {POWER_LATER_DAYS} days of ordering.",
+        )
+    item = next((i for i in order.items or [] if i.id == item_id), None)
+    current = item.lens_fit if item is not None and isinstance(item.lens_fit, dict) else None
+    if item is None or current is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found.")
+    if str(current.get("source") or "").lower() != "later":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Power is already on file for this item."
+        )
+
+    incoming = payload.lensFit
+    rx = incoming.get("prescription") if isinstance(incoming.get("prescription"), dict) else {}
+    right = _clean_eye(rx.get("right"))
+    left = _clean_eye(rx.get("left"))
+    file = _own_prescription_file(incoming.get("prescriptionFile"), customer.id)
+    has_file = file is not None
+    has_rx = bool(right["sph"] and left["sph"])
+    if not has_file and not has_rx:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Add SPH for both eyes or upload your prescription.",
+        )
+
+    source = str(incoming.get("source") or "").lower()
+    updated: dict = {
+        "powerMode": current.get("powerMode") or "powered",
+        "lensType": current.get("lensType") or "",
+        "source": source if source in ("manual", "saved", "upload") else ("upload" if has_file else "manual"),
+    }
+    patient = incoming.get("patient") or current.get("patient")
+    if isinstance(patient, dict) and str(patient.get("name") or "").strip():
+        updated["patient"] = {
+            "name": str(patient.get("name")).strip()[:120],
+            **({"phone": str(patient["phone"]).strip()[:20]} if patient.get("phone") else {}),
+        }
+    if has_rx:
+        updated["prescription"] = {"right": right, "left": left}
+    if has_file:
+        updated["prescriptionFile"] = file
+    item.lens_fit = updated
+    upsert_from_lens_fit(db, customer.id, updated)
+    db.commit()
+    db.refresh(order)
     return _order_out(order, db)
 
 

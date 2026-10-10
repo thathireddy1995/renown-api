@@ -52,6 +52,7 @@ class AddressListResponse(BaseModel):
 
 
 class OrderItemOut(BaseModel):
+    itemId: int | None = None
     productId: str
     name: str
     qty: int
@@ -72,6 +73,10 @@ class OrderItemOut(BaseModel):
     description: str | None = None
     image: str | None = None
     lensFit: dict | None = None
+
+
+class OrderItemLensFitIn(BaseModel):
+    lensFit: dict
 
 
 class PickupStoreOut(BaseModel):

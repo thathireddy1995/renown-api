@@ -54,11 +54,17 @@ def labels_from_lens_fit(fit: dict | None) -> tuple[str, str]:
     if not isinstance(fit, dict):
         return "", ""
     lens = str(fit.get("lensType") or fit.get("lens_type") or "").strip()
+    mode = str(fit.get("powerMode") or fit.get("power_mode") or "").strip().lower()
+    if mode == "frame_only":
+        return lens or "Frame only", "Frame only"
+    patient = fit.get("patient")
+    who = str(patient.get("name") or "").strip() if isinstance(patient, dict) else ""
+    suffix = f" · for {who}" if who else ""
+    prefix = "Progressive · " if mode == "progressive" else ""
     file = fit.get("prescriptionFile") or fit.get("prescription_file") or {}
     if isinstance(file, dict) and (file.get("url") or file.get("name")):
         name = str(file.get("name") or "prescription").strip()
-        return lens, f"Uploaded Rx · {name}" if name else "Uploaded Rx"
-    mode = str(fit.get("powerMode") or fit.get("power_mode") or "").strip().lower()
+        return lens, f"{prefix}Uploaded Rx · {name}{suffix}" if name else f"{prefix}Uploaded Rx{suffix}"
     if mode == "zero":
         return lens, "Zero power"
     rx = fit.get("prescription") or {}
@@ -75,4 +81,6 @@ def labels_from_lens_fit(fit: dict | None) -> tuple[str, str]:
         parts.append(f"R {rs}")
     if ls:
         parts.append(f"L {ls}")
-    return lens, " / ".join(parts)
+    if not parts and str(fit.get("source") or "").strip().lower() == "later":
+        return lens, f"{prefix}Power to follow{suffix}"
+    return lens, f"{prefix}{' / '.join(parts)}{suffix}" if parts else ""

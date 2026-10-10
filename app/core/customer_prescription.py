@@ -13,7 +13,7 @@ from app.dto.prescription_dto import (
     CustomerPrescriptionUpsert,
     EyeRxIn,
 )
-from app.schemas import CustomerPrescription
+from app.schemas import Customer, CustomerPrescription
 
 
 def _clean(value: str | None) -> str | None:
@@ -116,12 +116,26 @@ def upsert_from_lens_fit(db: Session, customer_id: int, lens_fit: Any) -> Custom
     if not isinstance(lens_fit, dict):
         return None
     power_mode = str(lens_fit.get("powerMode") or lens_fit.get("power_mode") or "").strip().lower()
-    if power_mode not in ("powered", "zero"):
+    if power_mode not in ("powered", "zero", "progressive"):
         return None
+    source = str(lens_fit.get("source") or "").strip().lower()
+    if source == "later":
+        return None
+    # A power typed for someone else (family member) must not replace the
+    # account holder's own profile.
+    patient = lens_fit.get("patient")
+    patient_name = str(patient.get("name") or "").strip().lower() if isinstance(patient, dict) else ""
+    if patient_name:
+        customer = db.get(Customer, customer_id)
+        own_name = str(getattr(customer, "name", "") or "").strip().lower()
+        if own_name and patient_name != own_name:
+            return None
+    vision_type = "progressive" if power_mode == "progressive" else "single_vision"
+    if power_mode == "progressive":
+        power_mode = "powered"
     lens_type = lens_fit.get("lensType") or lens_fit.get("lens_type")
     rx = lens_fit.get("prescription") or {}
     file = lens_fit.get("prescriptionFile") or lens_fit.get("prescription_file")
-    source = str(lens_fit.get("source") or "").strip().lower()
     has_file = isinstance(file, dict) and bool(file.get("url") or file.get("key"))
     right = rx.get("right") if isinstance(rx, dict) else {}
     left = rx.get("left") if isinstance(rx, dict) else {}
@@ -137,24 +151,17 @@ def upsert_from_lens_fit(db: Session, customer_id: int, lens_fit: Any) -> Custom
     ):
         return None
 
+    # lens_fit JSON is client-supplied; clip to column sizes so a bad value
+    # can't fail checkout with a DB truncation error.
+    def eye(side: dict) -> EyeRxIn:
+        return EyeRxIn(**{k: str(side.get(k) or "").strip()[:20] for k in ("sph", "cyl", "axis", "pd", "add")})
+
     payload = CustomerPrescriptionUpsert(
         power_mode=power_mode,
-        vision_type="single_vision",
-        lens_type=str(lens_type) if lens_type else None,
-        right=EyeRxIn(
-            sph=str(right.get("sph") or ""),
-            cyl=str(right.get("cyl") or ""),
-            axis=str(right.get("axis") or ""),
-            pd=str(right.get("pd") or ""),
-            add=str(right.get("add") or ""),
-        ),
-        left=EyeRxIn(
-            sph=str(left.get("sph") or ""),
-            cyl=str(left.get("cyl") or ""),
-            axis=str(left.get("axis") or ""),
-            pd=str(left.get("pd") or ""),
-            add=str(left.get("add") or ""),
-        ),
+        vision_type=vision_type,
+        lens_type=str(lens_type)[:80] if lens_type else None,
+        right=eye(right),
+        left=eye(left),
     )
     return upsert_for_customer(db, customer_id, payload)
 
@@ -172,7 +179,7 @@ def upsert_from_cart_lines(db: Session, customer_id: int, line_rows: list[Any]) 
         if not isinstance(fit, dict):
             continue
         mode = str(fit.get("powerMode") or fit.get("power_mode") or "").strip().lower()
-        if mode == "powered":
+        if mode in ("powered", "progressive"):
             # Upload-only fits return None — keep scanning for a typed Rx table.
             if upsert_from_lens_fit(db, customer_id, fit) is not None:
                 return
