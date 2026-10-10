@@ -30,6 +30,7 @@ from app.routers import (
     admin_warehouses,
     admin_web_analytics,
     customer_addresses,
+    customer_app_status,
     customer_appointments,
     customer_auth,
     customer_cart,
@@ -116,6 +117,7 @@ app.include_router(staff_warehouse_audits.router)
 app.include_router(staff_warehouse_low_stock.router)
 app.include_router(staff_warehouse_settings.router)
 app.include_router(customer_auth.router)
+app.include_router(customer_app_status.router)
 app.include_router(customer_prescriptions.router)
 app.include_router(customer_appointments.router)
 app.include_router(admin_catalog.router)

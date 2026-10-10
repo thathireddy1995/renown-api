@@ -1751,6 +1751,13 @@ class SystemSettings(Base):
     sgst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False, default=Decimal("2.5"))
     cgst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False, default=Decimal("2.5"))
     igst_percent: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False, default=Decimal("5"))
+    app_maintenance_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    app_maintenance_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    privacy_policy_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    terms_of_service_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    refund_policy_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(ISTDateTime(), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         ISTDateTime(), server_default=func.now(), onupdate=func.now()

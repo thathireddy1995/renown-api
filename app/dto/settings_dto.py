@@ -30,7 +30,40 @@ class CompanyDetailsOut(BaseModel):
 
 
 class AdminSettingsOut(CompanyDetailsOut):
-    pass
+    app_maintenance_enabled: bool = False
+    app_maintenance_message: str = ""
+    privacy_policy_url: str = ""
+    terms_of_service_url: str = ""
+    refund_policy_url: str = ""
+
+
+class AdminAppMaintenanceUpdate(BaseModel):
+    app_maintenance_enabled: bool
+    app_maintenance_message: str = Field(default="", max_length=500)
+
+    @field_validator("app_maintenance_message", mode="before")
+    @classmethod
+    def strip_message(cls, value: str | None) -> str:
+        return _strip(value)
+
+
+class AdminConfigurationUpdate(BaseModel):
+    app_maintenance_enabled: bool
+    app_maintenance_message: str = Field(default="", max_length=500)
+    privacy_policy_url: str = Field(default="", max_length=500)
+    terms_of_service_url: str = Field(default="", max_length=500)
+    refund_policy_url: str = Field(default="", max_length=500)
+
+    @field_validator(
+        "app_maintenance_message",
+        "privacy_policy_url",
+        "terms_of_service_url",
+        "refund_policy_url",
+        mode="before",
+    )
+    @classmethod
+    def strip_fields(cls, value: str | None) -> str:
+        return _strip(value)
 
 
 class AdminGeneralSettingsUpdate(BaseModel):

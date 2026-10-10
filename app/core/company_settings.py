@@ -49,6 +49,32 @@ def from_settings_row(row: SystemSettings) -> CompanyDetailsOut:
     )
 
 
+def _normalize_website(url: str) -> str:
+    raw = (url or "").strip() or "renowneyewear.com"
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    return f"https://{raw.lstrip('/')}"
+
+
+def app_status_public(db: Session) -> dict[str, object]:
+    try:
+        row = get_or_create_settings(db)
+    except ProgrammingError:
+        db.rollback()
+        return {
+            "maintenance_enabled": False,
+            "message": "",
+            "website_url": "https://renowneyewear.com",
+            "support_phone": _FALLBACK.phone,
+        }
+    return {
+        "maintenance_enabled": bool(getattr(row, "app_maintenance_enabled", False)),
+        "message": (getattr(row, "app_maintenance_message", None) or "").strip(),
+        "website_url": _normalize_website(row.website),
+        "support_phone": row.phone or _FALLBACK.phone,
+    }
+
+
 def get_or_create_settings(db: Session) -> SystemSettings:
     row = db.get(SystemSettings, 1)
     if row is not None:
