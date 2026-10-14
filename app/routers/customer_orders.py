@@ -13,6 +13,7 @@ from app.core.order_service import (
     load_cart_lines,
     resolve_shipping_address,
 )
+from app.core.gst_rates import category_gst_percent, category_hsn
 from app.core.product_resolve import public_product_id
 from app.database import get_db
 from app.deps import get_current_customer, pagination
@@ -173,6 +174,8 @@ def _order_item_out(item: OrderItem) -> OrderItemOut:
         description=product.description if product else None,
         image=image,
         lensFit=item.lens_fit,
+        gst_percent=category_gst_percent(product.category if product else None),
+        hsn_code=category_hsn(product.category if product else None),
     )
 
 
@@ -218,6 +221,7 @@ def _order_out(order: Order, db: Session | None = None) -> OrderOut:
         subtotal=float(order.subtotal or 0),
         discount=float(order.discount or 0),
         shipping=float(order.shipping_fee or 0),
+        platform_fee=float(order.platform_fee or 0),
         tax=float(order.tax or 0),
         coupon_code=order.coupon_code,
         payment_method=order.payment_method,

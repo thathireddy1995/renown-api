@@ -67,7 +67,7 @@ def create_payment_order(
     resolve_shipping_address(db, customer, payload.address_id, delivery)
     resolve_pickup_store(db, delivery, payload.pickup_store_id)
 
-    _discount, _shipping, _tax, total, _coupon = compute_pricing(
+    _discount, _shipping, _platform_fee, _tax, total, _coupon = compute_pricing(
         subtotal, delivery, payload.coupon_code, db=db, customer=customer, line_rows=_line_rows
     )
     amount_paise = int((total * 100).to_integral_value())

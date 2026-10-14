@@ -32,6 +32,7 @@ class AdminOrderDetailOut(AdminOrderOut):
     subtotal: float = 0
     discount: float = 0
     shipping: float = 0
+    platform_fee: float = 0
     tax: float = 0
     coupon_code: str | None = None
     awb_code: str | None = None

@@ -166,6 +166,8 @@ def _build_adhoc_payload(db: Session, order: Order, customer: Customer) -> dict[
         "order_items": items,
         "payment_method": "Prepaid" if prepaid else "COD",
         "sub_total": float(order.subtotal or order.total or 0) or 1,
+        "shipping_charges": float(order.shipping_fee or 0),
+        "transaction_charges": float(order.platform_fee or 0),
         "length": SHIPROCKET_DEFAULT_LENGTH_CM,
         "breadth": SHIPROCKET_DEFAULT_BREADTH_CM,
         "height": SHIPROCKET_DEFAULT_HEIGHT_CM,

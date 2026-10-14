@@ -113,6 +113,7 @@ def product_out(
         product_id=product.product_id,
         productId=product.product_id,
         description=product.description if include_description else None,
+        about=product.about if include_description else None,
         price=price,
         compare_at_price=mrp,
         compareAt=mrp,

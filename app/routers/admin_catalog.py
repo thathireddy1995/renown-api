@@ -269,6 +269,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
         sku=sku,
         product_id=payload.product_id,
         description=payload.description,
+        about=payload.about,
         price=payload.price,
         compare_at_price=payload.compare_at_price,
         buying_price=payload.buying_price,

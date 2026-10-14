@@ -212,6 +212,8 @@ class Product(Base):
     sku: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
     product_id: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Short 2–3 line "About this product", separate from description.
+    about: Mapped[str | None] = mapped_column(String(500), nullable=True)
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     compare_at_price: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     # Three-tier pricing (new structure)
@@ -371,6 +373,9 @@ class Category(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     image: Mapped[str | None] = mapped_column(String(500), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # NULL = company GST % / default eyewear HSN (system_settings).
+    gst_percent: Mapped[Decimal | None] = mapped_column(Numeric(6, 3), nullable=True)
+    hsn_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         ISTDateTime(), server_default=func.now()
     )
@@ -680,6 +685,9 @@ class Order(Base):
     subtotal: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     discount: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     shipping_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    platform_fee: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=0, server_default="0"
+    )
     tax: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     coupon_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
@@ -1277,6 +1285,37 @@ class StoreOrderItem(Base):
     variant: Mapped["ProductVariant"] = relationship()
 
 
+class CashbookEntry(Base):
+    """Manual cash movement. Sales / refunds are derived from orders, not stored here."""
+
+    __tablename__ = "cashbook_entries"
+    __table_args__ = (
+        CheckConstraint("entry_type IN ('in', 'out')", name="ck_cashbook_entries_type"),
+        CheckConstraint("mode IN ('Cash', 'UPI', 'Card', 'Bank')", name="ck_cashbook_entries_mode"),
+        CheckConstraint("amount > 0", name="ck_cashbook_entries_amount"),
+        Index("ix_cashbook_entries_entry_date", "entry_date"),
+        Index("ix_cashbook_entries_store_date", "store_id", "entry_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stores.id", ondelete="SET NULL"), nullable=True
+    )
+    entry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    entry_type: Mapped[str] = mapped_column(String(3), nullable=False)
+    category: Mapped[str] = mapped_column(String(60), nullable=False)
+    mode: Mapped[str] = mapped_column(String(10), nullable=False, default="Cash")
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    entered_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    entered_by_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        ISTDateTime(), nullable=False, server_default=func.now()
+    )
+
+
 class Doctor(Base):
     __tablename__ = "doctors"
     __table_args__ = (Index("ix_doctors_store_id", "store_id"),)
@@ -1781,6 +1820,16 @@ class SystemSettings(Base):
     refund_policy_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
     app_contact_lens_images: Mapped[dict] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="{}"
+    )
+    shipping_fee: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    # 0 = no threshold; shipping_fee applies to every shipped order.
+    free_shipping_above: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    platform_fee: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
     created_at: Mapped[datetime] = mapped_column(ISTDateTime(), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

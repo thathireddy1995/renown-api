@@ -5,6 +5,7 @@ from mangum import Mangum
 from app.core.config import CORS_ORIGIN_REGEX, IS_PRODUCTION
 from app.routers import (
     admin_auth,
+    admin_cashbook,
     admin_push,
     admin_catalog,
     admin_catalog_variants,
@@ -134,6 +135,7 @@ app.include_router(admin_users.router)
 app.include_router(admin_locations.router)
 app.include_router(admin_settings.router)
 app.include_router(admin_reports.router)
+app.include_router(admin_cashbook.router)
 app.include_router(admin_dashboard.router)
 app.include_router(admin_operations.router)
 app.include_router(admin_warehouses.router)

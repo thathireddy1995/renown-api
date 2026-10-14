@@ -2,13 +2,17 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.company_settings import (
+    charges_from_row,
+    company_details,
     contact_lens_images,
     from_settings_row,
     get_or_create_settings,
 )
+from app.core.gst_rates import DEFAULT_HSN
 from app.core.config import S3_PUBLIC_BUCKET
 from app.core.s3_images import is_app_tile_url, presign_app_tile_puts
 from app.database import get_db
@@ -20,12 +24,17 @@ from app.dto.catalog_dto import (
 )
 from app.dto.settings_dto import (
     AdminAppMaintenanceUpdate,
+    AdminChargesUpdate,
     AdminConfigurationUpdate,
     AdminContactLensImagesUpdate,
     AdminGeneralSettingsUpdate,
     AdminGstSettingsUpdate,
     AdminSettingsOut,
+    CategoryGstListOut,
+    CategoryGstOut,
+    CategoryGstUpdate,
 )
+from app.schemas import Category
 
 router = APIRouter(
     prefix="/admin/settings",
@@ -44,6 +53,7 @@ def _out(row) -> AdminSettingsOut:
     payload["terms_of_service_url"] = (getattr(row, "terms_of_service_url", None) or "").strip()
     payload["refund_policy_url"] = (getattr(row, "refund_policy_url", None) or "").strip()
     payload["app_contact_lens_images"] = contact_lens_images(row)
+    payload.update(charges_from_row(row).as_public())
     return AdminSettingsOut.model_validate(payload)
 
 
@@ -143,6 +153,76 @@ def update_contact_lens_images(
         raise
     db.refresh(row)
     return _out(row)
+
+
+@router.patch("/charges", response_model=AdminSettingsOut)
+def update_charges(
+    payload: AdminChargesUpdate,
+    db: Session = Depends(get_db),
+) -> AdminSettingsOut:
+    row = get_or_create_settings(db)
+    row.shipping_fee = payload.shipping_fee
+    row.free_shipping_above = payload.free_shipping_above
+    row.platform_fee = payload.platform_fee
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(row)
+    return _out(row)
+
+
+def _category_gst_list(db: Session) -> CategoryGstListOut:
+    rows = db.execute(
+        select(
+            Category.id, Category.name, Category.status, Category.gst_percent, Category.hsn_code
+        ).order_by(Category.sort_order, Category.name)
+    ).all()
+    return CategoryGstListOut(
+        default_gst_percent=company_details(db).gst_percent,
+        default_hsn_code=DEFAULT_HSN,
+        items=[
+            CategoryGstOut(
+                id=row.id,
+                name=row.name,
+                status=row.status,
+                gst_percent=float(row.gst_percent) if row.gst_percent is not None else None,
+                hsn_code=row.hsn_code,
+            )
+            for row in rows
+        ],
+    )
+
+
+@router.get("/category-gst", response_model=CategoryGstListOut)
+def get_category_gst(db: Session = Depends(get_db)) -> CategoryGstListOut:
+    return _category_gst_list(db)
+
+
+@router.put("/category-gst", response_model=CategoryGstListOut)
+def update_category_gst(
+    payload: CategoryGstUpdate,
+    db: Session = Depends(get_db),
+) -> CategoryGstListOut:
+    wanted = {item.id: item for item in payload.items}
+    if wanted:
+        rows = db.scalars(select(Category).where(Category.id.in_(wanted))).all()
+        missing = set(wanted) - {row.id for row in rows}
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category not found: {', '.join(map(str, sorted(missing)))}",
+            )
+        for row in rows:
+            row.gst_percent = wanted[row.id].gst_percent
+            row.hsn_code = wanted[row.id].hsn_code
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+    return _category_gst_list(db)
 
 
 @router.patch("/gst", response_model=AdminSettingsOut)

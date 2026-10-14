@@ -1,5 +1,8 @@
 """Load the singleton company settings row without N+1 lookups."""
 
+from dataclasses import dataclass
+from decimal import Decimal
+
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 
@@ -65,6 +68,55 @@ def contact_lens_images(row: SystemSettings) -> dict[str, str]:
     }
 
 
+@dataclass(frozen=True)
+class CheckoutCharges:
+    shipping_fee: Decimal = Decimal("0")
+    free_shipping_above: Decimal = Decimal("0")
+    platform_fee: Decimal = Decimal("0")
+
+    def shipping_for(self, subtotal: Decimal, delivery: str) -> Decimal:
+        if delivery == "pickup" or subtotal <= 0 or self.shipping_fee <= 0:
+            return Decimal("0")
+        if self.free_shipping_above > 0 and subtotal >= self.free_shipping_above:
+            return Decimal("0")
+        return self.shipping_fee
+
+    def platform_for(self, subtotal: Decimal) -> Decimal:
+        if subtotal <= 0 or self.platform_fee <= 0:
+            return Decimal("0")
+        return self.platform_fee
+
+    def as_public(self) -> dict[str, float]:
+        return {
+            "shipping_fee": float(self.shipping_fee),
+            "free_shipping_above": float(self.free_shipping_above),
+            "platform_fee": float(self.platform_fee),
+        }
+
+
+def _money(value: object) -> Decimal:
+    try:
+        amount = Decimal(str(value if value is not None else 0))
+        return amount if amount > 0 else Decimal("0")
+    except (ArithmeticError, ValueError):
+        return Decimal("0")
+
+
+def charges_from_row(row: SystemSettings | None) -> CheckoutCharges:
+    if row is None:
+        return CheckoutCharges()
+    return CheckoutCharges(
+        shipping_fee=_money(getattr(row, "shipping_fee", 0)),
+        free_shipping_above=_money(getattr(row, "free_shipping_above", 0)),
+        platform_fee=_money(getattr(row, "platform_fee", 0)),
+    )
+
+
+def checkout_charges(db: Session) -> CheckoutCharges:
+    """Admin-configured shipping / platform fees. One PK lookup, never writes."""
+    return charges_from_row(db.get(SystemSettings, 1))
+
+
 def app_status_public(db: Session) -> dict[str, object]:
     try:
         row = get_or_create_settings(db)
@@ -76,6 +128,7 @@ def app_status_public(db: Session) -> dict[str, object]:
             "website_url": "https://renowneyewear.com",
             "support_phone": _FALLBACK.phone,
             "contact_lens_images": {},
+            "charges": CheckoutCharges().as_public(),
         }
     return {
         "maintenance_enabled": bool(getattr(row, "app_maintenance_enabled", False)),
@@ -83,6 +136,7 @@ def app_status_public(db: Session) -> dict[str, object]:
         "website_url": _normalize_website(row.website),
         "support_phone": row.phone or _FALLBACK.phone,
         "contact_lens_images": contact_lens_images(row),
+        "charges": charges_from_row(row).as_public(),
     }
 
 

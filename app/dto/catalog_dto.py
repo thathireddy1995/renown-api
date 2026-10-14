@@ -142,6 +142,7 @@ class ProductOut(BaseModel):
     product_id: str | None = None
     productId: str | None = None
     description: str | None = None
+    about: str | None = None
     price: float
     compare_at_price: float | None = None
     compareAt: float | None = None
@@ -212,6 +213,7 @@ class ProductCreate(BaseModel):
     sku: str | None = Field(default=None, max_length=40)
     product_id: str | None = Field(default=None, max_length=40)
     description: str | None = None
+    about: str | None = Field(default=None, max_length=500)
     price: Decimal | None = None
     compare_at_price: Decimal | None = None
     buying_price: Decimal = Decimal("0")
@@ -237,7 +239,7 @@ class ProductCreate(BaseModel):
     view_360_key: str | None = None
     variants: list[ProductVariantCreate] = Field(default_factory=list)
 
-    @field_validator("product_id", mode="before")
+    @field_validator("product_id", "about", mode="before")
     @classmethod
     def normalize_product_id(cls, value: str | None) -> str | None:
         return _blank_to_none(value)
@@ -270,6 +272,7 @@ class ProductUpdate(BaseModel):
     sku: str | None = Field(default=None, max_length=40)
     product_id: str | None = Field(default=None, max_length=40)
     description: str | None = None
+    about: str | None = Field(default=None, max_length=500)
     price: Decimal | None = None
     compare_at_price: Decimal | None = None
     # Three-tier pricing (new)
@@ -295,7 +298,7 @@ class ProductUpdate(BaseModel):
     view_360_url: str | None = None
     view_360_key: str | None = None
 
-    @field_validator("product_id", mode="before")
+    @field_validator("product_id", "about", mode="before")
     @classmethod
     def normalize_product_id(cls, value: str | None) -> str | None:
         return _blank_to_none(value)

@@ -199,6 +199,7 @@ def _detail_out(order: Order) -> AdminOrderDetailOut:
         subtotal=float(order.subtotal or 0),
         discount=float(order.discount or 0),
         shipping=float(order.shipping_fee or 0),
+        platform_fee=float(order.platform_fee or 0),
         tax=float(order.tax or 0),
         coupon_code=order.coupon_code,
         awb_code=order.awb_code,

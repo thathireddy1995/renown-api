@@ -13,6 +13,7 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.company_settings import CheckoutCharges, checkout_charges
 from app.core.coupon_pricing import quote_coupon, redeem_coupon
 from app.core.ist import now as ist_now
 from app.core.offer_pricing import price_for_offer, winning_offers_for
@@ -73,8 +74,11 @@ def compute_pricing(
     db: Session | None = None,
     customer: Customer | None = None,
     line_rows: list[tuple[CartItem, Decimal]] | None = None,
-) -> tuple[Decimal, Decimal, Decimal, Decimal, str | None]:
-    """Cart / checkout pricing (INR). Coupons are quoted against the live cart."""
+) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal, str | None]:
+    """Cart / checkout pricing (INR). Coupons are quoted against the live cart.
+
+    Returns ``(discount, shipping, platform_fee, tax, total, coupon_code)``.
+    """
     code = (coupon_code or "").strip().upper() or None
     discount = Decimal("0")
     if code:
@@ -87,15 +91,16 @@ def compute_pricing(
         discount = quoted.discount
         code = quoted.code
 
-    # Banner copy is unconditional: free shipping across India.
-    shipping = Decimal("0")
+    charges = checkout_charges(db) if db is not None else CheckoutCharges()
+    shipping = charges.shipping_for(subtotal, delivery)
+    platform_fee = charges.platform_for(subtotal)
 
     # Tax disabled for now — all products are zero-rated.
     tax = Decimal("0")
-    total = subtotal + shipping + tax - discount
+    total = subtotal + shipping + platform_fee + tax - discount
     if total < 0:
         total = Decimal("0")
-    return discount, shipping, tax, total, code
+    return discount, shipping, platform_fee, tax, total, code
 
 
 def load_cart_lines(
@@ -274,7 +279,7 @@ def create_order_record(
     Store pickup also creates a matching StoreOrder (channel=click_collect)
     so the order appears on the staff store Orders screen.
     """
-    discount, shipping, tax, total, coupon = compute_pricing(
+    discount, shipping, platform_fee, tax, total, coupon = compute_pricing(
         subtotal,
         delivery or "ship",
         coupon_code,
@@ -303,6 +308,7 @@ def create_order_record(
                     subtotal=subtotal,
                     discount=discount,
                     shipping_fee=shipping,
+                    platform_fee=platform_fee,
                     tax=tax,
                     total=total,
                     coupon_code=coupon,

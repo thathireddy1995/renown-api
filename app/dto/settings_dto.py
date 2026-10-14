@@ -36,6 +36,15 @@ class AdminSettingsOut(CompanyDetailsOut):
     terms_of_service_url: str = ""
     refund_policy_url: str = ""
     app_contact_lens_images: dict[str, str] = Field(default_factory=dict)
+    shipping_fee: float = 0
+    free_shipping_above: float = 0
+    platform_fee: float = 0
+
+
+class AdminChargesUpdate(BaseModel):
+    shipping_fee: Decimal = Field(ge=0, le=100000, decimal_places=2)
+    free_shipping_above: Decimal = Field(ge=0, le=10000000, decimal_places=2)
+    platform_fee: Decimal = Field(ge=0, le=100000, decimal_places=2)
 
 
 CONTACT_LENS_SLOTS = ("clear", "color", "solution")
@@ -150,3 +159,35 @@ class AdminGstSettingsUpdate(BaseModel):
         if (self.igst_percent - self.gst_percent).copy_abs() > Decimal("0.05"):
             raise ValueError("IGST % must equal GST %.")
         return self
+
+
+class CategoryGstOut(BaseModel):
+    id: int
+    name: str
+    status: str
+    gst_percent: float | None = None
+    hsn_code: str | None = None
+
+
+class CategoryGstListOut(BaseModel):
+    default_gst_percent: float
+    default_hsn_code: str
+    items: list[CategoryGstOut]
+
+
+class CategoryGstIn(BaseModel):
+    id: int
+    gst_percent: Decimal | None = Field(default=None, ge=0, le=100)
+    hsn_code: str | None = Field(default=None, max_length=8)
+
+    @field_validator("hsn_code", mode="before")
+    @classmethod
+    def clean_hsn(cls, value: str | None) -> str | None:
+        code = _strip(value)
+        if code and (not code.isdigit() or len(code) not in (4, 6, 8)):
+            raise ValueError("HSN code must be 4, 6 or 8 digits.")
+        return code or None
+
+
+class CategoryGstUpdate(BaseModel):
+    items: list[CategoryGstIn] = Field(max_length=500)

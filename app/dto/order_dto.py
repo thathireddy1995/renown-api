@@ -73,6 +73,9 @@ class OrderItemOut(BaseModel):
     description: str | None = None
     image: str | None = None
     lensFit: dict | None = None
+    # Category GST override; None = use company GST % on the invoice.
+    gst_percent: float | None = None
+    hsn_code: str | None = None
 
 
 class OrderItemLensFitIn(BaseModel):
@@ -97,6 +100,7 @@ class OrderOut(BaseModel):
     subtotal: float = 0
     discount: float = 0
     shipping: float = 0
+    platform_fee: float = 0
     tax: float = 0
     coupon_code: str | None = None
     payment_method: str = "cod"  # cod | razorpay

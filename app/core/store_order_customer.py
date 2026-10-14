@@ -16,6 +16,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import JWT_SECRET
+from app.core.gst_rates import category_gst_percent, category_hsn
 from app.core.ist import format_ist_datetime
 from app.core.order_lens_fit import store_item_fits
 from app.core.product_resolve import public_product_id
@@ -133,6 +134,8 @@ def _item_out(item: StoreOrderItem, lens_fit: dict | None) -> OrderItemOut:
         material=product.material if product else None,
         image=product.images[0].url if product and product.images else None,
         lensFit=lens_fit,
+        gst_percent=category_gst_percent(product.category if product else None),
+        hsn_code=category_hsn(product.category if product else None),
     )
 
 

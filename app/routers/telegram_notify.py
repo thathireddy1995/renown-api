@@ -86,6 +86,7 @@ def notify_order_placed(order: Order, customer: Customer) -> None:
         "customer_name": customer.name or "",
         "total": float(order.total or 0),
         "shipping_charges": float(order.shipping_fee or 0),
+        "platform_fee": float(order.platform_fee or 0),
         "address": _format_address(order),
         "phone": _phone(order, customer),
         "lines": [
