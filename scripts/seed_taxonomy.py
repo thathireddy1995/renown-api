@@ -40,6 +40,7 @@ CATEGORIES = [
     ("Eyeglasses", "active"),
     ("Sunglasses", "active"),
     ("Reading Glasses", "active"),
+    ("Eye Protection Glasses", "active"),
     ("Contact Lenses", "active"),
     ("Computer Glasses", "active"),
     ("Kids Collection", "active"),
@@ -69,6 +70,9 @@ CATEGORY_ALIASES = {
     "sports": "Sports",
     "contact lenses": "Contact Lenses",
     "reading glasses": "Reading Glasses",
+    "eye protection": "Eye Protection Glasses",
+    "eye protection glasses": "Eye Protection Glasses",
+    "protection": "Eye Protection Glasses",
 }
 
 BRANDS = [

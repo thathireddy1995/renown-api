@@ -3,6 +3,7 @@
 from decimal import Decimal
 
 from app.core.offer_pricing import OfferPrice
+from app.core.text_format import title_case_name
 from app.dto.catalog_dto import ProductOut, ProductVariantOut
 from app.schemas import Product, ProductVariant
 
@@ -31,10 +32,11 @@ def live_variants(variants: list[ProductVariant] | None) -> list[ProductVariant]
 
 
 def variant_out(variant: ProductVariant, product_name: str = "") -> ProductVariantOut:
+    raw_name = product_name or (variant.product.name if variant.product else "")
     return ProductVariantOut(
         id=variant.id,
         product_id=variant.product_id,
-        product=product_name or (variant.product.name if variant.product else ""),
+        product=title_case_name(raw_name),
         sku=variant.sku,
         color=_clean_label(variant.color),
         color_hex=variant.color_hex if _clean_label(variant.color) else None,
@@ -107,7 +109,7 @@ def product_out(
     return ProductOut(
         id=pid,
         db_id=product.id,
-        name=product.name,
+        name=title_case_name(product.name),
         slug=product.slug,
         sku=product.sku,
         product_id=product.product_id,

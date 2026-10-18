@@ -4,6 +4,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.s3_images import is_view_360_key, public_url_for
+from app.core.text_format import title_case_name
 
 
 def _blank_to_none(value: str | None) -> str | None:
@@ -239,6 +240,13 @@ class ProductCreate(BaseModel):
     view_360_key: str | None = None
     variants: list[ProductVariantCreate] = Field(default_factory=list)
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_product_name(cls, value: object) -> str:
+        if value is None:
+            return ""
+        return title_case_name(str(value))
+
     @field_validator("product_id", "about", mode="before")
     @classmethod
     def normalize_product_id(cls, value: str | None) -> str | None:
@@ -297,6 +305,14 @@ class ProductUpdate(BaseModel):
     images: list[ProductImageCreate] | None = None
     view_360_url: str | None = None
     view_360_key: str | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_product_name(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        text = title_case_name(str(value))
+        return text or None
 
     @field_validator("product_id", "about", mode="before")
     @classmethod
