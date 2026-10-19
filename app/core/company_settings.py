@@ -127,6 +127,9 @@ def app_status_public(db: Session) -> dict[str, object]:
             "message": "",
             "website_url": "https://renowneyewear.com",
             "support_phone": _FALLBACK.phone,
+            "android_min_version": "",
+            "android_latest_version": "",
+            "play_store_url": "",
             "contact_lens_images": {},
             "charges": CheckoutCharges().as_public(),
         }
@@ -135,6 +138,9 @@ def app_status_public(db: Session) -> dict[str, object]:
         "message": (getattr(row, "app_maintenance_message", None) or "").strip(),
         "website_url": _normalize_website(row.website),
         "support_phone": row.phone or _FALLBACK.phone,
+        "android_min_version": (getattr(row, "android_min_version", None) or "").strip(),
+        "android_latest_version": (getattr(row, "android_latest_version", None) or "").strip(),
+        "play_store_url": (getattr(row, "play_store_url", None) or "").strip(),
         "contact_lens_images": contact_lens_images(row),
         "charges": charges_from_row(row).as_public(),
     }

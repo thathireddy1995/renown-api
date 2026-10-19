@@ -32,6 +32,9 @@ class CompanyDetailsOut(BaseModel):
 class AdminSettingsOut(CompanyDetailsOut):
     app_maintenance_enabled: bool = False
     app_maintenance_message: str = ""
+    android_min_version: str = ""
+    android_latest_version: str = ""
+    play_store_url: str = ""
     privacy_policy_url: str = ""
     terms_of_service_url: str = ""
     refund_policy_url: str = ""
@@ -74,12 +77,18 @@ class AdminAppMaintenanceUpdate(BaseModel):
 class AdminConfigurationUpdate(BaseModel):
     app_maintenance_enabled: bool
     app_maintenance_message: str = Field(default="", max_length=500)
+    android_min_version: str = Field(default="", max_length=32)
+    android_latest_version: str = Field(default="", max_length=32)
+    play_store_url: str = Field(default="", max_length=500)
     privacy_policy_url: str = Field(default="", max_length=500)
     terms_of_service_url: str = Field(default="", max_length=500)
     refund_policy_url: str = Field(default="", max_length=500)
 
     @field_validator(
         "app_maintenance_message",
+        "android_min_version",
+        "android_latest_version",
+        "play_store_url",
         "privacy_policy_url",
         "terms_of_service_url",
         "refund_policy_url",

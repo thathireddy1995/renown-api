@@ -49,6 +49,11 @@ def _out(row) -> AdminSettingsOut:
     payload["app_maintenance_message"] = (
         getattr(row, "app_maintenance_message", None) or ""
     ).strip()
+    payload["android_min_version"] = (getattr(row, "android_min_version", None) or "").strip()
+    payload["android_latest_version"] = (
+        getattr(row, "android_latest_version", None) or ""
+    ).strip()
+    payload["play_store_url"] = (getattr(row, "play_store_url", None) or "").strip()
     payload["privacy_policy_url"] = (getattr(row, "privacy_policy_url", None) or "").strip()
     payload["terms_of_service_url"] = (getattr(row, "terms_of_service_url", None) or "").strip()
     payload["refund_policy_url"] = (getattr(row, "refund_policy_url", None) or "").strip()
@@ -104,6 +109,9 @@ def update_configuration(
     row = get_or_create_settings(db)
     row.app_maintenance_enabled = payload.app_maintenance_enabled
     row.app_maintenance_message = payload.app_maintenance_message
+    row.android_min_version = payload.android_min_version
+    row.android_latest_version = payload.android_latest_version
+    row.play_store_url = payload.play_store_url
     row.privacy_policy_url = payload.privacy_policy_url
     row.terms_of_service_url = payload.terms_of_service_url
     row.refund_policy_url = payload.refund_policy_url

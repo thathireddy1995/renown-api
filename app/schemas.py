@@ -1815,6 +1815,9 @@ class SystemSettings(Base):
         Boolean, nullable=False, default=False, server_default="false"
     )
     app_maintenance_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    android_min_version: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    android_latest_version: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    play_store_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
     privacy_policy_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
     terms_of_service_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
     refund_policy_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
