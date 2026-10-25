@@ -31,6 +31,7 @@ class HomeSectionTileOut(BaseModel):
     slug: str = ""
     name: str = ""
     image: str = ""
+    sku: str = ""
     label: str = ""
     sublabel: str = ""
 
@@ -42,6 +43,8 @@ class AdminHomeSectionOut(BaseModel):
     item_type: str
     enabled: bool
     items: list[HomeSectionTileOut]
+    # Website sections only: what the storefront shows while nothing is tagged.
+    defaults: list[HomeSectionTileOut] = []
 
 
 class CustomerHomeSectionOut(BaseModel):

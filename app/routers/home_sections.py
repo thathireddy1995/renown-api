@@ -14,8 +14,9 @@ from app.dto.home_sections_dto import (
     HomeSectionTileOut,
     HomeSectionUpdate,
 )
+from app.routers.customer_home import _HOME_SQL, _payload
 from app.routers.customer_products import _CARD_LOAD
-from app.schemas import Brand, Category, HomeSection, Product
+from app.schemas import Brand, Category, Collection, HomeSection, Product
 
 admin_router = APIRouter(
     prefix="/admin/home-sections",
@@ -24,7 +25,9 @@ admin_router = APIRouter(
 )
 customer_router = APIRouter(prefix="/customer/home-sections", tags=["customer-home-sections"])
 
-_MODEL = {"product": Product, "brand": Brand, "category": Category}
+_MODEL = {"product": Product, "brand": Brand, "category": Category, "collection": Collection}
+# Sections owned by the customer website (see customer_home); not part of the app feed.
+_WEB_PREFIX = "web_"
 
 
 def _item_entries(section: HomeSection) -> list[dict]:
@@ -51,12 +54,13 @@ def _tile(row, entry: dict) -> HomeSectionTileOut:
     if isinstance(row, Product):
         image = row.images[0].url if row.images else ""
     else:
-        image = row.image or ""
+        image = getattr(row, "image", None) or ""
     return HomeSectionTileOut(
         id=row.id,
         slug=row.slug,
         name=row.name,
         image=image,
+        sku=getattr(row, "sku", None) or "",
         label=str(entry.get("label") or ""),
         sublabel=str(entry.get("sublabel") or ""),
     )
@@ -68,7 +72,9 @@ def _ordered_sections(db: Session) -> list[HomeSection]:
     )
 
 
-def _admin_out(db: Session, section: HomeSection) -> AdminHomeSectionOut:
+def _admin_out(
+    db: Session, section: HomeSection, defaults: list[HomeSectionTileOut] | None = None
+) -> AdminHomeSectionOut:
     entries = _item_entries(section)
     rows = _rows_by_id(db, section, [e["id"] for e in entries], active_only=False)
     return AdminHomeSectionOut(
@@ -78,12 +84,62 @@ def _admin_out(db: Session, section: HomeSection) -> AdminHomeSectionOut:
         item_type=section.item_type,
         enabled=section.enabled,
         items=[_tile(rows[e["id"]], e) for e in entries if e["id"] in rows],
+        defaults=defaults or [],
     )
+
+
+_WEB_PRODUCT_DEFAULTS = {
+    "web_featured": "featured",
+    "web_new_arrivals": "newArrivals",
+    "web_best_sellers": "bestsellers",
+}
+# Matches the storefront TopBrands strip.
+_WEB_TOP_BRANDS_SHOWN = 6
+
+
+def _web_defaults(db: Session, sections: list[HomeSection]) -> dict[str, list[HomeSectionTileOut]]:
+    """Storefront defaults for untagged website sections, taken from the live homepage query."""
+    untagged = {
+        s.key
+        for s in sections
+        if not _item_entries(s) and (s.key in _WEB_PRODUCT_DEFAULTS or s.key == "web_top_brands")
+    }
+    if not untagged:
+        return {}
+    home = _payload(db.execute(_HOME_SQL).scalar())
+    out: dict[str, list[HomeSectionTileOut]] = {}
+
+    if "web_top_brands" in untagged:
+        brand_ids = [b["id"] for b in home.get("brands") or []][:_WEB_TOP_BRANDS_SHOWN]
+        brands = {b.id: b for b in db.scalars(select(Brand).where(Brand.id.in_(brand_ids)))}
+        out["web_top_brands"] = [_tile(brands[i], {}) for i in brand_ids if i in brands]
+
+    web = home.get("web") or {}
+    slugs_by_key = {
+        key: list(web.get(kind) or [])
+        for key, kind in _WEB_PRODUCT_DEFAULTS.items()
+        if key in untagged
+    }
+    all_slugs = {slug for slugs in slugs_by_key.values() for slug in slugs}
+    if all_slugs:
+        products = {
+            p.slug: p
+            for p in db.scalars(
+                select(Product)
+                .where(Product.slug.in_(all_slugs))
+                .options(selectinload(Product.images))
+            )
+        }
+        for key, slugs in slugs_by_key.items():
+            out[key] = [_tile(products[s], {}) for s in slugs if s in products]
+    return out
 
 
 @admin_router.get("", response_model=list[AdminHomeSectionOut])
 def list_admin_home_sections(db: Session = Depends(get_db)) -> list[AdminHomeSectionOut]:
-    return [_admin_out(db, s) for s in _ordered_sections(db)]
+    sections = _ordered_sections(db)
+    defaults = _web_defaults(db, sections)
+    return [_admin_out(db, s, defaults.get(s.key)) for s in sections]
 
 
 @admin_router.put("/{key}", response_model=AdminHomeSectionOut)
@@ -140,6 +196,8 @@ def update_home_section(
 def list_customer_home_sections(db: Session = Depends(get_db)) -> CustomerHomeSectionsResponse:
     out = []
     for section in _ordered_sections(db):
+        if section.key.startswith(_WEB_PREFIX):
+            continue
         entries = _item_entries(section) if section.enabled else []
         rows = _rows_by_id(db, section, [e["id"] for e in entries], active_only=True)
         ordered = [(rows[e["id"]], e) for e in entries if e["id"] in rows]

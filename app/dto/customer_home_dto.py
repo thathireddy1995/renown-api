@@ -64,6 +64,25 @@ class HomeProductCard(BaseModel):
     colorSwatches: list[str] = Field(default_factory=list, max_length=3)
 
 
+class WebHomeVisibility(BaseModel):
+    brands: bool = True
+    collections: bool = True
+    featured: bool = True
+    newArrivals: bool = True
+    bestsellers: bool = True
+
+
+class WebHomeConfig(BaseModel):
+    """Website-only lists from admin Web Config; brands is null when untagged."""
+
+    featured: list[str] = Field(default_factory=list)
+    bestsellers: list[str] = Field(default_factory=list)
+    newArrivals: list[str] = Field(default_factory=list)
+    brands: list[HomeBrandTile] | None = None
+    collections: list[HomeCollectionTile] | None = None
+    visible: WebHomeVisibility = Field(default_factory=WebHomeVisibility)
+
+
 class CustomerHomeResponse(BaseModel):
     banners: list[HomeBannerCard] = Field(default_factory=list)
     mobile_banners: list[MobileBannerCard] = Field(default_factory=list)
@@ -74,3 +93,4 @@ class CustomerHomeResponse(BaseModel):
     featured: list[str] = Field(default_factory=list)
     bestsellers: list[str] = Field(default_factory=list)
     newArrivals: list[str] = Field(default_factory=list)
+    web: WebHomeConfig = Field(default_factory=WebHomeConfig)

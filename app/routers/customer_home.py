@@ -21,7 +21,23 @@ _CACHE_CONTROL = "private, no-store"
 # projects only fields used by homepage cards.
 _HOME_SQL = text(
     """
-    WITH product_pool AS MATERIALIZED (
+    WITH web_sections AS MATERIALIZED (
+        SELECT key, enabled, items FROM home_sections WHERE key LIKE 'web\\_%'
+    ),
+    web_tags AS MATERIALIZED (
+        SELECT ws.key, (e.value->>'id')::integer AS item_id, e.pos
+        FROM web_sections ws
+        CROSS JOIN LATERAL jsonb_array_elements(ws.items) WITH ORDINALITY AS e(value, pos)
+        WHERE ws.enabled IS TRUE AND jsonb_typeof(e.value->'id') = 'number'
+    ),
+    default_pool AS MATERIALIZED (
+        SELECT p.id
+        FROM products p
+        WHERE p.status = 'active'
+        ORDER BY p.id ASC
+        LIMIT 24
+    ),
+    product_pool AS MATERIALIZED (
         SELECT
             p.id AS db_id,
             p.slug AS id,
@@ -32,11 +48,19 @@ _HOME_SQL = text(
             p.category_id,
             p.gender,
             p.is_bestseller,
-            p.is_new
+            p.is_new,
+            p.id IN (SELECT id FROM default_pool) AS in_default
         FROM products p
-        WHERE p.status = 'active'
-        ORDER BY p.id ASC
-        LIMIT 24
+        WHERE
+            p.status = 'active'
+            AND (
+                p.id IN (SELECT id FROM default_pool)
+                OR p.id IN (
+                    SELECT item_id
+                    FROM web_tags
+                    WHERE key IN ('web_featured', 'web_new_arrivals', 'web_best_sellers')
+                )
+            )
     ),
     cards AS MATERIALIZED (
         SELECT
@@ -70,7 +94,8 @@ _HOME_SQL = text(
             coalesce(reviews.rating, 0)::double precision AS rating,
             coalesce(swatches.colors, '[]'::json) AS color_swatches,
             p.is_bestseller,
-            p.is_new
+            p.is_new,
+            p.in_default
         FROM product_pool p
         LEFT JOIN LATERAL (
             SELECT pi.url
@@ -165,6 +190,81 @@ _HOME_SQL = text(
         LEFT JOIN products p ON p.category_id = cat.id
         WHERE cat.status = 'active'
         GROUP BY cat.id, cat.slug, cat.name, cat.sort_order, cat.image
+    ),
+    -- Untagged defaults; the mobile app reads these top-level lists directly.
+    default_lists AS MATERIALIZED (
+        SELECT 'featured' AS kind, (
+            SELECT coalesce(json_agg(id ORDER BY db_id), '[]'::json)
+            FROM (
+                SELECT id, db_id FROM cards WHERE in_default ORDER BY db_id LIMIT 8
+            ) featured_cards
+        ) AS ids
+        UNION ALL
+        SELECT 'bestsellers', (
+            SELECT coalesce(json_agg(id ORDER BY db_id), '[]'::json)
+            FROM (
+                SELECT id, db_id
+                FROM cards
+                WHERE
+                    in_default
+                    AND (
+                        is_bestseller
+                        OR (SELECT count(*) FROM cards WHERE in_default AND is_bestseller) < 8
+                    )
+                ORDER BY db_id
+                LIMIT 8
+            ) bestseller_cards
+        )
+        UNION ALL
+        SELECT 'newArrivals', (
+            SELECT coalesce(json_agg(id ORDER BY db_id), '[]'::json)
+            FROM (
+                SELECT id, db_id
+                FROM cards
+                WHERE
+                    in_default
+                    AND (is_new OR (SELECT count(*) FROM cards WHERE in_default AND is_new) < 8)
+                ORDER BY db_id
+                LIMIT 8
+            ) new_cards
+        )
+    ),
+    web_lists AS MATERIALIZED (
+        SELECT
+            d.kind,
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM web_tags t
+                    JOIN cards c ON c.db_id = t.item_id
+                    WHERE t.key = m.key
+                ) THEN (
+                    SELECT json_agg(c.id ORDER BY t.pos)
+                    FROM web_tags t
+                    JOIN cards c ON c.db_id = t.item_id
+                    WHERE t.key = m.key
+                )
+                ELSE d.ids
+            END AS ids
+        FROM default_lists d
+        JOIN (
+            VALUES
+                ('featured', 'web_featured'),
+                ('bestsellers', 'web_best_sellers'),
+                ('newArrivals', 'web_new_arrivals')
+        ) AS m(kind, key) ON m.kind = d.kind
+    ),
+    web_visibility AS MATERIALIZED (
+        SELECT k.key, coalesce(ws.enabled, TRUE) AS shown
+        FROM (
+            VALUES
+                ('web_top_brands'),
+                ('web_collections'),
+                ('web_featured'),
+                ('web_new_arrivals'),
+                ('web_best_sellers')
+        ) AS k(key)
+        LEFT JOIN web_sections ws ON ws.key = k.key
     )
     SELECT json_build_object(
         'banners', (
@@ -272,33 +372,60 @@ _HOME_SQL = text(
             )
             FROM cards
         ),
-        'featured', (
-            SELECT coalesce(json_agg(id ORDER BY db_id), '[]'::json)
-            FROM (
-                SELECT id, db_id FROM cards ORDER BY db_id LIMIT 8
-            ) featured_cards
-        ),
-        'bestsellers', (
-            SELECT coalesce(json_agg(id ORDER BY db_id), '[]'::json)
-            FROM (
-                SELECT id, db_id
-                FROM cards
+        'featured', (SELECT ids FROM default_lists WHERE kind = 'featured'),
+        'bestsellers', (SELECT ids FROM default_lists WHERE kind = 'bestsellers'),
+        'newArrivals', (SELECT ids FROM default_lists WHERE kind = 'newArrivals'),
+        'web', json_build_object(
+            'featured', (SELECT ids FROM web_lists WHERE kind = 'featured'),
+            'bestsellers', (SELECT ids FROM web_lists WHERE kind = 'bestsellers'),
+            'newArrivals', (SELECT ids FROM web_lists WHERE kind = 'newArrivals'),
+            'brands', CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM web_tags t
+                    JOIN brands b ON b.id = t.item_id AND b.status = 'active'
+                    WHERE t.key = 'web_top_brands'
+                ) THEN (
+                    SELECT json_agg(
+                        json_build_object(
+                            'id', b.id,
+                            'slug', b.slug,
+                            'name', b.name,
+                            'image', coalesce(b.image, '')
+                        )
+                        ORDER BY t.pos
+                    )
+                    FROM web_tags t
+                    JOIN brands b ON b.id = t.item_id AND b.status = 'active'
+                    WHERE t.key = 'web_top_brands'
+                )
+                ELSE NULL
+            END,
+            -- web_collections items are the collections hidden on the website.
+            'collections', (
+                SELECT coalesce(
+                    json_agg(
+                        json_build_object('id', c.id, 'slug', c.slug, 'name', c.name)
+                        ORDER BY c.id
+                    ),
+                    '[]'::json
+                )
+                FROM collections c
                 WHERE
-                    is_bestseller
-                    OR (SELECT count(*) FROM cards WHERE is_bestseller) < 8
-                ORDER BY db_id
-                LIMIT 8
-            ) bestseller_cards
-        ),
-        'newArrivals', (
-            SELECT coalesce(json_agg(id ORDER BY db_id), '[]'::json)
-            FROM (
-                SELECT id, db_id
-                FROM cards
-                WHERE is_new OR (SELECT count(*) FROM cards WHERE is_new) < 8
-                ORDER BY db_id
-                LIMIT 8
-            ) new_cards
+                    c.status = 'active'
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM web_tags t
+                        WHERE t.key = 'web_collections' AND t.item_id = c.id
+                    )
+            ),
+            'visible', json_build_object(
+                'brands', (SELECT shown FROM web_visibility WHERE key = 'web_top_brands'),
+                'collections', (SELECT shown FROM web_visibility WHERE key = 'web_collections'),
+                'featured', (SELECT shown FROM web_visibility WHERE key = 'web_featured'),
+                'newArrivals', (SELECT shown FROM web_visibility WHERE key = 'web_new_arrivals'),
+                'bestsellers', (SELECT shown FROM web_visibility WHERE key = 'web_best_sellers')
+            )
         )
     )
     """

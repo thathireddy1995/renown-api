@@ -180,7 +180,7 @@ class HomeSection(Base):
     __tablename__ = "home_sections"
     __table_args__ = (
         CheckConstraint(
-            "item_type IN ('product', 'brand', 'category')",
+            "item_type IN ('product', 'brand', 'category', 'collection')",
             name="home_sections_item_type_check",
         ),
     )
