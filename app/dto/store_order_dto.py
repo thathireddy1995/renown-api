@@ -27,6 +27,8 @@ class PosCheckoutLine(BaseModel):
 class PosCheckoutRequest(BaseModel):
     store_id: int | None = None
     customer_name: str | None = None
+    # Optional; when given the customer gets the bill on WhatsApp.
+    customer_phone: str | None = None
     payment_method: str = "card"
     associate_name: str | None = None
     items: list[PosCheckoutLine] = Field(default_factory=list)

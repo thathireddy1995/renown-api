@@ -23,6 +23,12 @@ from app.core.customer_prescription import (
     upsert_from_lens_fit,
 )
 from app.core.ist import now as ist_now
+from app.core.order_cancel import cancel_web_twin
+from app.core.order_reservation import (
+    consume_order_lines,
+    release_order_lines,
+    reserve_order_lines,
+)
 from app.core.order_lens_fit import (
     is_power_later,
     labels_from_lens_fit,
@@ -72,6 +78,7 @@ from app.schemas import (
     Store,
     StoreInventory,
     StoreOrder,
+    WarehouseInventory,
     StoreOrderItem,
     User,
 )
@@ -85,7 +92,7 @@ router = APIRouter(
 OTP_PURPOSE = "store_verify"
 ORDER_OTP_WINDOW = timedelta(hours=12)
 
-OPEN_STATUSES = ("Pending", "Preparing", "Ready", "Processing", "Ordered")
+OPEN_STATUSES = ("Pending", "Preparing", "Ready", "Processing", "Ordered", "Dispatched")
 CLOSED_STATUSES = ("Collected", "Delivered", "Completed", "Cancelled", "Missed", "Void")
 
 STATUS_TO_APP = {
@@ -703,15 +710,6 @@ def place_order(
             .where(ProductVariant.id.in_(variant_ids))
         )
     }
-    inventory = {
-        inv.variant_id: inv
-        for inv in db.scalars(
-            select(StoreInventory).where(
-                StoreInventory.store_id == store.id,
-                StoreInventory.variant_id.in_(variant_ids),
-            )
-        )
-    }
     lines: list[tuple[ProductVariant, Decimal, dict | None]] = []
     for raw in raw_lines:
         variant = variants.get(raw.variant_id)
@@ -720,22 +718,31 @@ def place_order(
         fit = sanitize_lens_fit(raw.lens_fit, customer.id) if raw.lens_fit is not None else None
         price = Decimal(str(_list_price(variant))) + _lens_price(db, fit)
         lines.append((variant, price, fit))
+    # Orders placed on behalf of a customer ship from the warehouse, not the
+    # store shelf — check and hold warehouse stock (available = on_hand - reserved).
     for variant_id in variant_ids:
-        inv = inventory.get(variant_id)
         wanted = sum(1 for v, _, _ in lines if v.id == variant_id)
-        on_hand = int((inv.on_hand if inv and inv.on_hand else 0) or 0)
-        if inv and on_hand < wanted:
-            on_hand = max(on_hand, int(inv.on_floor or 0) + int(inv.backroom or 0))
-        if not inv or on_hand < wanted:
+        available = sum(
+            max(0, int(w.on_hand or 0) - int(w.reserved or 0))
+            for w in db.scalars(
+                select(WarehouseInventory).where(WarehouseInventory.variant_id == variant_id)
+            )
+        )
+        if available < wanted:
             name = variants[variant_id].product.name if variants[variant_id].product else "this product"
-            raise HTTPException(status_code=400, detail=f"Insufficient stock for {name}")
+            raise HTTPException(
+                status_code=400, detail=f"Insufficient warehouse stock for {name}"
+            )
 
     pay = (body.payment or "cod").lower()
-    if pay == "cod":
-        pay = "cash"
-    if pay not in ("card", "upi", "cash", "online"):
-        pay = "cash"
+    if pay not in ("cod", "card", "upi", "cash", "online"):
+        pay = "cod"
     channel = "home_delivery" if body.fulfillment == "home_delivery" else "click_collect"
+    delivery_address = (body.address or "").strip()[:500] or None
+    if channel == "home_delivery" and not delivery_address:
+        raise HTTPException(
+            status_code=400, detail="Add a delivery address for home delivery."
+        )
     power_text = (body.power or "").strip()
     fits = [fit for _, _, fit in lines]
     has_fit = any(fits)
@@ -793,6 +800,7 @@ def place_order(
         payment_method=pay,
         associate_name=user.name if user else "Store Manager",
         notes=notes,
+        delivery_address=delivery_address,
         subtotal=total,
         tax=Decimal("0"),
         total=total,
@@ -813,7 +821,9 @@ def place_order(
                 lens_fit=fit,
             )
         )
-        _take_one_from_stock(db, inventory[variant.id].id)
+    # Hold the frames at the warehouse — the order is dispatched from there, not
+    # pulled from the store's own shelf.
+    reserve_order_lines(db, [(variant.id, 1) for variant, _, _ in lines])
     db.commit()
     db.refresh(order)
     order = db.scalar(
@@ -844,6 +854,18 @@ def patch_status(
         consume_pickup_otp(db, order, body.otp or "")
     previous_status = order.status
     order.status = mapped
+    # Store-placed orders (SA-…) hold warehouse stock. Web pickup mirrors keep the
+    # web order's reservation, so only touch genuinely store-originated orders.
+    if (order.order_number or "").startswith("SA-"):
+        fulfilled = ("Collected", "Delivered", "Completed")
+        cancelled = ("Cancelled", "Missed", "Void")
+        lines = [(i.variant_id, int(i.qty or 1)) for i in (order.items or [])]
+        if mapped in fulfilled and previous_status not in fulfilled:
+            consume_order_lines(db, lines)
+        elif mapped in cancelled and previous_status not in cancelled:
+            release_order_lines(db, lines)
+    elif mapped in ("Cancelled", "Missed", "Void"):
+        cancel_web_twin(db, order)
     db.commit()
     # Re-load with item/variant/product eager options — refresh() alone can
     # leave relationships expired and trigger lazy loads in _frame_name.

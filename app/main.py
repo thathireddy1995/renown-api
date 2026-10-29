@@ -62,6 +62,8 @@ from app.routers import (
     staff_store_reports,
     staff_store_settings,
     staff_store_staff,
+    staff_store_transfers,
+    staff_warehouse_store_orders,
     staff_warehouse_audits,
     staff_warehouse_dispatch,
     staff_warehouse_inventory,
@@ -101,12 +103,14 @@ app.include_router(staff_warehouse_picking.router)
 app.include_router(staff_warehouse_packing.router)
 app.include_router(staff_warehouse_dispatch.router)
 app.include_router(staff_warehouse_transfers.router)
+app.include_router(staff_warehouse_store_orders.router)
 app.include_router(staff_warehouse_inventory.router)
 app.include_router(staff_warehouse_stores.router)
 app.include_router(staff_store_pos.router)
 app.include_router(staff_store_orders.router)
 app.include_router(staff_store_customers.router)
 app.include_router(staff_store_inventory.router)
+app.include_router(staff_store_transfers.router)
 app.include_router(staff_store_appointments.router)
 app.include_router(staff_store_settings.router)
 app.include_router(staff_store_prescriptions.router)

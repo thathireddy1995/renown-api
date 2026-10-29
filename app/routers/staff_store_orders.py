@@ -10,6 +10,7 @@ from app.core.store_orders import (
     staff_order_row,
     store_order_eager,
 )
+from app.core.order_cancel import cancel_web_twin
 from app.core.pickup_otp import consume_pickup_otp, send_pickup_otp
 from app.core.store_order_customer import invoice_token_for
 from app.core.whatsapp_orders import notify_store_order_status
@@ -161,6 +162,8 @@ def patch_status(
 
     previous_status = order.status
     order.status = CLICK_COLLECT_CANONICAL[target]
+    if target in ("cancelled", "missed"):
+        cancel_web_twin(db, order)
     db.commit()
     db.refresh(order)
     notify_store_order_status(order, previous_status, invoice_token_for(db, order))

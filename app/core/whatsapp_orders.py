@@ -19,10 +19,13 @@ from decimal import Decimal
 import requests
 
 from app.core import config as app_config
+from app.core.store_order_customer import store_payment_label
 from app.core.whatsapp_otp import WhatsAppOtpError, to_whatsapp_mobile
 from app.schemas import Customer, Order, StoreOrder
 
 logger = logging.getLogger(__name__)
+# Lambda's root logger drops INFO; keep "sent" lines so delivery can be checked (7-day log retention).
+logger.setLevel(logging.INFO)
 
 
 def _clean_param(value: str) -> str:
@@ -157,10 +160,8 @@ def send_order_placed(order: Order, customer: Customer) -> bool:
 
 
 def send_store_order_placed(order: StoreOrder, invoice_token: str) -> bool:
-    """order_placed for an order a store manager placed on the customer's behalf."""
-    method = (order.payment_method or "cash").lower()
-    method_label = {"upi": "UPI", "card": "Card", "cash": "Cash", "online": "Online"}.get(method, method.title())
-    store = order.store.name if order.store else "store"
+    """order_placed for a store order: placed on the customer's behalf, or a POS
+    bill where the counter took the customer's number."""
     return _send_template(
         order.customer_phone,
         app_config.WHATSAPP_ORDER_PLACED_TEMPLATE,
@@ -168,7 +169,7 @@ def send_store_order_placed(order: StoreOrder, invoice_token: str) -> bool:
             _first_name(order.customer_name),
             order.order_number,
             _amount(order.total),
-            f"Paid at {store} ({method_label})",
+            store_payment_label(order),
         ],
         order.order_number,
         invoice_token,

@@ -36,7 +36,7 @@ STORE_STATUS_LABEL = {
     "void": "Cancelled",
 }
 
-PAYMENT_LABEL = {"cash": "Cash", "card": "Card", "upi": "UPI", "online": "Online"}
+PAYMENT_LABEL = {"cash": "Cash", "card": "Card", "upi": "UPI", "online": "Online", "cod": "COD"}
 
 _TOKEN_RE = re.compile(r"^S(\d{1,12})-([0-9a-f]{24})$")
 
@@ -105,9 +105,24 @@ def store_status_label(order: StoreOrder) -> str:
     return STORE_STATUS_LABEL.get(key, order.status or "Order Placed")
 
 
+_HANDED_OVER = ("collected", "completed", "delivered")
+
+
+def store_order_paid(order: StoreOrder) -> bool:
+    """COD is collected on hand-over; every other store payment is taken at the counter."""
+    if (order.payment_method or "").lower() != "cod":
+        return True
+    return (order.status or "").lower() in _HANDED_OVER
+
+
 def store_payment_label(order: StoreOrder) -> str:
-    method = PAYMENT_LABEL.get((order.payment_method or "").lower(), (order.payment_method or "").title())
+    key = (order.payment_method or "").lower()
     store = order.store.name if order.store else "store"
+    if key == "cod":
+        if store_order_paid(order):
+            return "Cash on delivery" if order.channel == "home_delivery" else f"Paid at {store} (Cash)"
+        return "Pay on delivery" if order.channel == "home_delivery" else f"Pay at {store} on pickup"
+    method = PAYMENT_LABEL.get(key, (order.payment_method or "").title())
     return f"Paid at {store} ({method})" if method else f"Paid at {store}"
 
 
@@ -163,6 +178,7 @@ def store_order_out(order: StoreOrder, *, include_phone: bool = True) -> OrderOu
         country=(store.country or "India") if store else "India",
     )
     total = float(order.total or 0)
+    home = order.channel == "home_delivery"
     return OrderOut(
         id=order.order_number,
         date=format_ist_datetime(order.created_at),
@@ -171,13 +187,13 @@ def store_order_out(order: StoreOrder, *, include_phone: bool = True) -> OrderOu
         subtotal=float(order.subtotal or total),
         tax=0,
         payment_method=store_payment_label(order),
-        payment_status="paid",
-        delivery="pickup" if order.channel == "click_collect" else "ship",
+        payment_status="paid" if store_order_paid(order) else "pending",
+        delivery="ship" if home else "pickup",
         address=buyer,
-        pickup_store=pickup if order.channel == "click_collect" else None,
+        pickup_store=None if home else pickup,
         verify_token=store_invoice_token(order),
         channel="store",
-        fulfillment="store_pickup" if order.channel == "click_collect" else "home_delivery",
+        fulfillment="home_delivery" if home else "store_pickup",
         store_name=store.name if store else None,
         items=items,
     )

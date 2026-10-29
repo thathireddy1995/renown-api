@@ -30,7 +30,7 @@ ZERO = Decimal("0")
 CENT = Decimal("0.01")
 
 STORE_VOID_STATUSES = {"cancelled", "missed", "void"}
-STORE_PAYMENT_LABEL = {"cash": "Cash", "card": "Card", "upi": "UPI", "online": "Online"}
+STORE_PAYMENT_LABEL = {"cash": "Cash", "card": "Card", "upi": "UPI", "online": "Online", "cod": "COD"}
 
 
 def _r2(value: Decimal) -> Decimal:

@@ -155,6 +155,7 @@ class StoreAppPlaceOrderRequest(BaseModel):
     lens_type: str = ""
     power: str = ""
     fulfillment: str = "store_pickup"
+    address: str | None = None  # required when fulfillment == home_delivery
     payment: str = "cod"
     amount: float | None = None
     power_mode: str = "powered"

@@ -19,6 +19,7 @@ from app.core.store_order_customer import (
     store_order_eager,
     store_order_id_from_token,
     store_order_out,
+    store_order_paid,
     store_payment_label,
     store_status_label,
 )
@@ -132,7 +133,7 @@ def verify_invoice(
             status=store_status_label(store_order),
             delivery="pickup" if store_order.channel == "click_collect" else "store",
             payment_method=store_payment_label(store_order),
-            payment_status="paid",
+            payment_status="paid" if store_order_paid(store_order) else "pending",
             total=float(store_order.total or 0),
             items=[
                 PublicInvoiceItem(

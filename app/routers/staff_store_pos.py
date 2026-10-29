@@ -6,8 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.ist import now as ist_now
 from app.core.offer_pricing import price_for_offer, winning_offers_for
+from app.core.order_service import next_order_number
+from app.core.staff_users import digits_phone
+from app.core.store_order_customer import store_invoice_token, store_order_eager
+from app.core.whatsapp_orders import send_store_order_placed
 from app.database import get_db
 from app.deps import require_role, TokenPrincipal
 from app.dto.store_order_dto import (
@@ -171,6 +174,12 @@ def pos_checkout(
     if not body.items:
         raise HTTPException(status_code=422, detail="Cart is empty")
 
+    phone = digits_phone(body.customer_phone)
+    if len(phone) == 12 and phone.startswith("91"):
+        phone = phone[2:]
+    if phone and len(phone) != 10:
+        raise HTTPException(status_code=400, detail="Enter a valid 10-digit phone number")
+
     store = _resolve_store(db, principal, body.store_id)
     if not store:
         raise HTTPException(status_code=400, detail="No store configured")
@@ -232,23 +241,23 @@ def pos_checkout(
         subtotal += price * qty
         line_prices.append((vid, qty, price))
 
-    tax = (subtotal * Decimal("0.18")).quantize(Decimal("1"))
+    # Prices already include GST; invoices split it out using the admin GST settings.
+    tax = Decimal("0")
     total = subtotal + tax
 
     pay = (body.payment_method or "card").lower()
     if pay not in ("card", "upi", "cash", "online"):
         pay = "card"
 
-    order_number = f"SO-{int(ist_now().timestamp()) % 100000}"
-    while db.scalar(select(StoreOrder.id).where(StoreOrder.order_number == order_number)):
-        order_number = f"SO-{int(ist_now().timestamp()) % 100000 + 1}"
+    order_number = next_order_number(db)
 
     user = db.get(User, principal.sub)
 
     order = StoreOrder(
         order_number=order_number,
         store_id=store.id,
-        customer_name=body.customer_name or f"Walk-in #{order_number[-4:]}",
+        customer_name=(body.customer_name or "").strip() or f"Walk-in #{order_number[-4:]}",
+        customer_phone=phone or None,
         channel="in_store",
         payment_method=pay,
         associate_name=body.associate_name or (user.name if user else "Store Associate"),
@@ -302,11 +311,21 @@ def pos_checkout(
     )
 
     db.commit()
+
+    sent = False
+    if phone:
+        billed = db.scalar(
+            select(StoreOrder).where(StoreOrder.id == order.id).options(*store_order_eager())
+        )
+        sent = send_store_order_placed(billed, store_invoice_token(billed))
+    message = f"Payment collected · Bill #{order.order_number}"
+    if phone:
+        message += " · Bill sent on WhatsApp" if sent else " · WhatsApp bill could not be sent"
     return PosCheckoutOut(
         id=order.order_number,
         total=float(total),
         subtotal=float(subtotal),
         tax=float(tax),
         status=order.status,
-        message=f"Payment collected · Bill #{order.order_number}",
+        message=message,
     )

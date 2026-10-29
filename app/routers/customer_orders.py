@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.core.ist import as_ist, format_ist_datetime, now as ist_now
 from app.core.customer_prescription import upsert_from_cart_lines, upsert_from_lens_fit
+from app.core.order_cancel import CUSTOMER_CANCELLABLE, cancel_web_order
 from app.core.order_service import (
     create_order_record,
     load_cart_lines,
@@ -310,6 +311,34 @@ def get_order(
             return store_order_out(store_order)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
     return _order_out(order, db)
+
+
+@router.post("/{order_number}/cancel", response_model=OrderOut)
+def cancel_order(
+    order_number: str,
+    db: Session = Depends(get_db),
+    customer: Customer = Depends(get_current_customer),
+) -> OrderOut:
+    order = db.scalar(
+        select(Order)
+        .where(Order.order_number == order_number, Order.customer_id == customer.id)
+        .options(selectinload(Order.items))
+        .with_for_update(of=Order)
+    )
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
+    if (order.status or "placed").lower() not in CUSTOMER_CANCELLABLE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This order is already being packed or shipped and can no longer be cancelled.",
+        )
+    previous = cancel_web_order(db, order)
+    db.commit()
+    refreshed = db.scalar(
+        select(Order).where(Order.id == order.id).options(*_order_items_eager())
+    )
+    notify_order_status(refreshed, previous)
+    return _order_out(refreshed, db)
 
 
 POWER_LATER_DAYS = 15

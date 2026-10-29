@@ -14,6 +14,8 @@ import requests
 from app.core import config as app_config
 
 logger = logging.getLogger(__name__)
+# Lambda's root logger drops INFO; keep "accepted" lines so delivery can be checked (7-day log retention).
+logger.setLevel(logging.INFO)
 
 
 class WhatsAppOtpError(Exception):

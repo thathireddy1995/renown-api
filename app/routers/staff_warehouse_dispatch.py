@@ -145,6 +145,9 @@ def _decrement_inventory(
             detail=f"Insufficient stock for variant {variant_id}",
         )
     row.on_hand = int(row.on_hand) - qty
+    # The order's reservation is now fulfilled — release it so it isn't
+    # double-counted against available stock.
+    row.reserved = max(0, int(row.reserved or 0) - qty)
 
 
 @router.get("", response_model=StaffDispatchListResponse)

@@ -1,8 +1,8 @@
 """Admin Cashbook ledger: manual entries + sales / refunds read live from orders.
 
 Three round trips per load regardless of size (entries, opening balance, stores).
-Every filter column is indexed: cashbook_entries(entry_date / store_id),
-store_orders.created_at, orders.created_at, orders.status.
+Sales are filtered on when the money came in: the order date, or for COD the
+handover date (handed_over_at, stamped by a DB trigger).
 """
 
 from __future__ import annotations
@@ -30,17 +30,30 @@ _MANUAL = """
     WHERE {date_cond} AND {store_cond}
 """
 
+# COD is money in on the day the customer got the order; everything else on the order date.
+_STORE_MONEY_AT = (
+    "CASE WHEN lower(o.payment_method) = 'cod' "
+    "THEN coalesce(o.handed_over_at, o.created_at) ELSE o.created_at END"
+)
+_WEB_MONEY_AT = (
+    "CASE WHEN o.payment_method = 'cod' "
+    "THEN coalesce(o.handed_over_at, o.created_at) ELSE o.created_at END"
+)
+
 _STORE_SALES = """
     SELECT 's-' || o.id, 'store_sale', o.store_id, s.name,
-           o.created_at::date, to_char(o.created_at, 'HH24:MI'),
+           (""" + _STORE_MONEY_AT + """)::date, to_char(""" + _STORE_MONEY_AT + """, 'HH24:MI'),
            'in', 'Store sales',
-           CASE lower(o.payment_method) WHEN 'cash' THEN 'Cash' WHEN 'card' THEN 'Card'
-                WHEN 'upi' THEN 'UPI' ELSE 'Online' END,
+           CASE lower(o.payment_method) WHEN 'cash' THEN 'Cash' WHEN 'cod' THEN 'Cash'
+                WHEN 'card' THEN 'Card' WHEN 'upi' THEN 'UPI' ELSE 'Online' END,
            o.total, 'Bill ' || o.order_number, coalesce(o.associate_name, 'Store')
     FROM store_orders o
     JOIN stores s ON s.id = o.store_id
     WHERE {ts_cond} AND {store_cond}
       AND lower(o.status) NOT IN ('cancelled', 'missed', 'void')
+      -- COD is money in only once the customer has the order.
+      AND (lower(o.payment_method) <> 'cod'
+           OR lower(o.status) IN ('collected', 'completed', 'delivered'))
       AND o.total > 0
       AND NOT EXISTS (SELECT 1 FROM orders w WHERE w.order_number = o.order_number)
 """
@@ -48,7 +61,7 @@ _STORE_SALES = """
 # Prepaid web orders are money received on order; COD only once delivered.
 _WEB_SALES = """
     SELECT 'w-' || o.id, 'online_sale', NULL::int, 'Online',
-           o.created_at::date, to_char(o.created_at, 'HH24:MI'),
+           (""" + _WEB_MONEY_AT + """)::date, to_char(""" + _WEB_MONEY_AT + """, 'HH24:MI'),
            'in', 'Online sales',
            CASE WHEN o.payment_method = 'cod' THEN 'Cash' ELSE 'Online' END,
            o.total, 'Order ' || o.order_number, 'Website'
@@ -99,10 +112,12 @@ def _union(store: str | int, *, before: bool) -> str:
     parts = [_MANUAL.format(date_cond=date_cond.format(col="e.entry_date"), store_cond=manual_store)]
     if include_store:
         parts.append(
-            _STORE_SALES.format(ts_cond=ts_cond.format(col="o.created_at"), store_cond=store_sales_store)
+            _STORE_SALES.format(
+                ts_cond=ts_cond.format(col=f"({_STORE_MONEY_AT})"), store_cond=store_sales_store
+            )
         )
     if include_web:
-        parts.append(_WEB_SALES.format(ts_cond=ts_cond.format(col="o.created_at")))
+        parts.append(_WEB_SALES.format(ts_cond=ts_cond.format(col=f"({_WEB_MONEY_AT})")))
         parts.append(_REFUNDS.format(ts_cond=ts_cond.format(col="o.updated_at")))
     return "\nUNION ALL\n".join(parts)
 

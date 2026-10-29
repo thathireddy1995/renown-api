@@ -17,6 +17,7 @@ from app.core.company_settings import CheckoutCharges, checkout_charges
 from app.core.coupon_pricing import quote_coupon, redeem_coupon
 from app.core.ist import now as ist_now
 from app.core.offer_pricing import price_for_offer, winning_offers_for
+from app.core.order_reservation import reserve_order_lines
 from app.schemas import (
     Address,
     CartItem,
@@ -358,6 +359,10 @@ def create_order_record(
             )
         )
     db.add_all(order_items)
+
+    # Hold the frames at the warehouse (available = on_hand - reserved). Dispatch
+    # consumes this; a cancel releases it. Best-effort: never blocks checkout.
+    reserve_order_lines(db, [(it.variant_id, it.qty) for it in order_items])
 
     if coupon:
         redeem_coupon(db, coupon, customer.id, order.id, line_rows, subtotal)

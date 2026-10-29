@@ -1245,6 +1245,7 @@ class StoreOrder(Base):
     payment_method: Mapped[str] = mapped_column(String(20), nullable=False, default="cash")
     associate_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    delivery_address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     lens_fit: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)
     tax: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=0)

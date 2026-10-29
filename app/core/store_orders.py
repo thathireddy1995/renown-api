@@ -27,6 +27,7 @@ PAYMENT_LABEL = {
     "upi": "UPI",
     "cash": "Cash",
     "online": "Online",
+    "cod": "COD",
 }
 
 STAFF_STATUS = {
