@@ -135,6 +135,16 @@ class AdminStockTransferListResponse(BaseModel):
     counts: dict[str, int] = Field(default_factory=dict)
 
 
+class AdminTransferRequestLineOut(BaseModel):
+    variant_id: int
+    sku: str
+    name: str
+    color: str = ""
+    size: str = ""
+    image: str | None = None
+    qty: int
+
+
 class AdminTransferRequestOut(BaseModel):
     id: str
     requester: str
@@ -144,6 +154,9 @@ class AdminTransferRequestOut(BaseModel):
     urgency: str
     date: str
     status: str
+    requester_type: str = "warehouse"
+    lines: list[AdminTransferRequestLineOut] = []
+    transfer: str | None = None
 
 
 class AdminTransferRequestCreate(BaseModel):

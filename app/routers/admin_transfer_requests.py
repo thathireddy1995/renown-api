@@ -2,21 +2,31 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, aliased
 
-from app.core.ist import format_ist_date, now as ist_now
+from app.core.ist import format_ist_date
+from app.core.stock_requests import (
+    RequestLine,
+    approve_request,
+    next_request_number,
+    request_eager_options,
+    request_lines,
+    variant_image,
+    variant_label,
+)
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.dto.admin_dto import (
     AdminTransferRequestCreate,
+    AdminTransferRequestLineOut,
     AdminTransferRequestListResponse,
     AdminTransferRequestOut,
 )
 from app.schemas import (
     ProductVariant,
-    StockTransfer,
-    StockTransferItem,
+    Store,
     TransferRequest,
+    TransferRequestItem,
     Warehouse,
 )
 
@@ -30,27 +40,39 @@ STATUS_LABEL = {
 
 
 def _req_out(r: TransferRequest) -> AdminTransferRequestOut:
+    lines = request_lines(r)
     return AdminTransferRequestOut(
         id=r.request_number,
         requester=r.requester_warehouse.name if r.requester_warehouse else (
             r.store.name if r.store else ""
         ),
         target=r.target_warehouse.name if r.target_warehouse else "",
-        sku=r.variant.sku if r.variant else "",
-        qty=r.qty_requested,
+        sku=lines[0].variant.sku if lines else "",
+        qty=sum(line.qty for line in lines) if lines else r.qty_requested,
         urgency=r.urgency or "Medium",
         date=format_ist_date(r.created_at),
         status=STATUS_LABEL.get((r.status or "").lower(), r.status.title()),
+        requester_type="store" if r.store_id and not r.requester_warehouse_id else "warehouse",
+        lines=[_line_out(line) for line in lines],
+        transfer=r.stock_transfer.transfer_number if r.stock_transfer else None,
+    )
+
+
+def _line_out(line: RequestLine) -> AdminTransferRequestLineOut:
+    v = line.variant
+    return AdminTransferRequestLineOut(
+        variant_id=v.id,
+        sku=v.sku,
+        name=v.product.name if v.product else v.sku,
+        color=variant_label(v.color),
+        size=variant_label(v.size),
+        image=variant_image(v),
+        qty=line.qty,
     )
 
 
 def _load_options():
-    return (
-        selectinload(TransferRequest.requester_warehouse),
-        selectinload(TransferRequest.target_warehouse),
-        selectinload(TransferRequest.store),
-        selectinload(TransferRequest.variant),
-    )
+    return request_eager_options()
 
 
 @router.get("", response_model=AdminTransferRequestListResponse)
@@ -67,17 +89,32 @@ def list_transfer_requests(
         like = f"%{search.strip()}%"
         stmt = (
             stmt.outerjoin(Warehouse, Warehouse.id == TransferRequest.requester_warehouse_id)
+            .outerjoin(Store, Store.id == TransferRequest.store_id)
             .outerjoin(ProductVariant, ProductVariant.id == TransferRequest.variant_id)
         )
         count_stmt = (
             count_stmt.outerjoin(
                 Warehouse, Warehouse.id == TransferRequest.requester_warehouse_id
-            ).outerjoin(ProductVariant, ProductVariant.id == TransferRequest.variant_id)
+            )
+            .outerjoin(Store, Store.id == TransferRequest.store_id)
+            .outerjoin(ProductVariant, ProductVariant.id == TransferRequest.variant_id)
+        )
+        item_variant = aliased(ProductVariant)
+        item_sku = (
+            select(TransferRequestItem.id)
+            .join(item_variant, item_variant.id == TransferRequestItem.variant_id)
+            .where(
+                TransferRequestItem.transfer_request_id == TransferRequest.id,
+                item_variant.sku.ilike(like),
+            )
+            .exists()
         )
         filt = or_(
             TransferRequest.request_number.ilike(like),
             Warehouse.name.ilike(like),
+            Store.name.ilike(like),
             ProductVariant.sku.ilike(like),
+            item_sku,
         )
         stmt = stmt.where(filt)
         count_stmt = count_stmt.where(filt)
@@ -115,10 +152,7 @@ def create_transfer_request(
     if urgency not in ("Low", "Medium", "High"):
         raise HTTPException(status_code=422, detail="Urgency must be Low, Medium, or High")
 
-    num = f"REQ-{int(ist_now().timestamp()) % 100000}"
-    while db.scalar(select(TransferRequest.id).where(TransferRequest.request_number == num)):
-        num = f"REQ-{int(ist_now().timestamp()) % 100000 + 1}"
-
+    num = next_request_number(db)
     row = TransferRequest(
         request_number=num,
         requester_warehouse_id=body.requester_warehouse_id,
@@ -128,6 +162,7 @@ def create_transfer_request(
         urgency=urgency,
         status="pending",
     )
+    row.items = [TransferRequestItem(variant_id=body.variant_id, qty=body.qty)]
     db.add(row)
     db.commit()
 
@@ -153,37 +188,7 @@ def approve_transfer_request(
     req = _resolve(db, request_ref)
     if not req:
         raise HTTPException(status_code=404, detail="Transfer request not found")
-    if (req.status or "").lower() != "pending":
-        raise HTTPException(status_code=422, detail="Only pending requests can be approved")
-    if not req.target_warehouse_id or not req.requester_warehouse_id:
-        raise HTTPException(
-            status_code=422, detail="Request needs requester and target warehouses"
-        )
-
-    # Create stock transfer: stock moves from target (supplier) → requester
-    num = f"TR-{int(ist_now().timestamp()) % 100000}"
-    while db.scalar(select(StockTransfer.id).where(StockTransfer.transfer_number == num)):
-        num = f"TR-{int(ist_now().timestamp()) % 100000 + 1}"
-
-    transfer = StockTransfer(
-        transfer_number=num,
-        from_warehouse_id=req.target_warehouse_id,
-        to_warehouse_id=req.requester_warehouse_id,
-        to_store_id=req.store_id,
-        status="approved",
-        requested_by=req.request_number,
-    )
-    db.add(transfer)
-    db.flush()
-    db.add(
-        StockTransferItem(
-            stock_transfer_id=transfer.id,
-            variant_id=req.variant_id,
-            qty=req.qty_requested,
-        )
-    )
-    req.status = "approved"
-    req.stock_transfer_id = transfer.id
+    approve_request(db, req)
     db.commit()
 
     refreshed = _resolve(db, request_ref)

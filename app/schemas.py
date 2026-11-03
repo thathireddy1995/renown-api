@@ -1187,6 +1187,31 @@ class TransferRequest(Base):
     )
     variant: Mapped["ProductVariant"] = relationship()
     stock_transfer: Mapped["StockTransfer | None"] = relationship()
+    items: Mapped[list["TransferRequestItem"]] = relationship(
+        back_populates="transfer_request",
+        cascade="all, delete-orphan",
+        order_by="TransferRequestItem.id",
+    )
+
+
+class TransferRequestItem(Base):
+    __tablename__ = "transfer_request_items"
+    __table_args__ = (
+        Index("ix_transfer_request_items_request_id", "transfer_request_id"),
+        Index("ix_transfer_request_items_variant_id", "variant_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    transfer_request_id: Mapped[int] = mapped_column(
+        ForeignKey("transfer_requests.id", ondelete="CASCADE"), nullable=False
+    )
+    variant_id: Mapped[int] = mapped_column(
+        ForeignKey("product_variants.id", ondelete="RESTRICT"), nullable=False
+    )
+    qty: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    transfer_request: Mapped["TransferRequest"] = relationship(back_populates="items")
+    variant: Mapped["ProductVariant"] = relationship()
 
 
 class StockAllocation(Base):

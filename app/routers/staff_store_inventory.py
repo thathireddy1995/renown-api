@@ -3,24 +3,37 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.core.inventory_status import store_stock_status
-from app.core.ist import now as ist_now
+from app.core.ist import format_ist_date
+from app.core.stock_requests import (
+    create_store_request,
+    request_eager_options,
+    request_lines,
+    store_source_warehouse,
+    variant_image,
+    variant_label,
+)
+from app.core.stock_transfers import admin_status_label
 from app.database import get_db
 from app.deps import pagination, require_role, TokenPrincipal
 from app.routers.admin_warehouses import case_dot_color
 from app.schemas import (
+    Brand,
     Category,
     Color,
     Product,
     ProductImage,
     ProductVariant,
     Size,
+    StockTransfer,
+    StockTransferItem,
     Store,
     StoreInventory,
     TransferRequest,
-    Warehouse,
+    TransferRequestItem,
+    WarehouseInventory,
 )
 
 router = APIRouter(
@@ -58,13 +71,29 @@ class StaffStoreInventoryListResponse(BaseModel):
     store_name: str = ""
 
 
+class StaffStockRequestLineIn(BaseModel):
+    variant_id: int
+    qty: int = Field(ge=1, le=10000)
+
+
 class StaffStockRequestCreate(BaseModel):
     sku: str | None = None
     variant_id: int | None = None
     product: str | None = None
-    qty: int = Field(ge=1, le=10000)
+    qty: int | None = Field(default=None, ge=1, le=10000)
+    items: list[StaffStockRequestLineIn] = Field(default_factory=list, max_length=200)
     urgency: str = "Medium"
     store_id: int | None = None
+
+
+class StaffStockRequestLineOut(BaseModel):
+    variant_id: int
+    sku: str
+    name: str
+    color: str = ""
+    size: str = ""
+    image: str | None = None
+    qty: int
 
 
 class StaffStockRequestOut(BaseModel):
@@ -75,6 +104,39 @@ class StaffStockRequestOut(BaseModel):
     urgency: str
     status: str
     message: str = ""
+    date: str = ""
+    lines: list[StaffStockRequestLineOut] = []
+    transfer: str | None = None
+    transfer_status: str | None = None
+
+
+class StaffStockRequestListResponse(BaseModel):
+    items: list[StaffStockRequestOut]
+    store_name: str = ""
+
+
+class WarehouseStockItemOut(BaseModel):
+    variant_id: int
+    sku: str
+    product_key: int
+    product_id: str = ""
+    name: str
+    category: str
+    brand: str = ""
+    color: str = ""
+    color_hex: str | None = None
+    size: str = ""
+    image: str | None = None
+    price: float = 0
+    warehouse_qty: int = 0
+    store_qty: int = 0
+    incoming_qty: int = 0
+
+
+class WarehouseStockResponse(BaseModel):
+    items: list[WarehouseStockItemOut]
+    warehouse_name: str = ""
+    store_name: str = ""
 
 
 def _default_store(db: Session) -> Store | None:
@@ -225,6 +287,176 @@ def list_inventory(
     )
 
 
+def _request_out(req: TransferRequest) -> StaffStockRequestOut:
+    lines = request_lines(req)
+    first = lines[0].variant if lines else None
+    total = sum(line.qty for line in lines)
+    transfer = req.stock_transfer
+    return StaffStockRequestOut(
+        id=req.request_number,
+        sku=first.sku if first else "",
+        product=(first.product.name if first and first.product else "") or (first.sku if first else ""),
+        qty=total,
+        urgency=req.urgency or "Medium",
+        status=(req.status or "pending").title(),
+        date=format_ist_date(req.created_at),
+        lines=[
+            StaffStockRequestLineOut(
+                variant_id=line.variant.id,
+                sku=line.variant.sku,
+                name=line.variant.product.name if line.variant.product else line.variant.sku,
+                color=variant_label(line.variant.color),
+                size=variant_label(line.variant.size),
+                image=variant_image(line.variant),
+                qty=line.qty,
+            )
+            for line in lines
+        ],
+        transfer=transfer.transfer_number if transfer else None,
+        transfer_status=admin_status_label(transfer.status) if transfer else None,
+    )
+
+
+@router.get("/warehouse-stock", response_model=WarehouseStockResponse)
+def warehouse_stock(
+    db: Session = Depends(get_db),
+    principal: TokenPrincipal = Depends(require_role("store_manager")),
+    store_id: int | None = None,
+) -> WarehouseStockResponse:
+    """Active catalog with what the source warehouse can send and what this store holds."""
+    store = _resolve_store(db, principal, store_id)
+    if not store:
+        raise HTTPException(status_code=400, detail="No store configured")
+    warehouse = store_source_warehouse(db, store)
+    if not warehouse:
+        raise HTTPException(status_code=400, detail="No warehouse available to request from")
+
+    wh_qty = (
+        select(func.coalesce(func.sum(WarehouseInventory.on_hand - WarehouseInventory.reserved), 0))
+        .where(
+            WarehouseInventory.warehouse_id == warehouse.id,
+            WarehouseInventory.variant_id == ProductVariant.id,
+        )
+        .scalar_subquery()
+    )
+    store_qty = (
+        select(func.coalesce(func.sum(StoreInventory.on_floor + StoreInventory.backroom), 0))
+        .where(
+            StoreInventory.store_id == store.id,
+            StoreInventory.variant_id == ProductVariant.id,
+        )
+        .scalar_subquery()
+    )
+    pending_qty = (
+        select(func.coalesce(func.sum(TransferRequestItem.qty), 0))
+        .join(TransferRequest, TransferRequest.id == TransferRequestItem.transfer_request_id)
+        .where(
+            TransferRequest.store_id == store.id,
+            TransferRequest.status == "pending",
+            TransferRequestItem.variant_id == ProductVariant.id,
+        )
+        .scalar_subquery()
+    )
+    transit_qty = (
+        select(func.coalesce(func.sum(StockTransferItem.qty), 0))
+        .join(StockTransfer, StockTransfer.id == StockTransferItem.stock_transfer_id)
+        .where(
+            StockTransfer.to_store_id == store.id,
+            StockTransfer.status.in_(("approved", "picking", "packing", "in_transit")),
+            StockTransferItem.variant_id == ProductVariant.id,
+        )
+        .scalar_subquery()
+    )
+    product_image = (
+        select(ProductImage.url)
+        .where(ProductImage.product_id == Product.id)
+        .order_by(ProductImage.sort_order.asc(), ProductImage.id.asc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+    rows = db.execute(
+        select(
+            ProductVariant.id,
+            ProductVariant.sku,
+            Product.id,
+            func.coalesce(Product.product_id, Product.sku, ""),
+            Product.name,
+            func.coalesce(Category.name, "General"),
+            func.coalesce(Brand.name, ""),
+            func.coalesce(Color.name, ProductVariant.color, ""),
+            func.coalesce(Color.hex, ProductVariant.color_hex),
+            func.coalesce(Size.name, ProductVariant.size, ""),
+            func.coalesce(ProductVariant.images.op("->>")(0), product_image),
+            func.coalesce(ProductVariant.price, Product.selling_price, Product.price, 0),
+            wh_qty,
+            store_qty,
+            pending_qty + transit_qty,
+        )
+        .join(Product, Product.id == ProductVariant.product_id)
+        .outerjoin(Category, Category.id == Product.category_id)
+        .outerjoin(Brand, Brand.id == Product.brand_id)
+        .outerjoin(Size, Size.id == ProductVariant.size_id)
+        .outerjoin(Color, Color.id == ProductVariant.color_id)
+        .where(
+            Product.status == "active",
+            func.coalesce(ProductVariant.color, "") != "__deleted__",
+            func.coalesce(ProductVariant.size, "") != "__deleted__",
+        )
+        .order_by(Product.name.asc(), Product.id.asc(), ProductVariant.id.asc())
+    ).all()
+
+    return WarehouseStockResponse(
+        items=[
+            WarehouseStockItemOut(
+                variant_id=vid,
+                sku=sku,
+                product_key=pid,
+                product_id=product_code or "",
+                name=name or sku,
+                category=category or "General",
+                brand=brand or "",
+                color=variant_label(color),
+                color_hex=color_hex,
+                size=variant_label(size),
+                image=image,
+                price=float(price or 0),
+                warehouse_qty=max(0, int(wq or 0)),
+                store_qty=int(sq or 0),
+                incoming_qty=int(iq or 0),
+            )
+            for (
+                vid, sku, pid, product_code, name, category, brand,
+                color, color_hex, size, image, price, wq, sq, iq,
+            ) in rows
+        ],
+        warehouse_name=warehouse.name or "",
+        store_name=store.name or "",
+    )
+
+
+@router.get("/stock-requests", response_model=StaffStockRequestListResponse)
+def list_stock_requests(
+    db: Session = Depends(get_db),
+    principal: TokenPrincipal = Depends(require_role("store_manager")),
+    store_id: int | None = None,
+    limit: int = Query(30, ge=1, le=100),
+) -> StaffStockRequestListResponse:
+    store = _resolve_store(db, principal, store_id)
+    if not store:
+        return StaffStockRequestListResponse(items=[])
+    rows = db.scalars(
+        select(TransferRequest)
+        .options(*request_eager_options())
+        .where(TransferRequest.store_id == store.id)
+        .order_by(TransferRequest.id.desc())
+        .limit(limit)
+    ).all()
+    return StaffStockRequestListResponse(
+        items=[_request_out(r) for r in rows], store_name=store.name or ""
+    )
+
+
 @router.post(
     "/stock-requests",
     response_model=StaffStockRequestOut,
@@ -239,53 +471,40 @@ def request_stock(
     if not store:
         raise HTTPException(status_code=400, detail="No store configured")
 
-    variant = None
-    if body.variant_id is not None:
-        variant = db.scalar(
-            select(ProductVariant)
-            .where(ProductVariant.id == body.variant_id)
-            .options(selectinload(ProductVariant.product))
-        )
-    if not variant and body.sku:
-        variant = db.scalar(
-            select(ProductVariant)
-            .where(ProductVariant.sku.ilike(body.sku.strip()))
-            .options(selectinload(ProductVariant.product))
-        )
-    if not variant:
-        raise HTTPException(status_code=404, detail="SKU / variant not found")
+    lines = [(line.variant_id, line.qty) for line in body.items]
+    if not lines:
+        variant = None
+        if body.variant_id is not None:
+            variant = db.get(ProductVariant, body.variant_id)
+        if not variant and body.sku:
+            variant = db.scalar(
+                select(ProductVariant).where(ProductVariant.sku.ilike(body.sku.strip()))
+            )
+        if not variant:
+            raise HTTPException(status_code=404, detail="SKU / variant not found")
+        if not body.qty:
+            raise HTTPException(status_code=422, detail="Quantity must be at least 1")
+        lines = [(variant.id, body.qty)]
 
-    warehouse = db.scalar(select(Warehouse).order_by(Warehouse.id.asc()).limit(1))
+    warehouse = store_source_warehouse(db, store)
     if not warehouse:
         raise HTTPException(status_code=400, detail="No warehouse available to request from")
 
-    urgency = (body.urgency or "Medium").strip().title()
-    if urgency not in ("Low", "Medium", "High"):
-        urgency = "Medium"
-
-    num = f"REQ-{int(ist_now().timestamp()) % 100000}"
-    while db.scalar(select(TransferRequest.id).where(TransferRequest.request_number == num)):
-        num = f"REQ-{int(ist_now().timestamp()) % 100000 + 1}"
-
-    row = TransferRequest(
-        request_number=num,
-        store_id=store.id,
-        target_warehouse_id=warehouse.id,
-        variant_id=variant.id,
-        qty_requested=body.qty,
-        urgency=urgency,
-        status="pending",
+    req = create_store_request(
+        db, store=store, warehouse=warehouse, lines=lines, urgency=body.urgency
     )
-    db.add(row)
     db.commit()
 
-    product_name = body.product or (variant.product.name if variant.product else variant.sku)
-    return StaffStockRequestOut(
-        id=num,
-        sku=variant.sku,
-        product=product_name or variant.sku,
-        qty=body.qty,
-        urgency=urgency,
-        status="Pending",
-        message=f"Stock request {num} submitted for {body.qty} × {variant.sku}",
+    loaded = db.scalar(
+        select(TransferRequest)
+        .options(*request_eager_options())
+        .where(TransferRequest.id == req.id)
     )
+    assert loaded
+    out = _request_out(loaded)
+    count = len(out.lines)
+    out.message = (
+        f"Stock request {out.id} sent to {warehouse.name}: "
+        f"{count} item{'s' if count != 1 else ''}, {out.qty} unit{'s' if out.qty != 1 else ''}"
+    )
+    return out
