@@ -553,6 +553,8 @@ def _list_wh_inventory(
         .join(ProductVariant, ProductVariant.id == WarehouseInventory.variant_id)
         .join(Product, Product.id == ProductVariant.product_id)
     )
+    stmt = stmt.where(Product.status != "deleted")
+    count_stmt = count_stmt.where(Product.status != "deleted")
 
     if warehouse_id is not None:
         stmt = stmt.where(WarehouseInventory.warehouse_id == warehouse_id)

@@ -7,8 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.admin_order_status import STATUS_LABEL, admin_status_label
-from app.core.order_reservation import release_order_lines
-from app.core.order_cancel import close_store_copy
+from app.core.order_cancel import cancel_web_order
 from app.core.ist import end_of_day, format_ist_datetime, start_of_day
 from app.core.product_resolve import public_product_id
 from app.core.whatsapp_orders import notify_order_status
@@ -275,11 +274,10 @@ def update_order_status(
             detail=f"Cannot transition from '{current}' to '{new_status}'",
         )
 
-    order.status = new_status
-    # Free the reserved frames back to available stock when an order is cancelled.
     if new_status == "cancelled" and current != "cancelled":
-        release_order_lines(db, [(it.variant_id, it.qty) for it in (order.items or [])])
-        close_store_copy(db, order.order_number)
+        cancel_web_order(db, order)
+    else:
+        order.status = new_status
     db.commit()
     refreshed = _resolve_order(db, order_ref)
     if not refreshed:

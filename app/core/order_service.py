@@ -22,6 +22,7 @@ from app.schemas import (
     Address,
     CartItem,
     Customer,
+    LensType,
     Order,
     OrderItem,
     ProductVariant,
@@ -104,6 +105,18 @@ def compute_pricing(
     return discount, shipping, platform_fee, tax, total, code
 
 
+def _lens_name(lens_fit: dict | None) -> str:
+    if not isinstance(lens_fit, dict) or lens_fit.get("powerMode") == "frame_only":
+        return ""
+    return str(lens_fit.get("lensType") or "").strip().lower()
+
+
+def lens_price_map(db: Session) -> dict[str, Decimal]:
+    """Lens type name (lowercased) -> add-on price charged per frame."""
+    rows = db.execute(select(LensType.name, LensType.price)).all()
+    return {name.strip().lower(): Decimal(str(price or 0)) for name, price in rows if name}
+
+
 def load_cart_lines(
     db: Session, customer: Customer
 ) -> tuple[list[tuple[CartItem, Decimal]], Decimal]:
@@ -126,6 +139,7 @@ def load_cart_lines(
     line_rows: list[tuple[CartItem, Decimal]] = []
     products = [row.product for row in cart_rows if row.product is not None]
     winning_offers = winning_offers_for(db, products)
+    lens_prices = lens_price_map(db)
     for row in cart_rows:
         if not row.product:
             raise HTTPException(
@@ -141,6 +155,7 @@ def load_cart_lines(
         winner = winning_offers.get(row.product.id)
         if winner is not None:
             unit = price_for_offer(winner, row.product, base_price=unit).final_price
+        unit += lens_prices.get(_lens_name(row.lens_fit), Decimal("0"))
         subtotal += unit * row.qty
         line_rows.append((row, unit))
     return line_rows, subtotal

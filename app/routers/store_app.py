@@ -94,6 +94,8 @@ ORDER_OTP_WINDOW = timedelta(hours=12)
 
 OPEN_STATUSES = ("Pending", "Preparing", "Ready", "Processing", "Ordered", "Dispatched")
 CLOSED_STATUSES = ("Collected", "Delivered", "Completed", "Cancelled", "Missed", "Void")
+# Once dispatched the parcel has left the warehouse; cancel only before that.
+STORE_CANCELLABLE = ("Pending", "Ordered", "Preparing", "Processing", "Ready")
 
 STATUS_TO_APP = {
     "pending": "ordered",
@@ -852,6 +854,11 @@ def patch_status(
         raise HTTPException(status_code=409, detail="Add the customer's power before sending this order to the lab.")
     if mapped == "Collected" and (order.channel or "") == "click_collect":
         consume_pickup_otp(db, order, body.otp or "")
+    if mapped == "Cancelled" and order.status not in STORE_CANCELLABLE:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A {order.status.lower()} order can no longer be cancelled.",
+        )
     previous_status = order.status
     order.status = mapped
     # Store-placed orders (SA-…) hold warehouse stock. Web pickup mirrors keep the

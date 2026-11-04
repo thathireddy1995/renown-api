@@ -36,6 +36,15 @@ _NEEDS_MANUAL_REVIEW = (
 )
 
 
+_ADMIN_ONLY_STATUSES = ("placed", "verified", "packed")
+
+
+def courier_may_advance(current_status: str | None) -> bool:
+    """Orders reach partner_assigned only via admin "Assign partner"; courier
+    events (e.g. a Shiprocket default AWB) must not skip the warehouse."""
+    return (current_status or "placed").strip().lower() not in _ADMIN_ONLY_STATUSES
+
+
 def _clean(value: Any) -> str:
     return "" if value is None else str(value).strip()
 
@@ -122,6 +131,8 @@ def apply_tracking_update(db: Session, payload: dict[str, Any]) -> dict[str, Any
             order.order_number,
             label,
         )
+    elif not courier_may_advance(order.status):
+        result["detail"] = f"Order '{order.status}' awaits warehouse dispatch; status left unchanged."
     else:
         mapped = map_shiprocket_status(label)
         if should_advance_status(order.status, mapped):

@@ -114,6 +114,15 @@ def get_order(order_id: str | int) -> dict[str, Any]:
     return data if isinstance(data, dict) else raw
 
 
+def cancel_orders(order_ids: list[str | int]) -> dict[str, Any]:
+    """Cancel Shiprocket orders (voids any AWB so the courier won't pick up)."""
+    ids = [int(s) if str(s).strip().isdigit() else s for s in order_ids if str(s).strip()]
+    if not ids:
+        raise ShiprocketError("order_id is required")
+    raw = _request("POST", "/orders/cancel", json={"ids": ids})
+    return raw if isinstance(raw, dict) else {}
+
+
 def get_wallet_balance() -> float | None:
     """Current Shiprocket wallet balance in INR.
 

@@ -38,7 +38,8 @@ from app.core.store_order_customer import (
     store_order_eager,
     store_order_out,
 )
-from app.core.shiprocket_fulfill import assign_awb_if_missing, attach_shiprocket_shipment
+from app.core.courier_status import courier_may_advance
+from app.core.shiprocket_fulfill import attach_shiprocket_shipment
 from app.dto.order_dto import (
     OrderCreateRequest,
     OrderItemLensFitIn,
@@ -455,10 +456,6 @@ def track_order(
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found.")
 
-    if not order.awb_code and order.shiprocket_shipment_id:
-        assign_awb_if_missing(db, order)
-        db.refresh(order)
-
     base = OrderTrackingOut(
         order_id=order.order_number,
         status=_status_label(order.status),
@@ -495,7 +492,7 @@ def track_order(
     dirty = False
     previous_status = order.status
     mapped = info.get("mapped_status") or ""
-    if should_advance_status(order.status, mapped):
+    if courier_may_advance(order.status) and should_advance_status(order.status, mapped):
         order.status = mapped
         dirty = True
     if info.get("courier") and not order.courier_name:
