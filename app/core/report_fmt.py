@@ -44,7 +44,7 @@ def pct(value: float, digits: int = 1) -> str:
 
 def delta_pct(current: float, previous: float) -> str:
     if previous == 0:
-        return "+0%" if current == 0 else "+100%"
+        return "+0%" if current == 0 else "New"
     change = ((current - previous) / abs(previous)) * 100
     sign = "+" if change >= 0 else ""
     return f"{sign}{change:.1f}%"

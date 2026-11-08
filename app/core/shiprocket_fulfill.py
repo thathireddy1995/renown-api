@@ -23,6 +23,7 @@ from app.core.shiprocket import (
     ShiprocketError,
     add_pickup_location,
     assign_awb,
+    cancel_orders,
     check_serviceability,
     configured,
     create_adhoc_order,
@@ -31,6 +32,7 @@ from app.core.shiprocket import (
     list_pickup_locations,
     request_pickup,
 )
+from app.core.order_club import club_children
 from app.schemas import Customer, Order, OrderItem
 
 logger = logging.getLogger(__name__)
@@ -123,7 +125,11 @@ def _order_items_payload(order: Order) -> list[dict[str, Any]]:
     return rows
 
 
-def _build_adhoc_payload(db: Session, order: Order, customer: Customer) -> dict[str, Any]:
+def _build_adhoc_payload(
+    db: Session, order: Order, customer: Customer, clubbed: list[Order] | None = None
+) -> dict[str, Any]:
+    """Shiprocket order for ``order``; ``clubbed`` orders ride in the same parcel."""
+    parcel = [order, *(clubbed or [])]
     address = order.address
     if address is None:
         raise ShiprocketError("Home-delivery order has no shipping address")
@@ -136,7 +142,7 @@ def _build_adhoc_payload(db: Session, order: Order, customer: Customer) -> dict[
     if len(pin) != 6:
         raise ShiprocketError("A 6-digit pincode is required to book Shiprocket")
 
-    items = _order_items_payload(order)
+    items = [row for o in parcel for row in _order_items_payload(o)]
     if not items:
         raise ShiprocketError("Order has no items to ship")
 
@@ -148,8 +154,16 @@ def _build_adhoc_payload(db: Session, order: Order, customer: Customer) -> dict[
     city = (address.city or "").strip() or "City"
     state = (address.state or "").strip() or "Andhra Pradesh"
 
+    def _sum(field: str) -> float:
+        return float(sum((getattr(o, field) or 0) for o in parcel))
+
+    sub_total = float(sum((o.subtotal or o.total or 0) for o in parcel)) or 1
+    # The parcel's own reference: the lead order number was already used by its
+    # checkout-time draft booking, which is cancelled before rebooking.
+    sr_reference = f"{order.order_number}-CLUB" if clubbed else order.order_number
+
     return {
-        "order_id": order.order_number,
+        "order_id": sr_reference,
         "order_date": format_ist_datetime(order.created_at) or now().strftime("%Y-%m-%d %H:%M"),
         "pickup_location": _ensure_pickup_location(db),
         "billing_customer_name": first,
@@ -165,13 +179,13 @@ def _build_adhoc_payload(db: Session, order: Order, customer: Customer) -> dict[
         "shipping_is_billing": True,
         "order_items": items,
         "payment_method": "Prepaid" if prepaid else "COD",
-        "sub_total": float(order.subtotal or order.total or 0) or 1,
-        "shipping_charges": float(order.shipping_fee or 0),
-        "transaction_charges": float(order.platform_fee or 0),
+        "sub_total": sub_total,
+        "shipping_charges": _sum("shipping_fee"),
+        "transaction_charges": _sum("platform_fee") + _sum("cod_fee"),
         "length": SHIPROCKET_DEFAULT_LENGTH_CM,
         "breadth": SHIPROCKET_DEFAULT_BREADTH_CM,
         "height": SHIPROCKET_DEFAULT_HEIGHT_CM,
-        "weight": SHIPROCKET_DEFAULT_WEIGHT_KG,
+        "weight": SHIPROCKET_DEFAULT_WEIGHT_KG * len(parcel),
     }
 
 
@@ -195,7 +209,8 @@ def attach_shiprocket_shipment(
         loaded = db.scalar(_order_query(order.id))
         if loaded:
             order = loaded
-        payload = _build_adhoc_payload(db, order, cust)
+        clubbed = club_children(db, order, *_order_load_options())
+        payload = _build_adhoc_payload(db, order, cust, clubbed)
         created = create_adhoc_order(payload)
     except ShiprocketError as err:
         logger.warning("Shiprocket create failed for %s: %s", order.order_number, err)
@@ -224,17 +239,38 @@ def attach_shiprocket_shipment(
         return
 
 
-def _order_query(order_id: int):
+def rebook_club_parcel(db: Session, lead: Order) -> None:
+    """Cancel the per-order draft bookings made at checkout so one booking for
+    the whole parcel can replace them. No-op once the parcel is booked."""
+    group = [lead, *club_children(db, lead)]
+    if len(group) == 1 or lead.awb_code:
+        return
+    lead_sr = (lead.shiprocket_order_id or "").strip()
+    if lead_sr and all((o.shiprocket_order_id or "").strip() == lead_sr for o in group):
+        return
+    drafts = sorted({(o.shiprocket_order_id or "").strip() for o in group} - {""})
+    if drafts and configured():
+        try:
+            cancel_orders(drafts)
+        except ShiprocketError as err:
+            logger.warning("Shiprocket draft cancel failed for %s: %s", lead.order_number, err)
+    for o in group:
+        o.shiprocket_order_id = None
+        o.shiprocket_shipment_id = None
+    db.commit()
+
+
+def _order_load_options():
     return (
-        select(Order)
-        .where(Order.id == order_id)
-        .options(
-            selectinload(Order.items).selectinload(OrderItem.product),
-            selectinload(Order.items).selectinload(OrderItem.variant),
-            selectinload(Order.address),
-            selectinload(Order.customer),
-        )
+        selectinload(Order.items).selectinload(OrderItem.product),
+        selectinload(Order.items).selectinload(OrderItem.variant),
+        selectinload(Order.address),
+        selectinload(Order.customer),
     )
+
+
+def _order_query(order_id: int):
+    return select(Order).where(Order.id == order_id).options(*_order_load_options())
 
 
 def pickup_postcode(db: Session) -> str:
@@ -274,7 +310,7 @@ def list_couriers_for_order(db: Session, order: Order) -> list[dict[str, Any]]:
     return check_serviceability(
         pickup_postcode=pickup_postcode(db),
         delivery_postcode=delivery,
-        weight_kg=SHIPROCKET_DEFAULT_WEIGHT_KG,
+        weight_kg=SHIPROCKET_DEFAULT_WEIGHT_KG * (1 + len(club_children(db, order))),
         cod=not prepaid,
         length_cm=SHIPROCKET_DEFAULT_LENGTH_CM,
         breadth_cm=SHIPROCKET_DEFAULT_BREADTH_CM,

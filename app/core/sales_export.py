@@ -227,7 +227,7 @@ def _web_allocs(order: Order, lines: list[_LineIn]) -> list[_Alloc]:
         subtotal=_dec(order.subtotal),
         discount=_dec(order.discount),
         shipping=_dec(order.shipping_fee),
-        platform_fee=_dec(order.platform_fee),
+        platform_fee=_dec(order.platform_fee) + _dec(order.cod_fee),
         total=_dec(order.total),
     )
 

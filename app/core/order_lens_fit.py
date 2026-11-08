@@ -142,12 +142,23 @@ def line_items_from_order(order: Order) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for item in order.items or []:
         product = getattr(item, "product", None)
+        variant = getattr(item, "variant", None)
         name = (item.name_snapshot or (product.name if product else None) or "Item").strip()
+        image = None
+        if variant is not None and variant.images:
+            image = variant.images[0]
+        elif product is not None and product.images:
+            image = product.images[0].url
         rows.append(
             {
                 "name": name,
                 "qty": int(item.qty or 0),
                 "lensFit": item.lens_fit if isinstance(item.lens_fit, dict) else None,
+                "sku": variant.sku if variant is not None else None,
+                "color": (variant.color or None) if variant is not None else None,
+                "size": (variant.size or None) if variant is not None else None,
+                "image": image,
+                "product_code": (product.product_id or product.sku) if product else None,
             }
         )
     return rows

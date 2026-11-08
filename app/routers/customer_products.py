@@ -188,6 +188,12 @@ def get_product(slug: str, db: Session = Depends(get_db)) -> ProductOut:
         .where(Product.slug == slug, _active_base())
         .options(*_PRODUCT_LOAD)
     )
+    if not product:
+        product = db.scalar(
+            select(Product)
+            .where(Product.legacy_slug == slug, _active_base())
+            .options(*_PRODUCT_LOAD)
+        )
     if not product and slug.isdigit():
         product = db.scalar(
             select(Product)

@@ -6,6 +6,8 @@ requests pickup. Status updates before/after that are plain order status.
 
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -13,8 +15,17 @@ from fastapi import HTTPException
 
 from app.core.admin_order_status import track_status_label
 from app.core.ist import format_ist_datetime, now as ist_now
+from app.core.order_club import (
+    club_children,
+    club_group_key,
+    club_lead,
+    is_prepaid,
+    sync_club_children,
+)
 from app.core.order_lens_fit import line_items_from_order
 from app.schemas import (
+    Address,
+    Customer,
     DispatchOrder,
     DispatchOrderItem,
     Order,
@@ -53,6 +64,7 @@ def list_pending_deliveries_query(*, search: str | None = None):
         .where(
             Order.delivery.in_(SHIP_MODES),
             Order.status.in_(OPEN_ORDER_STATUSES),
+            Order.clubbed_into_id.is_(None),
             ~_open_dispatch_exists(),
         )
     )
@@ -62,6 +74,7 @@ def list_pending_deliveries_query(*, search: str | None = None):
         .where(
             Order.delivery.in_(SHIP_MODES),
             Order.status.in_(OPEN_ORDER_STATUSES),
+            Order.clubbed_into_id.is_(None),
             ~_open_dispatch_exists(),
         )
     )
@@ -84,27 +97,41 @@ def list_pending_deliveries_query(*, search: str | None = None):
     return stmt, count_stmt
 
 
-def pending_delivery_row(order: Order) -> dict:
+def pending_delivery_row(
+    order: Order,
+    clubbed: list[Order] | None = None,
+) -> dict:
     customer = order.customer
     address = order.address
-    items = order.items or []
+    parcel = [order, *(clubbed or [])]
+    items = [i for o in parcel for i in (o.items or [])]
     qty = sum(int(i.qty or 0) for i in items)
     city = (address.city if address else None) or ""
     return {
         "id": order.order_number,
         "order_id": order.id,
+        "customer_id": order.customer_id,
         "customer": (customer.name if customer else None) or f"Customer #{order.customer_id}",
         "phone": (customer.phone if customer else None) or (address.phone if address else None),
         "city": city,
         "address": _address_line(address),
         "items": len(items),
         "qty": qty,
-        "total": float(order.total or 0),
+        "total": float(sum((o.total or 0) for o in parcel)),
         "status": track_status_label(order.status),
         "status_key": (order.status or "placed").lower(),
         "date": format_ist_datetime(order.created_at),
-        "line_items": line_items_from_order(order),
+        "line_items": [line for o in parcel for line in _tagged_lines(o, len(parcel) > 1)],
+        "clubbed": [o.order_number for o in clubbed or []],
     }
+
+
+def _tagged_lines(order: Order, tag: bool) -> list[dict]:
+    lines = line_items_from_order(order)
+    if tag:
+        for line in lines:
+            line["order_ref"] = order.order_number
+    return lines
 
 
 def _address_line(address) -> str:
@@ -181,6 +208,13 @@ def fulfill_online_order(
         raise HTTPException(status_code=422, detail="Click & collect orders are fulfilled by the store")
     if (order.status or "").lower() in ("cancelled", "delivered"):
         raise HTTPException(status_code=400, detail="Order cannot be dispatched")
+    lead = club_lead(db, order)
+    if lead is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{order.order_number} ships with {lead.order_number} — assign the partner there",
+        )
+    clubbed = club_children(db, order, *delivery_eager_options())
 
     existing = db.scalar(
         select(DispatchOrder.id).where(
@@ -192,10 +226,11 @@ def fulfill_online_order(
         raise HTTPException(status_code=409, detail="Order already has an open dispatch")
 
     lines: list[tuple[int, int]] = []
-    for item in order.items or []:
-        if not item.variant_id or int(item.qty or 0) <= 0:
-            continue
-        lines.append((int(item.variant_id), int(item.qty)))
+    for parcel_order in (order, *clubbed):
+        for item in parcel_order.items or []:
+            if not item.variant_id or int(item.qty or 0) <= 0:
+                continue
+            lines.append((int(item.variant_id), int(item.qty)))
     if not lines:
         raise HTTPException(status_code=400, detail="Order has no fulfillable SKUs")
 
@@ -239,6 +274,8 @@ def fulfill_online_order(
     if mark_shipped and (order.status or "").lower() in ("placed", "verified", "packed"):
         order.status = "partner_assigned"
         dispatch.status = "Processing"
+    if clubbed:
+        sync_club_children(db, order)
 
     db.commit()
 
@@ -246,10 +283,14 @@ def fulfill_online_order(
     from app.core.shiprocket_fulfill import (
         assign_awb_if_missing,
         attach_shiprocket_shipment,
+        rebook_club_parcel,
         request_pickup_for_order,
     )
 
     refreshed = resolve_order(db, order.order_number) or order
+    if clubbed:
+        rebook_club_parcel(db, refreshed)
+        refreshed = resolve_order(db, order.order_number) or refreshed
     attach_shiprocket_shipment(db, refreshed)
     if courier_id is not None and not refreshed.awb_code:
         from app.core.shiprocket import ShiprocketError, assign_awb
@@ -287,6 +328,10 @@ def fulfill_online_order(
             detail="Courier selected but Shiprocket did not return an AWB",
         )
     request_pickup_for_order(db, refreshed)
+    if clubbed:
+        refreshed = resolve_order(db, order.order_number) or refreshed
+        sync_club_children(db, refreshed)
+        db.commit()
 
     loaded = db.scalar(
         select(DispatchOrder)
@@ -310,15 +355,87 @@ def _pickup_generated_label(dt) -> str:
     return f"{local.strftime('%-d %b')} {stamp}"
 
 
-def dispatch_history_row(d: DispatchOrder) -> dict:
+def _phone_digits(column):
+    return func.right(func.regexp_replace(func.coalesce(column, ""), r"\D", "", "g"), 10)
+
+
+def club_search(db: Session, phone: str) -> list[Order]:
+    """Open home-delivery orders of every customer linked to a mobile number.
+
+    The number may be the account phone or any saved ship-to phone, so an
+    account (e.g. Google sign-in) ordering for family on other numbers still
+    shows all its orders. Clubbing itself is decided by customer id.
+    """
+    digits = re.sub(r"\D", "", phone or "")[-10:]
+    if len(digits) != 10:
+        raise HTTPException(status_code=422, detail="Enter a 10-digit mobile number")
+    customer_ids = select(Customer.id).where(_phone_digits(Customer.phone) == digits).union(
+        select(Address.customer_id).where(_phone_digits(Address.phone) == digits)
+    )
+    return list(
+        db.scalars(
+            select(Order)
+            .options(*delivery_eager_options())
+            .where(
+                Order.customer_id.in_(customer_ids),
+                Order.delivery.in_(SHIP_MODES),
+                Order.status.in_(OPEN_ORDER_STATUSES),
+                ~_open_dispatch_exists(),
+            )
+            .order_by(Order.customer_id, Order.id)
+        ).all()
+    )
+
+
+def club_search_row(order: Order, children: list[Order], lead_ref: str | None = None) -> dict:
+    address = order.address
+    items = order.items or []
+    key = club_group_key(order)
+    return {
+        "id": order.order_number,
+        "customer_id": order.customer_id,
+        "customer": (order.customer.name if order.customer else None) or f"Customer #{order.customer_id}",
+        "date": format_ist_datetime(order.created_at),
+        "qty": sum(int(i.qty or 0) for i in items),
+        "total": float(order.total or 0),
+        "prepaid": is_prepaid(order),
+        "status": track_status_label(order.status),
+        "address": _address_line(address),
+        "city": (address.city if address else None) or "",
+        "line_items": line_items_from_order(order),
+        "clubbed_into": lead_ref,
+        "clubbed": [c.order_number for c in children],
+        "club_key": "|".join(map(str, key)) if key else None,
+    }
+
+
+def clubbed_by_lead(db: Session, lead_ids: list[int]) -> dict[int, list[Order]]:
+    """Clubbed orders for each lead id, in one query."""
+    if not lead_ids:
+        return {}
+    grouped: dict[int, list[Order]] = {}
+    rows = db.scalars(
+        select(Order)
+        .options(*delivery_eager_options())
+        .where(Order.clubbed_into_id.in_(lead_ids))
+        .order_by(Order.id)
+    ).all()
+    for row in rows:
+        grouped.setdefault(row.clubbed_into_id, []).append(row)
+    return grouped
+
+
+def dispatch_history_row(d: DispatchOrder, clubbed: list[Order] | None = None) -> dict:
     items = d.items or []
     order = d.order
+    parcel = [order, *(clubbed or [])] if order else []
     order_key = (order.status or "partner_assigned").lower() if order else "partner_assigned"
     scheduled = (order.pickup_scheduled_date if order else None) or None
     generated_raw = order.pickup_generated_at if order else None
     return {
         "id": d.do_number,
         "order": order.order_number if order else "",
+        "customer_id": order.customer_id if order else None,
         "destination": d.destination_label or "",
         "carrier": d.carrier or "",
         "awb": d.awb or (order.awb_code if order else "") or "",
@@ -333,5 +450,6 @@ def dispatch_history_row(d: DispatchOrder) -> dict:
         "warehouse_id": d.warehouse_id,
         "date": format_ist_datetime(d.created_at),
         "address": _address_line(order.address) if order else "",
-        "line_items": line_items_from_order(order) if order else [],
+        "line_items": [line for o in parcel for line in _tagged_lines(o, len(parcel) > 1)],
+        "clubbed": [o.order_number for o in clubbed or []],
     }

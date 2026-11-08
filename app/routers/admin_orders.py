@@ -7,11 +7,13 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.admin_order_status import STATUS_LABEL, admin_status_label
-from app.core.order_cancel import cancel_web_order
+from app.core.order_cancel import cancel_order_and_parcel
+from app.core.order_club import club_lead, sync_club_children
 from app.core.ist import end_of_day, format_ist_datetime, start_of_day
 from app.core.product_resolve import public_product_id
 from app.core.whatsapp_orders import notify_order_status
 from app.database import get_db
+from app.routers.telegram_notify import notify_order_cancelled
 from app.deps import pagination, require_role
 from app.dto.admin_dto import (
     AdminOrderDetailOut,
@@ -201,6 +203,7 @@ def _detail_out(order: Order) -> AdminOrderDetailOut:
         discount=float(order.discount or 0),
         shipping=float(order.shipping_fee or 0),
         platform_fee=float(order.platform_fee or 0),
+        cod_fee=float(order.cod_fee or 0),
         tax=float(order.tax or 0),
         coupon_code=order.coupon_code,
         awb_code=order.awb_code,
@@ -246,6 +249,7 @@ def update_order_shipment(
         "packed",
     ):
         order.status = "partner_assigned"
+    sync_club_children(db, order)
 
     db.commit()
 
@@ -274,13 +278,27 @@ def update_order_status(
             detail=f"Cannot transition from '{current}' to '{new_status}'",
         )
 
+    lead = club_lead(db, order)
+    if lead is not None and new_status != current and new_status != "cancelled":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"{order.order_number} ships with {lead.order_number} — update that order instead",
+        )
+
+    cancelled_children: list[tuple[Order, str]] = []
     if new_status == "cancelled" and current != "cancelled":
-        cancel_web_order(db, order)
+        _, cancelled_children = cancel_order_and_parcel(db, order)
     else:
         order.status = new_status
+        sync_club_children(db, order)
     db.commit()
     refreshed = _resolve_order(db, order_ref)
     if not refreshed:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     notify_order_status(refreshed, current)
+    notify_order_cancelled(refreshed, current, cancelled_by="Admin")
+    for child, child_previous in cancelled_children:
+        db.refresh(child)
+        notify_order_status(child, child_previous)
+        notify_order_cancelled(child, child_previous, cancelled_by="Admin")
     return _detail_out(refreshed)

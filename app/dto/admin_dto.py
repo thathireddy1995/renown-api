@@ -33,6 +33,7 @@ class AdminOrderDetailOut(AdminOrderOut):
     discount: float = 0
     shipping: float = 0
     platform_fee: float = 0
+    cod_fee: float = 0
     tax: float = 0
     coupon_code: str | None = None
     awb_code: str | None = None
@@ -197,11 +198,19 @@ class AdminDeliveryLineOut(BaseModel):
     name: str = ""
     qty: int = 1
     lensFit: dict | None = None
+    sku: str | None = None
+    color: str | None = None
+    size: str | None = None
+    image: str | None = None
+    product_code: str | None = None
+    # Set on clubbed parcels so the packer knows which order each item is for.
+    order_ref: str | None = None
 
 
 class AdminDeliveryOut(BaseModel):
     id: str
     order_id: int
+    customer_id: int | None = None
     customer: str
     phone: str | None = None
     city: str = ""
@@ -213,6 +222,36 @@ class AdminDeliveryOut(BaseModel):
     status_key: str = "placed"
     date: str = ""
     line_items: list[AdminDeliveryLineOut] = Field(default_factory=list)
+    # Orders already riding in this parcel.
+    clubbed: list[str] = Field(default_factory=list)
+
+
+class AdminClubRequest(BaseModel):
+    order_refs: list[str] = Field(min_length=2, max_length=20)
+
+
+class AdminClubSearchOrderOut(BaseModel):
+    id: str
+    customer_id: int
+    customer: str
+    date: str = ""
+    qty: int = 0
+    total: float = 0
+    prepaid: bool = False
+    status: str = ""
+    address: str = ""
+    city: str = ""
+    line_items: list[AdminDeliveryLineOut] = Field(default_factory=list)
+    # Lead order this one already ships with.
+    clubbed_into: str | None = None
+    clubbed: list[str] = Field(default_factory=list)
+    # Orders with the same key (customer, address, prepaid/COD) can share a parcel.
+    club_key: str | None = None
+
+
+class AdminClubSearchOut(BaseModel):
+    phone: str
+    items: list[AdminClubSearchOrderOut]
 
 
 class AdminDeliveryListResponse(BaseModel):
@@ -255,6 +294,7 @@ class AdminCourierOptionsOut(BaseModel):
 class AdminDispatchHistoryOut(BaseModel):
     id: str
     order: str = ""
+    customer_id: int | None = None
     destination: str
     carrier: str = ""
     awb: str = ""
@@ -270,6 +310,7 @@ class AdminDispatchHistoryOut(BaseModel):
     date: str = ""
     address: str = ""
     line_items: list[AdminDeliveryLineOut] = Field(default_factory=list)
+    clubbed: list[str] = Field(default_factory=list)
 
 
 class AdminDispatchHistoryListResponse(BaseModel):

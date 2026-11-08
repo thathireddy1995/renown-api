@@ -87,6 +87,7 @@ def notify_order_placed(order: Order, customer: Customer) -> None:
         "total": float(order.total or 0),
         "shipping_charges": float(order.shipping_fee or 0),
         "platform_fee": float(order.platform_fee or 0),
+        "cod_fee": float(order.cod_fee or 0),
         "address": _format_address(order),
         "phone": _phone(order, customer),
         "lines": [
@@ -103,6 +104,40 @@ def notify_order_placed(order: Order, customer: Customer) -> None:
         "coupon_code": order.coupon_code,
     }
     _enqueue(payload, log_key=f"order_id={payload['order_id']}")
+
+
+def notify_order_cancelled(order: Order, previous_status: str | None, *, cancelled_by: str) -> None:
+    """Enqueue a Telegram alert when an online order moves to cancelled."""
+    if (order.status or "").lower() != "cancelled":
+        return
+    if (previous_status or "").lower() == "cancelled":
+        return
+    customer = order.customer
+    pay = (order.payment_method or "").lower()
+    pay_label = "Razorpay" if pay == "razorpay" else "COD" if pay == "cod" else (pay or "—")
+    deliv = "Store pickup" if (order.delivery or "").lower() == "pickup" else "Shipping"
+    items = "\n".join(
+        f"• {_escape_html(it.name_snapshot or (it.product.name if it.product else 'Item'))}"
+        f" × {int(it.qty or 0)}"
+        for it in (order.items or [])
+    ) or "<i>(no lines)</i>"
+    text = (
+        "❌ <b>Order Cancelled</b>\n\n"
+        f"<b>ID:</b> <code>{_escape_html(order.order_number)}</code>\n"
+        f"<b>Customer:</b> {_escape_html((customer.name if customer else '') or '—')}\n"
+        f"<b>Phone:</b> {_escape_html((_phone(order, customer) if customer else '') or '—')}\n"
+        f"<b>Cancelled by:</b> {_escape_html(cancelled_by)}\n"
+        f"<b>Previous status:</b> {_escape_html((previous_status or '—').replace('_', ' ').title())}\n\n"
+        f"<b>Payment:</b> {_escape_html(pay_label)}\n"
+        f"<b>Delivery:</b> {deliv}\n"
+        f"<b>Total:</b> ₹{float(order.total or 0):g}\n\n"
+        f"<b>Items:</b>\n{items}"
+    )
+    # No order_id/lines keys: Optimus would format those as a new-order alert.
+    _enqueue(
+        {"type": "order_cancelled", "text": text},
+        log_key=f"cancelled order={order.order_number}",
+    )
 
 
 def _escape_html(text: str) -> str:

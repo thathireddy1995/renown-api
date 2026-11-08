@@ -13,8 +13,12 @@ from app.core.shiprocket import (
     print_invoice,
     print_manifest,
 )
+from app.core.order_club import club_lead, club_many, unclub_order
 from app.core.shiprocket_fulfill import list_couriers_for_order, pickup_postcode
 from app.core.warehouse_deliveries import (
+    club_search,
+    club_search_row,
+    clubbed_by_lead,
     delivery_eager_options,
     dispatch_history_row,
     fulfill_online_order,
@@ -25,6 +29,9 @@ from app.core.warehouse_deliveries import (
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.dto.admin_dto import (
+    AdminClubRequest,
+    AdminClubSearchOrderOut,
+    AdminClubSearchOut,
     AdminCourierOptionOut,
     AdminCourierOptionsOut,
     AdminDeliveryFulfill,
@@ -56,12 +63,65 @@ def list_pending_deliveries(
     rows = db.scalars(
         stmt.order_by(Order.id.desc()).limit(limit).offset(offset)
     ).all()
-    return AdminDeliveryListResponse(
-        items=[AdminDeliveryOut.model_validate(pending_delivery_row(o)) for o in rows],
-        total=total,
-        limit=limit,
-        offset=offset,
+    clubbed = clubbed_by_lead(db, [o.id for o in rows])
+    items = [
+        AdminDeliveryOut.model_validate(pending_delivery_row(o, clubbed.get(o.id))) for o in rows
+    ]
+    return AdminDeliveryListResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+def _pending_row(db: Session, order: Order) -> AdminDeliveryOut:
+    refreshed = resolve_order(db, order.order_number) or order
+    return AdminDeliveryOut.model_validate(
+        pending_delivery_row(refreshed, clubbed_by_lead(db, [refreshed.id]).get(refreshed.id))
     )
+
+
+@router.get("/club/search", response_model=AdminClubSearchOut)
+def search_club_orders(
+    phone: str = Query(..., min_length=10, max_length=20), db: Session = Depends(get_db)
+) -> AdminClubSearchOut:
+    """Open home-delivery orders for a mobile number, to pick which ship together."""
+    orders = club_search(db, phone)
+    by_id = {o.id: o for o in orders}
+    children: dict[int, list[Order]] = {}
+    for o in orders:
+        if o.clubbed_into_id:
+            children.setdefault(o.clubbed_into_id, []).append(o)
+    rows = []
+    for o in orders:
+        lead = by_id.get(o.clubbed_into_id) if o.clubbed_into_id else None
+        lead_ref = lead.order_number if lead else (club_lead(db, o).order_number if o.clubbed_into_id else None)
+        rows.append(
+            AdminClubSearchOrderOut.model_validate(club_search_row(o, children.get(o.id, []), lead_ref))
+        )
+    return AdminClubSearchOut(phone=phone, items=rows)
+
+
+@router.post("/club", response_model=AdminDeliveryOut)
+def club_deliveries(body: AdminClubRequest, db: Session = Depends(get_db)) -> AdminDeliveryOut:
+    """Ship the selected orders in one parcel."""
+    orders = []
+    for ref in body.order_refs:
+        order = resolve_order(db, ref)
+        if not order:
+            raise HTTPException(status_code=404, detail=f"Order {ref} not found")
+        orders.append(order)
+    lead = club_many(db, orders)
+    db.commit()
+    return _pending_row(db, lead)
+
+
+@router.delete("/{order_ref}/club", response_model=AdminDeliveryOut)
+def unclub_delivery(order_ref: str, db: Session = Depends(get_db)) -> AdminDeliveryOut:
+    """Take ``order_ref`` out of its parcel so it ships on its own."""
+    order = resolve_order(db, order_ref)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    lead = club_lead(db, order)
+    unclub_order(db, order)
+    db.commit()
+    return _pending_row(db, lead or order)
 
 
 @router.get("/wallet", response_model=AdminShiprocketWalletOut)
@@ -100,8 +160,14 @@ def list_dispatch_history(
     rows = db.scalars(
         stmt.order_by(DispatchOrder.id.desc()).limit(limit).offset(offset)
     ).all()
+    clubbed = clubbed_by_lead(db, [d.order_id for d in rows if d.order_id])
     return AdminDispatchHistoryListResponse(
-        items=[AdminDispatchHistoryOut.model_validate(dispatch_history_row(d)) for d in rows],
+        items=[
+            AdminDispatchHistoryOut.model_validate(
+                dispatch_history_row(d, clubbed.get(d.order_id))
+            )
+            for d in rows
+        ],
         total=total,
         limit=limit,
         offset=offset,
@@ -126,7 +192,8 @@ def fulfill_delivery(
         courier_id=body.courier_id,
         mark_shipped=body.mark_shipped,
     )
-    return AdminDispatchHistoryOut.model_validate(dispatch_history_row(dispatch))
+    clubbed = clubbed_by_lead(db, [order.id]).get(order.id)
+    return AdminDispatchHistoryOut.model_validate(dispatch_history_row(dispatch, clubbed))
 
 
 def _order_for_docs(db: Session, order_ref: str) -> Order:

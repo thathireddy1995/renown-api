@@ -32,7 +32,7 @@ _REPORTS_SQL = text(
             coalesce(sum(total), 0) AS revenue,
             count(*) AS orders
         FROM orders
-        WHERE created_at >= :since
+        WHERE created_at >= :since AND status <> 'cancelled'
         GROUP BY 1
     ),
     cat AS (
@@ -43,7 +43,7 @@ _REPORTS_SQL = text(
         JOIN orders o ON o.id = oi.order_id
         JOIN products p ON p.id = oi.product_id
         LEFT JOIN categories c ON c.id = p.category_id
-        WHERE o.created_at >= :since
+        WHERE o.created_at >= :since AND o.status <> 'cancelled'
         GROUP BY c.name
         ORDER BY value DESC
         LIMIT 8
@@ -51,7 +51,7 @@ _REPORTS_SQL = text(
     order_stats AS (
         SELECT
             count(*) AS total_orders,
-            coalesce(avg(total), 0) AS aov,
+            coalesce(avg(total) FILTER (WHERE status <> 'cancelled'), 0) AS aov,
             count(*) FILTER (WHERE status = 'cancelled') AS cancelled
         FROM orders
         WHERE created_at >= :since
@@ -63,7 +63,7 @@ _REPORTS_SQL = text(
         FROM (
             SELECT customer_id, count(*) AS cnt
             FROM orders
-            WHERE created_at >= :since
+            WHERE created_at >= :since AND status <> 'cancelled'
             GROUP BY customer_id
         ) cust_counts
     ),

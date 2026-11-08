@@ -46,6 +46,7 @@ _DASHBOARD_SQL = text(
             ) AS ord_prev
         FROM orders
         WHERE created_at >= :prev_start AND created_at < :period_end
+          AND status <> 'cancelled'
     ),
     cust_stats AS (
         SELECT
@@ -65,6 +66,7 @@ _DASHBOARD_SQL = text(
             count(*) AS orders
         FROM orders
         WHERE created_at >= :period_start AND created_at < :period_end
+          AND status <> 'cancelled'
         GROUP BY 1
     ),
     top AS (
@@ -85,6 +87,7 @@ _DASHBOARD_SQL = text(
             FROM order_items oi
             JOIN orders o ON o.id = oi.order_id
             WHERE o.created_at >= :period_start AND o.created_at < :period_end
+              AND o.status <> 'cancelled'
             GROUP BY oi.product_id
             ORDER BY sum(oi.qty) DESC
             LIMIT 5

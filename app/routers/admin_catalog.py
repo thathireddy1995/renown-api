@@ -6,7 +6,7 @@ from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.catalog_lookups import brand_id_for, category_id_for, collection_id_for, next_product_sku
-from app.core.catalog_serialize import product_out, slugify
+from app.core.catalog_serialize import product_out, product_slug, slugify
 from app.database import get_db
 from app.deps import pagination, require_role
 from app.core.config import S3_PUBLIC_BUCKET
@@ -23,7 +23,7 @@ from app.dto.catalog_dto import (
     ProductOut,
     ProductUpdate,
 )
-from app.schemas import Product, ProductImage, ProductVariant
+from app.schemas import Category, Product, ProductImage, ProductVariant
 
 router = APIRouter(prefix="/admin/catalog", tags=["admin-catalog"], dependencies=[Depends(require_role("admin"))])
 
@@ -252,10 +252,15 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)) -> Pro
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Product ID already exists. Use a different Product ID.",
             )
-    slug = _unique_product_slug(db, payload.slug or slugify(payload.name))
-
     brand_id, category_id = _resolve_brand_category(
         db, payload.brand, payload.brand_id, payload.category, payload.category_id
+    )
+    category_name = (
+        db.scalar(select(Category.name).where(Category.id == category_id)) if category_id else None
+    )
+    slug = _unique_product_slug(
+        db,
+        slugify(payload.slug) if payload.slug else product_slug(payload.name, sku, category_name),
     )
     resolved_collection_id = (
         payload.collection_id

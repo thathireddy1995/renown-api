@@ -209,6 +209,9 @@ class Product(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     slug: Mapped[str] = mapped_column(String(220), nullable=False, unique=True)
+    # Slug the product had before URLs switched to "<name>-<sku>"; old links
+    # resolve through it.
+    legacy_slug: Mapped[str | None] = mapped_column(String(220), nullable=True)
     sku: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
     product_id: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -688,6 +691,9 @@ class Order(Base):
     platform_fee: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=0, server_default="0"
     )
+    cod_fee: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=0, server_default="0"
+    )
     tax: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     total: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     coupon_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
@@ -703,6 +709,10 @@ class Order(Base):
     # Shiprocket pickup meta (set after generate/pickup). Display strings for warehouse UI.
     pickup_scheduled_date: Mapped[str | None] = mapped_column(String(40), nullable=True)
     pickup_generated_at: Mapped[datetime | None] = mapped_column(ISTDateTime(), nullable=True)
+    # Set when this order ships in another order's parcel (see core/order_club.py).
+    clubbed_into_id: Mapped[int | None] = mapped_column(
+        ForeignKey("orders.id", ondelete="SET NULL"), nullable=True
+    )
     verify_token: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
     created_at: Mapped[datetime] = mapped_column(
         ISTDateTime(), server_default=func.now()

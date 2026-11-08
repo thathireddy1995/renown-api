@@ -20,6 +20,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.order_club import club_children, club_lead, parcel_booked
 from app.core.order_reservation import release_order_lines
 from app.core.shiprocket import ShiprocketError, cancel_orders, configured, get_order
 from app.schemas import DispatchOrder, Order, StoreOrder, WarehouseInventory
@@ -114,15 +115,59 @@ def cancel_web_order(db: Session, order: Order) -> str | None:
 
     Returns the previous status, or None when the order was already closed.
     """
+    return cancel_order_and_parcel(db, order)[0]
+
+
+def cancel_order_and_parcel(
+    db: Session, order: Order
+) -> tuple[str | None, list[tuple[Order, str]]]:
+    """Like ``cancel_web_order``, also handling clubbed parcels.
+
+    Before booking, a clubbed order just leaves the parcel and the rest ship
+    without it. Once booked, the parcel is one courier shipment: cancelling
+    the lead cancels every order in it, and a clubbed order can't be cancelled
+    on its own. Returns (previous status, [(clubbed order, previous status)])
+    so the caller can notify each customer order that was cancelled.
+    """
     previous = (order.status or "placed").lower()
     if previous in _WEB_CLOSED:
-        return None
+        return None, []
+
+    lead = club_lead(db, order)
+    if lead is not None:
+        if parcel_booked(db, lead):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{order.order_number} ships in {lead.order_number}'s parcel. "
+                    f"Cancel {lead.order_number} to cancel the whole parcel."
+                ),
+            )
+        order.clubbed_into_id = None
+
+    children = club_children(db, order, selectinload(Order.items))
+    booked = bool(children) and parcel_booked(db, order)
+    if children and not booked:
+        for child in children:
+            child.clubbed_into_id = None
+
     cancel_courier_booking(order)
     order.status = "cancelled"
     _undo_open_dispatches(db, order)
     release_order_stock(db, order)
     close_store_copy(db, order.order_number)
-    return previous
+
+    cancelled: list[tuple[Order, str]] = []
+    if booked:
+        for child in children:
+            child_previous = (child.status or "placed").lower()
+            if child_previous in _WEB_CLOSED:
+                continue
+            child.status = "cancelled"
+            release_order_stock(db, child)
+            close_store_copy(db, child.order_number)
+            cancelled.append((child, child_previous))
+    return previous, cancelled
 
 
 def cancel_web_twin(db: Session, store_order: StoreOrder) -> Order | None:

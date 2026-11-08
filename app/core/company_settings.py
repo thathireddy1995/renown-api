@@ -73,6 +73,13 @@ class CheckoutCharges:
     shipping_fee: Decimal = Decimal("0")
     free_shipping_above: Decimal = Decimal("0")
     platform_fee: Decimal = Decimal("0")
+    # Home-delivery cash orders: covers the courier's cash-collection fee.
+    cod_fee: Decimal = Decimal("50")
+
+    def cod_for(self, delivery: str, payment_method: str) -> Decimal:
+        if payment_method != "cod" or delivery == "pickup":
+            return Decimal("0")
+        return self.cod_fee
 
     def shipping_for(self, subtotal: Decimal, delivery: str) -> Decimal:
         if delivery == "pickup" or subtotal <= 0 or self.shipping_fee <= 0:
@@ -91,6 +98,7 @@ class CheckoutCharges:
             "shipping_fee": float(self.shipping_fee),
             "free_shipping_above": float(self.free_shipping_above),
             "platform_fee": float(self.platform_fee),
+            "cod_fee": float(self.cod_fee),
         }
 
 

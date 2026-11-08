@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.ist import format_ist_datetime, naive_now
 from app.core.catalog_lookups import brand_id_for, category_id_for, collection_ids_for
-from app.core.catalog_serialize import slugify
+from app.core.catalog_serialize import product_slug, slugify
 from app.core.deps import TokenPrincipal, require_role
 from app.database import get_db
 from app.deps import pagination
@@ -201,7 +201,7 @@ def bulk_upload(
         product_rows.append(
             {
                 "name": name,
-                "slug": slugify(name)[:220] or slugify(sku)[:220],
+                "slug": product_slug(name, sku, (r.category or "").strip()),
                 "sku": sku,
                 "price": Decimal(str(r.price or 0)),
                 "brand_id": brand_map.get((r.brand or "").strip()),

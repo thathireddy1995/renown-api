@@ -256,3 +256,8 @@ def slugify(value: str) -> str:
             out.append("-")
             prev_dash = True
     return "".join(out).strip("-") or "product"
+
+
+def product_slug(name: str, sku: str, category: str | None = None) -> str:
+    """Storefront URL slug: product name, category, then its unique SKU."""
+    return slugify(" ".join(part for part in (name, category, sku) if part))[:200]

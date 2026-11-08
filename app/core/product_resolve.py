@@ -20,6 +20,8 @@ def resolve_product(db: Session, ref: str) -> Product:
     if product is None:
         product = db.scalar(select(Product).where(Product.slug == ref))
     if product is None:
+        product = db.scalar(select(Product).where(Product.legacy_slug == ref))
+    if product is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Product not found.",

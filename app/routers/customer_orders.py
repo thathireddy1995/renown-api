@@ -53,7 +53,7 @@ from app.dto.order_dto import (
 from app.schemas import Customer, Order, OrderItem, Product, ProductVariant, Store, StoreOrder
 from app.routers.customer_addresses import _out as _address_out
 from app.core.whatsapp_orders import notify_order_status, send_order_placed
-from app.routers.telegram_notify import notify_order_placed
+from app.routers.telegram_notify import notify_order_cancelled, notify_order_placed
 
 router = APIRouter(prefix="/customer/orders", tags=["customer-orders"])
 
@@ -224,6 +224,7 @@ def _order_out(order: Order, db: Session | None = None) -> OrderOut:
         discount=float(order.discount or 0),
         shipping=float(order.shipping_fee or 0),
         platform_fee=float(order.platform_fee or 0),
+        cod_fee=float(order.cod_fee or 0),
         tax=float(order.tax or 0),
         coupon_code=order.coupon_code,
         payment_method=order.payment_method,
@@ -339,6 +340,7 @@ def cancel_order(
         select(Order).where(Order.id == order.id).options(*_order_items_eager())
     )
     notify_order_status(refreshed, previous)
+    notify_order_cancelled(refreshed, previous, cancelled_by="Customer")
     return _order_out(refreshed, db)
 
 

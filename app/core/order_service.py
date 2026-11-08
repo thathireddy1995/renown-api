@@ -76,10 +76,11 @@ def compute_pricing(
     db: Session | None = None,
     customer: Customer | None = None,
     line_rows: list[tuple[CartItem, Decimal]] | None = None,
-) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal, str | None]:
+    payment_method: str = "razorpay",
+) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, str | None]:
     """Cart / checkout pricing (INR). Coupons are quoted against the live cart.
 
-    Returns ``(discount, shipping, platform_fee, tax, total, coupon_code)``.
+    Returns ``(discount, shipping, platform_fee, cod_fee, tax, total, coupon_code)``.
     """
     code = (coupon_code or "").strip().upper() or None
     discount = Decimal("0")
@@ -96,13 +97,14 @@ def compute_pricing(
     charges = checkout_charges(db) if db is not None else CheckoutCharges()
     shipping = charges.shipping_for(subtotal, delivery)
     platform_fee = charges.platform_for(subtotal)
+    cod_fee = charges.cod_for(delivery, payment_method)
 
     # Tax disabled for now — all products are zero-rated.
     tax = Decimal("0")
-    total = subtotal + shipping + platform_fee + tax - discount
+    total = subtotal + shipping + platform_fee + cod_fee + tax - discount
     if total < 0:
         total = Decimal("0")
-    return discount, shipping, platform_fee, tax, total, code
+    return discount, shipping, platform_fee, cod_fee, tax, total, code
 
 
 def _lens_name(lens_fit: dict | None) -> str:
@@ -295,13 +297,14 @@ def create_order_record(
     Store pickup also creates a matching StoreOrder (channel=click_collect)
     so the order appears on the staff store Orders screen.
     """
-    discount, shipping, platform_fee, tax, total, coupon = compute_pricing(
+    discount, shipping, platform_fee, cod_fee, tax, total, coupon = compute_pricing(
         subtotal,
         delivery or "ship",
         coupon_code,
         db=db,
         customer=customer,
         line_rows=line_rows,
+        payment_method=payment_method,
     )
     store_id = resolve_pickup_store(db, delivery or "ship", pickup_store_id)
     mode = "pickup" if store_id is not None else (delivery or "ship")
@@ -325,6 +328,7 @@ def create_order_record(
                     discount=discount,
                     shipping_fee=shipping,
                     platform_fee=platform_fee,
+                    cod_fee=cod_fee,
                     tax=tax,
                     total=total,
                     coupon_code=coupon,

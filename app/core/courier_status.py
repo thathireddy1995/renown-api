@@ -14,6 +14,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.order_club import club_lead, sync_club_children
 from app.core.shiprocket import map_shiprocket_status, should_advance_status
 from app.core.whatsapp_orders import notify_order_status
 from app.schemas import Order
@@ -70,9 +71,12 @@ def resolve_order(db: Session, payload: dict[str, Any]) -> Order | None:
         value = _clean(raw)
         if not value:
             continue
-        order = db.scalar(select(Order).where(column == value))
+        if column is Order.order_number:
+            value = value.removesuffix("-CLUB")
+        order = db.scalar(select(Order).where(column == value).order_by(Order.id))
         if order:
-            return order
+            # Clubbed orders share the lead's booking; the lead drives status.
+            return club_lead(db, order) or order
     return None
 
 
@@ -144,6 +148,7 @@ def apply_tracking_update(db: Session, payload: dict[str, Any]) -> dict[str, Any
             result["detail"] = f"Status '{label}' is not ahead of '{order.status}'."
 
     if dirty:
+        sync_club_children(db, order)
         try:
             db.commit()
         except Exception:
