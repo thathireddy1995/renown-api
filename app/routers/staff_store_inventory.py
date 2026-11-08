@@ -3,9 +3,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.inventory_status import store_stock_status
+from app.core.offer_pricing import web_prices_for
+from app.core.order_reservation import available_qty_expr
 from app.core.ist import format_ist_date
 from app.core.stock_requests import (
     create_store_request,
@@ -33,7 +35,6 @@ from app.schemas import (
     StoreInventory,
     TransferRequest,
     TransferRequestItem,
-    WarehouseInventory,
 )
 
 router = APIRouter(
@@ -323,7 +324,7 @@ def warehouse_stock(
     principal: TokenPrincipal = Depends(require_role("store_manager")),
     store_id: int | None = None,
 ) -> WarehouseStockResponse:
-    """Active catalog with what the source warehouse can send and what this store holds."""
+    """Active catalog with unreserved warehouse stock the store can sell."""
     store = _resolve_store(db, principal, store_id)
     if not store:
         raise HTTPException(status_code=400, detail="No store configured")
@@ -331,14 +332,8 @@ def warehouse_stock(
     if not warehouse:
         raise HTTPException(status_code=400, detail="No warehouse available to request from")
 
-    wh_qty = (
-        select(func.coalesce(func.sum(WarehouseInventory.on_hand - WarehouseInventory.reserved), 0))
-        .where(
-            WarehouseInventory.warehouse_id == warehouse.id,
-            WarehouseInventory.variant_id == ProductVariant.id,
-        )
-        .scalar_subquery()
-    )
+    # Orders reserve across every warehouse, so show the same total here.
+    wh_qty = available_qty_expr(ProductVariant.id)
     store_qty = (
         select(func.coalesce(func.sum(StoreInventory.on_floor + StoreInventory.backroom), 0))
         .where(
@@ -406,6 +401,12 @@ def warehouse_stock(
         .order_by(Product.name.asc(), Product.id.asc(), ProductVariant.id.asc())
     ).all()
 
+    variants = db.scalars(
+        select(ProductVariant)
+        .options(selectinload(ProductVariant.product))
+        .where(ProductVariant.id.in_([r[0] for r in rows]))
+    ).all()
+    web_prices = web_prices_for(db, list(variants))
     return WarehouseStockResponse(
         items=[
             WarehouseStockItemOut(
@@ -420,7 +421,7 @@ def warehouse_stock(
                 color_hex=color_hex,
                 size=variant_label(size),
                 image=image,
-                price=float(price or 0),
+                price=float(web_prices.get(vid, price or 0)),
                 warehouse_qty=max(0, int(wq or 0)),
                 store_qty=int(sq or 0),
                 incoming_qty=int(iq or 0),

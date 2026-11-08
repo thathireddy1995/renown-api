@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import case, func, or_, select, update
+from sqlalchemy import case, func, literal, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import IS_PRODUCTION, OTP_EXPIRY_MINUTES, S3_PUBLIC_BUCKET
@@ -24,7 +24,9 @@ from app.core.customer_prescription import (
 )
 from app.core.ist import now as ist_now
 from app.core.order_cancel import cancel_web_twin
+from app.core.offer_pricing import web_prices_for
 from app.core.order_reservation import (
+    available_qty_expr,
     consume_order_lines,
     release_order_lines,
     reserve_order_lines,
@@ -410,30 +412,34 @@ def stock(
 ) -> StoreAppStockListOut:
     store = _require_store(db, principal)
     limit, offset = page
-    qty = StoreInventory.on_floor + StoreInventory.backroom
+    # Stores sell straight from warehouse stock.
+    qty = available_qty_expr(ProductVariant.id)
+    live = (
+        func.lower(func.coalesce(Product.status, "active")) == "active",
+        func.coalesce(ProductVariant.color, "") != "__deleted__",
+        func.coalesce(ProductVariant.size, "") != "__deleted__",
+    )
     stmt = (
         select(
-            StoreInventory.id,
-            StoreInventory.variant_id,
+            ProductVariant.id,
+            ProductVariant.id,
             Product.name,
             ProductVariant.sku,
             func.coalesce(Product.product_id, Product.sku, ""),
             func.coalesce(Category.name, "Frames"),
             qty,
             func.coalesce(ProductVariant.price, Product.selling_price, Product.price, 0),
-            func.coalesce(StoreInventory.reorder_point, 3),
+            literal(3),
         )
-        .join(ProductVariant, ProductVariant.id == StoreInventory.variant_id)
         .join(Product, Product.id == ProductVariant.product_id)
         .outerjoin(Category, Category.id == Product.category_id)
-        .where(StoreInventory.store_id == store.id)
+        .where(*live)
     )
     count_stmt = (
         select(func.count())
-        .select_from(StoreInventory)
-        .join(ProductVariant, ProductVariant.id == StoreInventory.variant_id)
+        .select_from(ProductVariant)
         .join(Product, Product.id == ProductVariant.product_id)
-        .where(StoreInventory.store_id == store.id)
+        .where(*live)
     )
     if search and search.strip():
         like = f"%{search.strip()}%"
@@ -448,6 +454,7 @@ def stock(
 
     total = db.scalar(count_stmt) or 0
     rows = db.execute(stmt.order_by(Product.name.asc()).limit(limit).offset(offset)).all()
+    web_prices = _web_prices_by_id(db, [int(r[1]) for r in rows])
     items = [
         StoreAppStockOut(
             id=str(r[0]),
@@ -456,8 +463,8 @@ def stock(
             sku=r[3] or "",
             product_id=r[4] or "",
             category=r[5] or "Frames",
-            count=int(r[6] or 0),
-            price=float(r[7] or 0),
+            count=max(0, int(r[6] or 0)),
+            price=float(web_prices.get(int(r[1]), r[7] or 0)),
             low=int(r[6] or 0) <= int(r[8] or 3),
         )
         for r in rows
@@ -620,11 +627,15 @@ def verify_otp(
     return lookup_customer(p, db, principal)
 
 
-def _list_price(variant: ProductVariant) -> Decimal | float:
-    if variant.price is not None:
-        return variant.price
-    product = variant.product
-    return (product.selling_price or product.price or 0) if product else 0
+def _web_prices_by_id(db: Session, variant_ids: list[int]) -> dict:
+    if not variant_ids:
+        return {}
+    variants = db.scalars(
+        select(ProductVariant)
+        .options(selectinload(ProductVariant.product))
+        .where(ProductVariant.id.in_(variant_ids))
+    ).all()
+    return web_prices_for(db, list(variants))
 
 
 def _lens_price(db: Session, fit: dict | None) -> Decimal:
@@ -712,13 +723,14 @@ def place_order(
             .where(ProductVariant.id.in_(variant_ids))
         )
     }
+    web_prices = web_prices_for(db, list(variants.values()))
     lines: list[tuple[ProductVariant, Decimal, dict | None]] = []
     for raw in raw_lines:
         variant = variants.get(raw.variant_id)
         if not variant:
             raise HTTPException(status_code=404, detail="Product not found")
         fit = sanitize_lens_fit(raw.lens_fit, customer.id) if raw.lens_fit is not None else None
-        price = Decimal(str(_list_price(variant))) + _lens_price(db, fit)
+        price = web_prices[variant.id] + _lens_price(db, fit)
         lines.append((variant, price, fit))
     # Orders placed on behalf of a customer ship from the warehouse, not the
     # store shelf — check and hold warehouse stock (available = on_hand - reserved).

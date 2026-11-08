@@ -199,7 +199,6 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)) -> AdminCustom
 
     return AdminCustomerDetailOut(
         **base.model_dump(),
-        phone=customer.phone,
         is_active=customer.is_active,
         created_at=base.joined,
         recent_orders=recent_orders,

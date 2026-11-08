@@ -1,12 +1,16 @@
-"""Staff store POS — /staff/store/pos."""
+"""Staff store POS — /staff/store/pos.
+
+Counter sales come straight from warehouse stock; stores hold none of their own.
+"""
 
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import case, func, select, update
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.offer_pricing import price_for_offer, winning_offers_for
+from app.core.order_reservation import available_by_variant, available_qty_expr, take_variant
 from app.core.order_service import next_order_number
 from app.core.staff_users import digits_phone
 from app.core.store_order_customer import store_invoice_token, store_order_eager
@@ -24,7 +28,6 @@ from app.schemas import (
     Product,
     ProductVariant,
     Store,
-    StoreInventory,
     StoreOrder,
     StoreOrderItem,
     User,
@@ -57,52 +60,17 @@ def pos_catalog(
     if not store:
         raise HTTPException(status_code=400, detail="No store configured")
 
-    stock_expr = func.coalesce(StoreInventory.on_hand, 0)
+    stock_expr = available_qty_expr(ProductVariant.id)
     cat_expr = func.coalesce(Category.name, "General")
     price_expr = func.coalesce(ProductVariant.price, Product.price)
-    # Prefer store inventory rows so POS maps to products stocked at this store.
-    has_inventory = (
-        db.scalar(
-            select(func.count())
-            .select_from(StoreInventory)
-            .where(StoreInventory.store_id == store.id)
-        )
-        or 0
-    ) > 0
-
-    from sqlalchemy import or_
-
     stmt = (
-        select(
-            ProductVariant,
-            Product.name,
-            cat_expr,
-            price_expr,
-            stock_expr,
-        )
+        select(ProductVariant, Product.name, cat_expr, price_expr, stock_expr)
         .join(Product, Product.id == ProductVariant.product_id)
         .outerjoin(Category, Category.id == Product.category_id)
+        .where(func.lower(func.coalesce(Product.status, "active")) != "inactive")
+        .order_by(stock_expr.desc(), ProductVariant.id.asc())
+        .limit(200)
     )
-    if has_inventory:
-        stmt = stmt.join(
-            StoreInventory,
-            (StoreInventory.variant_id == ProductVariant.id)
-            & (StoreInventory.store_id == store.id),
-        )
-    else:
-        stmt = stmt.outerjoin(
-            StoreInventory,
-            (StoreInventory.variant_id == ProductVariant.id)
-            & (StoreInventory.store_id == store.id),
-        )
-
-    stmt = stmt.where(
-        func.lower(func.coalesce(Product.status, "active")) != "inactive"
-    ).order_by(
-        stock_expr.desc(),
-        ProductVariant.id.asc(),
-    ).limit(200)
-
     if search and search.strip():
         like = f"%{search.strip()}%"
         stmt = stmt.where(
@@ -112,41 +80,7 @@ def pos_catalog(
                 Product.sku.ilike(like),
             )
         )
-
     rows = db.execute(stmt).all()
-    # If inventory join filtered everything out, fall back to full active catalog.
-    if has_inventory and not rows:
-        stmt = (
-            select(
-                ProductVariant,
-                Product.name,
-                cat_expr,
-                price_expr,
-                stock_expr,
-            )
-            .join(Product, Product.id == ProductVariant.product_id)
-            .outerjoin(Category, Category.id == Product.category_id)
-            .outerjoin(
-                StoreInventory,
-                (StoreInventory.variant_id == ProductVariant.id)
-                & (StoreInventory.store_id == store.id),
-            )
-            .where(
-                func.lower(func.coalesce(Product.status, "active")) != "inactive"
-            )
-            .order_by(ProductVariant.id.asc())
-            .limit(200)
-        )
-        if search and search.strip():
-            like = f"%{search.strip()}%"
-            stmt = stmt.where(
-                or_(
-                    ProductVariant.sku.ilike(like),
-                    Product.name.ilike(like),
-                    Product.sku.ilike(like),
-                )
-            )
-        rows = db.execute(stmt).all()
 
     items = [
         PosCatalogItemOut(
@@ -155,7 +89,7 @@ def pos_catalog(
             sku=variant.sku or "",
             price=float(price or 0),
             category=category or "General",
-            stock=int(stock or 0),
+            stock=max(0, int(stock or 0)),
             variant_id=variant.id,
         )
         for variant, name, category, price, stock in rows
@@ -205,27 +139,18 @@ def pos_checkout(
     if len(variants) != len(variant_ids):
         raise HTTPException(status_code=404, detail="One or more variants not found")
 
-    inv_rows = {
-        r.variant_id: r
-        for r in db.scalars(
-            select(StoreInventory).where(
-                StoreInventory.store_id == store.id,
-                StoreInventory.variant_id.in_(variant_ids),
-            )
-        ).all()
-    }
+    available = available_by_variant(db, variant_ids)
 
     line_prices: list[tuple[int, int, Decimal]] = []
     subtotal = Decimal("0")
     products = list({variant.product.id: variant.product for variant in variants.values()}.values())
     winning_offers = winning_offers_for(db, products)
     for vid, qty in qty_by_variant.items():
-        inv = inv_rows.get(vid)
-        on_hand = int(inv.on_hand or 0) if inv else 0
-        if on_hand < qty:
+        left = available.get(vid, 0)
+        if left < qty:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient stock for {variants[vid].sku}",
+                detail=f"Only {left} of {variants[vid].sku} left in the warehouse",
             )
         variant = variants[vid]
         price = Decimal(
@@ -281,34 +206,13 @@ def pos_checkout(
         ]
     )
 
-    # Bulk inventory decrement in one UPDATE with CASE expressions
-    floor_cases = []
-    back_cases = []
-    hand_cases = []
     for vid, qty, _ in line_prices:
-        inv = inv_rows[vid]
-        floor = int(inv.on_floor or 0)
-        back = int(inv.backroom or 0)
-        take_floor = min(floor, qty)
-        take_back = qty - take_floor
-        new_floor = floor - take_floor
-        new_back = back - take_back
-        floor_cases.append((StoreInventory.variant_id == vid, new_floor))
-        back_cases.append((StoreInventory.variant_id == vid, new_back))
-        hand_cases.append((StoreInventory.variant_id == vid, new_floor + new_back))
-
-    db.execute(
-        update(StoreInventory)
-        .where(
-            StoreInventory.store_id == store.id,
-            StoreInventory.variant_id.in_(variant_ids),
-        )
-        .values(
-            on_floor=case(*floor_cases, else_=StoreInventory.on_floor),
-            backroom=case(*back_cases, else_=StoreInventory.backroom),
-            on_hand=case(*hand_cases, else_=StoreInventory.on_hand),
-        )
-    )
+        if take_variant(db, vid, qty) < qty:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=f"{variants[vid].sku} just sold out in the warehouse. Refresh and try again.",
+            )
 
     db.commit()
 

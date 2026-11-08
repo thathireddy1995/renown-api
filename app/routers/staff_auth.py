@@ -1,12 +1,13 @@
 """Staff auth — /staff/auth."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, verify_password
 from app.core.staff_users import stamp_last_login
 from app.database import get_db
+from app.deps import get_current_staff
 from app.dto.auth_dto import StaffLoginRequest, TokenResponse, UserOut
 from app.dto.location_dto import (
     StoreLoginOption,
@@ -106,6 +107,12 @@ def list_login_stores(
 
 def _location_inactive(status: str | None) -> bool:
     return (status or "").lower() in ("inactive", "closed", "disabled")
+
+
+@router.get("/session", status_code=status.HTTP_204_NO_CONTENT)
+def session_check(_: User = Depends(get_current_staff)) -> Response:
+    """204 while the staff token is valid, 401 once it isn't (app start-up check)."""
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/login", response_model=TokenResponse)

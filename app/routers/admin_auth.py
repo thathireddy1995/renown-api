@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,20 @@ from app.dto.auth_dto import (
 from app.schemas import User
 
 router = APIRouter(prefix="/admin/auth", tags=["admin-auth"])
+
+
+@router.get("/session", status_code=status.HTTP_204_NO_CONTENT)
+def session_check(
+    principal: TokenPrincipal = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> Response:
+    """204 while the admin token is valid, 401 once it isn't (app start-up check)."""
+    active = db.scalar(
+        select(User.id).where(User.id == principal.sub, User.is_active.is_(True))
+    )
+    if active is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/login", response_model=TokenResponse)

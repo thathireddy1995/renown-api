@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.ist import IST_SQL_NOW
-from app.schemas import Offer, Product
+from app.schemas import Offer, Product, ProductVariant
 
 
 @dataclass(frozen=True)
@@ -87,6 +87,27 @@ def winning_offers_for(db: Session, products: list[Product]) -> dict[int, Offer]
         if winner is not None:
             resolved[product.id] = winner
     return resolved
+
+
+def list_price(variant: ProductVariant) -> Decimal:
+    if variant.price is not None:
+        return Decimal(str(variant.price))
+    product = variant.product
+    return Decimal(str((product.selling_price or product.price or 0) if product else 0))
+
+
+def web_prices_for(db: Session, variants: list[ProductVariant]) -> dict[int, Decimal]:
+    """Frame price per variant id as the website charges it (best offer applied)."""
+    products = list({v.product.id: v.product for v in variants if v.product}.values())
+    winners = winning_offers_for(db, products)
+    prices: dict[int, Decimal] = {}
+    for variant in variants:
+        price = list_price(variant)
+        winner = winners.get(variant.product_id)
+        if winner is not None and variant.product is not None:
+            price = price_for_offer(winner, variant.product, base_price=price).final_price
+        prices[variant.id] = price
+    return prices
 
 
 def offer_prices_for(db: Session, products: list[Product]) -> dict[int, OfferPrice]:

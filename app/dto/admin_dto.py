@@ -318,6 +318,8 @@ class AdminDispatchHistoryListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+    # Delivered dispatches, whether or not hide_delivered filtered them out.
+    delivered_count: int = 0
 
 
 class AdminShiprocketWalletOut(BaseModel):

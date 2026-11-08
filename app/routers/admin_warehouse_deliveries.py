@@ -2,7 +2,7 @@
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.shiprocket import (
@@ -138,6 +138,7 @@ def list_dispatch_history(
     db: Session = Depends(get_db),
     page: tuple[int, int] = Depends(pagination),
     warehouse_id: int | None = None,
+    hide_delivered: bool = False,
 ) -> AdminDispatchHistoryListResponse:
     limit, offset = page
     stmt = (
@@ -156,6 +157,16 @@ def list_dispatch_history(
     if warehouse_id is not None:
         stmt = stmt.where(DispatchOrder.warehouse_id == warehouse_id)
         count_stmt = count_stmt.where(DispatchOrder.warehouse_id == warehouse_id)
+    delivered = exists(
+        select(Order.id).where(
+            Order.id == DispatchOrder.order_id,
+            func.lower(Order.status) == "delivered",
+        )
+    )
+    delivered_count = db.scalar(count_stmt.where(delivered)) or 0
+    if hide_delivered:
+        stmt = stmt.where(~delivered)
+        count_stmt = count_stmt.where(~delivered)
     total = db.scalar(count_stmt) or 0
     rows = db.scalars(
         stmt.order_by(DispatchOrder.id.desc()).limit(limit).offset(offset)
@@ -171,6 +182,7 @@ def list_dispatch_history(
         total=total,
         limit=limit,
         offset=offset,
+        delivered_count=delivered_count,
     )
 
 

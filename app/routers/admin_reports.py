@@ -51,6 +51,8 @@ _REPORTS_SQL = text(
     order_stats AS (
         SELECT
             count(*) AS total_orders,
+            count(*) FILTER (WHERE status <> 'cancelled') AS paid_orders,
+            coalesce(sum(total) FILTER (WHERE status <> 'cancelled'), 0) AS revenue,
             coalesce(avg(total) FILTER (WHERE status <> 'cancelled'), 0) AS aov,
             count(*) FILTER (WHERE status = 'cancelled') AS cancelled
         FROM orders
@@ -67,15 +69,15 @@ _REPORTS_SQL = text(
             GROUP BY customer_id
         ) cust_counts
     ),
-    active AS (
-        SELECT count(*) AS n FROM customers WHERE is_active IS TRUE
+    new_customers AS (
+        SELECT count(*) AS n FROM customers WHERE created_at >= :since
     )
     SELECT json_build_object(
         'trend', (SELECT coalesce(json_agg(trend ORDER BY d), '[]'::json) FROM trend),
         'category', (SELECT coalesce(json_agg(cat ORDER BY value DESC), '[]'::json) FROM cat),
         'order_stats', (SELECT row_to_json(order_stats) FROM order_stats),
         'repeat_stats', (SELECT row_to_json(repeat_stats) FROM repeat_stats),
-        'active_customers', (SELECT n FROM active)
+        'new_customers', (SELECT n FROM new_customers)
     )
     """
 )
@@ -121,7 +123,7 @@ def admin_reports(
     category_mix = [
         CategorySlice(
             name=(row.get("name") or "Other").lower(),
-            value=round(float(row.get("value") or 0) / 1000, 2),
+            value=round(float(row.get("value") or 0), 2),
         )
         for row in (payload.get("category") or [])
     ]
@@ -129,26 +131,25 @@ def admin_reports(
     order_stats = payload.get("order_stats") or {}
     repeat_stats = payload.get("repeat_stats") or {}
     total_orders = int(order_stats.get("total_orders") or 0)
+    paid_orders = int(order_stats.get("paid_orders") or 0)
+    revenue = float(order_stats.get("revenue") or 0)
     aov = float(order_stats.get("aov") or 0)
     cancelled = int(order_stats.get("cancelled") or 0)
-    refund_rate = (cancelled / total_orders * 100) if total_orders else 0.0
+    cancel_rate = (cancelled / total_orders * 100) if total_orders else 0.0
 
     cust_n = int(repeat_stats.get("cust_n") or 0)
     repeat_n = int(repeat_stats.get("repeat_n") or 0)
     repeat_rate = (repeat_n / cust_n * 100) if cust_n else 0.0
 
-    active_customers = int(payload.get("active_customers") or 0)
-    conversion = (cust_n / active_customers * 100) if active_customers else 0.0
-    cart_abandon = max(0.0, 100.0 - conversion) if active_customers else 0.0
-    nps = min(100, max(0, int(70 + (repeat_rate - 20) / 2)))
+    new_customers = int(payload.get("new_customers") or 0)
 
     kpis = [
+        NamedKpi(label="Revenue", value=inr(revenue)),
+        NamedKpi(label="Orders", value=str(paid_orders)),
         NamedKpi(label="Avg order value", value=inr(aov)),
-        NamedKpi(label="Conversion rate", value=pct(conversion)),
         NamedKpi(label="Repeat customer rate", value=pct(repeat_rate, 0)),
-        NamedKpi(label="Refund rate", value=pct(refund_rate)),
-        NamedKpi(label="Cart abandonment", value=pct(cart_abandon, 0)),
-        NamedKpi(label="NPS", value=str(nps)),
+        NamedKpi(label="Cancellation rate", value=pct(cancel_rate)),
+        NamedKpi(label="New customers", value=str(new_customers)),
     ]
 
     return AdminReportsResponse(
